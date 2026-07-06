@@ -1,0 +1,30 @@
+# hipocampus - personal memory (don't commit)
+MEMORY.md
+USER.md
+SCRATCHPAD*.md
+WORKING*.md
+TASK-QUEUE.md
+memory/
+knowledge/
+plans/
+tenants/
+.gstack/
+.agents/
+.claude/
+.codex/
+money_list.xlsx
+
+# python
+backend/.venv/
+__pycache__/
+.pytest_cache/
+.hypothesis/
+*.db
+backups/
+
+# node
+frontend/node_modules/
+frontend/dist/
+frontend/test-results/
+frontend/playwright-report/
+frontend/tsconfig.tsbuildinfo
