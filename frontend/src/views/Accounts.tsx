@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Plus } from "lucide-react";
+import { Check, Pencil, Plus, X } from "lucide-react";
 import {
   accountTree,
   api,
@@ -33,6 +33,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   const [openInput, setOpenInput] = useState<Record<number, string>>({});
   const [rootDraft, setRootDraft] = useState<{ type: AccountType; name: string } | null>(null);
   const [childDraft, setChildDraft] = useState<{ parentId: number; name: string } | null>(null);
+  const [editDraft, setEditDraft] = useState<{ id: number; name: string } | null>(null);
   const [reclassTargets, setReclassTargets] = useState<Record<number, number | "">>({});
   const [err, setErr] = useState("");
   const [txns, setTxns] = useState<Txn[]>([]);
@@ -46,11 +47,11 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
 
   useEffect(() => {
     inlineRef.current?.focus();
-  }, [rootDraft?.type, childDraft?.parentId]);
+  }, [rootDraft?.type, childDraft?.parentId, editDraft?.id]);
 
-  const opening = accounts.find((a) => a.type === "equity" && a.name === "개시잔액");
-  const visible = accounts.filter((a) => a.id !== opening?.id && !a.archived);
-  const archivedList = accounts.filter((a) => a.archived);
+  const opening = accounts.find((a) => a.is_system && a.type === "equity");
+  const visible = accounts.filter((a) => !a.is_system && !a.archived);
+  const archivedList = accounts.filter((a) => !a.is_system && a.archived);
   const balanceOf = (id: number) => balances.find((b) => b.account_id === id);
 
   const displayAmount = (a: Account, raw: number) => (a.type === "income" ? -raw : raw);
@@ -120,6 +121,27 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
       setReclassTargets((s) => ({ ...s, [a.id]: "" }));
       refresh();
       showToast(`"${a.name}" 미분류 ${result.moved_postings}건 이동됨`);
+    } catch (e) {
+      setErr(String((e as Error).message));
+    }
+  };
+
+  const startRename = (a: Account) => {
+    setErr("");
+    setRootDraft(null);
+    setChildDraft(null);
+    setEditDraft({ id: a.id, name: a.name });
+  };
+
+  const saveRename = async (a: Account) => {
+    const draftName = editDraft?.id === a.id ? editDraft.name.trim() : "";
+    if (!draftName) return;
+    setErr("");
+    try {
+      await api.updateAccount(a.id, { name: draftName });
+      setEditDraft(null);
+      refresh();
+      showToast(`"${a.name}" → "${draftName}" 이름 변경됨`);
     } catch (e) {
       setErr(String((e as Error).message));
     }
@@ -303,12 +325,27 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     const recorded = isNW && openedIds.has(a.id);
     const zeroed = isNW && !recorded && zeroConfirmed.includes(a.id);
     const canOpen = isNW && !group && !recorded && !zeroed;
+    const editing = editDraft?.id === a.id;
     return (
       <tr key={a.id} className="account-row" style={group ? { color: "var(--muted)" } : undefined}>
         <td style={{ paddingLeft: 8 + depth * 20 }}>
           {depth > 0 && <span style={{ color: "var(--faint)" }}>└ </span>}
-          {a.name}
-          {group && (
+          {editing ? (
+            <input
+              ref={inlineRef}
+              aria-label={`${a.name} 이름`}
+              value={editDraft.name}
+              onChange={(e) => setEditDraft({ id: a.id, name: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveRename(a);
+                if (e.key === "Escape") setEditDraft(null);
+              }}
+              style={{ width: 180, padding: "5px 8px", border: "1px solid var(--line-strong)", borderRadius: 4, background: "var(--surface)" }}
+            />
+          ) : (
+            a.name
+          )}
+          {!editing && group && (
             <span className="badge" style={{ marginLeft: 6 }}>
               {hasChildren ? "그룹 · 합산" : "그룹"}
             </span>
@@ -339,35 +376,56 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
           )}
         </td>
         <td style={{ whiteSpace: "nowrap" }}>
-          {canOpen && (
-            <button className="btn sm secondary" onClick={() => recordOpening(a)}>
-              기록
-            </button>
+          {editing ? (
+            <>
+              <button className="btn sm primary" disabled={!editDraft.name.trim()} onClick={() => saveRename(a)}>
+                <Check size={13} aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 3 }} />
+                저장
+              </button>{" "}
+              <button className="btn sm secondary" onClick={() => setEditDraft(null)}>
+                <X size={13} aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 3 }} />
+                취소
+              </button>
+            </>
+          ) : (
+            <>
+              {canOpen && (
+                <button className="btn sm secondary" onClick={() => recordOpening(a)}>
+                  기록
+                </button>
+              )}
+              {zeroed && (
+                <button className="btn sm secondary" onClick={() => setZero(zeroConfirmed.filter((x) => x !== a.id))}>
+                  해제
+                </button>
+              )}{" "}
+              {group && (
+                <button
+                  className="btn sm secondary"
+                  onClick={() => {
+                    setChildDraft({ parentId: a.id, name: "" });
+                    setRootDraft(null);
+                    setEditDraft(null);
+                  }}
+                  title="소분류 추가"
+                >
+                  <Plus size={13} aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 3 }} />
+                  소분류
+                </button>
+              )}{" "}
+              {!hasChildren && (
+                <button className="btn sm secondary" onClick={() => toggleGroup(a)}>
+                  {a.is_placeholder ? "그룹 해제" : "그룹으로"}
+                </button>
+              )}{" "}
+              <button className="btn sm secondary" onClick={() => startRename(a)}>
+                <Pencil size={13} aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 3 }} />
+                이름
+              </button>
+              {" "}
+              <button className="btn sm danger" onClick={() => archive(a)}>보관</button>
+            </>
           )}
-          {zeroed && (
-            <button className="btn sm secondary" onClick={() => setZero(zeroConfirmed.filter((x) => x !== a.id))}>
-              해제
-            </button>
-          )}{" "}
-          {group && (
-            <button
-              className="btn sm secondary"
-              onClick={() => {
-                setChildDraft({ parentId: a.id, name: "" });
-                setRootDraft(null);
-              }}
-              title="소분류 추가"
-            >
-              <Plus size={13} aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 3 }} />
-              소분류
-            </button>
-          )}{" "}
-          {!hasChildren && (
-            <button className="btn sm secondary" onClick={() => toggleGroup(a)}>
-              {a.is_placeholder ? "그룹 해제" : "그룹으로"}
-            </button>
-          )}{" "}
-          <button className="btn sm danger" onClick={() => archive(a)}>보관</button>
         </td>
       </tr>
     );
@@ -395,6 +453,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
               onClick={() => {
                 setRootDraft({ type: sectionType, name: "" });
                 setChildDraft(null);
+                setEditDraft(null);
               }}
             >
               <Plus size={13} aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 3 }} />
@@ -444,7 +503,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
             <label>상위 그룹 (선택)</label>
             <select value={parentId} onChange={(e) => setParentId(e.target.value === "" ? "" : Number(e.target.value))}>
               <option value="">없음 (최상위)</option>
-              {accountTree(accounts.filter((a) => a.type === type && a.name !== "개시잔액" && !a.archived)).map(({ account: a, depth }) => (
+              {accountTree(accounts.filter((a) => a.type === type && !a.is_system && !a.archived)).map(({ account: a, depth }) => (
                 <option key={a.id} value={a.id}>{"  ".repeat(depth)}{a.name}</option>
               ))}
             </select>
@@ -473,19 +532,54 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
             <tbody>
               {archivedList.map((a) => (
                 <tr key={a.id} style={{ color: "var(--muted)" }}>
-                  <td>{a.name}</td>
+                  <td>
+                    {editDraft?.id === a.id ? (
+                      <input
+                        ref={inlineRef}
+                        aria-label={`${a.name} 이름`}
+                        value={editDraft.name}
+                        onChange={(e) => setEditDraft({ id: a.id, name: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") saveRename(a);
+                          if (e.key === "Escape") setEditDraft(null);
+                        }}
+                        style={{ width: 180, padding: "5px 8px", border: "1px solid var(--line-strong)", borderRadius: 4, background: "var(--surface)" }}
+                      />
+                    ) : (
+                      a.name
+                    )}
+                  </td>
                   <td><span className="badge">{TYPE_LABEL[a.type]}</span></td>
                   <td className="num">{balanceOf(a.id) ? fmtWon(balanceOf(a.id)!.balance) : "—"}</td>
-                  <td style={{ width: 70 }}>
-                    <button className="btn sm secondary" onClick={async () => {
-                      try {
-                        await api.restoreAccount(a.id);
-                        refresh();
-                        showToast(`"${a.name}" 복원됨`);
-                      } catch (e) {
-                        setErr(String((e as Error).message));
-                      }
-                    }}>복원</button>
+                  <td style={{ whiteSpace: "nowrap", width: 150 }}>
+                    {editDraft?.id === a.id ? (
+                      <>
+                        <button className="btn sm primary" disabled={!editDraft.name.trim()} onClick={() => saveRename(a)}>
+                          <Check size={13} aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 3 }} />
+                          저장
+                        </button>{" "}
+                        <button className="btn sm secondary" onClick={() => setEditDraft(null)}>
+                          <X size={13} aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 3 }} />
+                          취소
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button className="btn sm secondary" onClick={() => startRename(a)}>
+                          <Pencil size={13} aria-hidden="true" style={{ verticalAlign: "-2px", marginRight: 3 }} />
+                          이름
+                        </button>{" "}
+                        <button className="btn sm secondary" onClick={async () => {
+                          try {
+                            await api.restoreAccount(a.id);
+                            refresh();
+                            showToast(`"${a.name}" 복원됨`);
+                          } catch (e) {
+                            setErr(String((e as Error).message));
+                          }
+                        }}>복원</button>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}

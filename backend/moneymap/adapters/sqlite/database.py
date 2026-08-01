@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   parent_id      INTEGER REFERENCES accounts(id),
   currency       TEXT NOT NULL DEFAULT 'KRW' CHECK(length(currency)=3),
   archived       INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
-  is_placeholder INTEGER NOT NULL DEFAULT 0 CHECK(is_placeholder IN (0,1))
+  is_placeholder INTEGER NOT NULL DEFAULT 0 CHECK(is_placeholder IN (0,1)),
+  is_system      INTEGER NOT NULL DEFAULT 0 CHECK(is_system IN (0,1))
 );
 
 CREATE TABLE IF NOT EXISTS scenarios (
@@ -131,6 +132,8 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE accounts ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
     if "is_placeholder" not in cols:  # D24 그룹(대분류) 계정
         conn.execute("ALTER TABLE accounts ADD COLUMN is_placeholder INTEGER NOT NULL DEFAULT 0")
+    if "is_system" not in cols:  # 시스템 계정(개시잔액) 명시 플래그
+        conn.execute("ALTER TABLE accounts ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0")
     # actual 시나리오 (id=1) 시드
     conn.execute(
         "INSERT OR IGNORE INTO scenarios (id, name, base_scenario_id, fork_date) "
@@ -139,12 +142,16 @@ def init_db(conn: sqlite3.Connection) -> None:
     )
     # 개시잔액 equity 계정 시드 (D4)
     row = conn.execute(
-        "SELECT id FROM accounts WHERE name = ? AND type = 'equity'",
+        "SELECT id FROM accounts "
+        "WHERE name = ? AND type = 'equity' AND parent_id IS NULL "
+        "ORDER BY id LIMIT 1",
         (OPENING_BALANCE_ACCOUNT_NAME,),
     ).fetchone()
     if row is None:
         conn.execute(
-            "INSERT INTO accounts (name, type) VALUES (?, 'equity')",
+            "INSERT INTO accounts (name, type, is_system) VALUES (?, 'equity', 1)",
             (OPENING_BALANCE_ACCOUNT_NAME,),
         )
+    else:
+        conn.execute("UPDATE accounts SET is_system=1 WHERE id=?", (row["id"],))
     conn.commit()

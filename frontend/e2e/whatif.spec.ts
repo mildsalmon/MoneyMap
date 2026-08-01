@@ -121,11 +121,39 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
   await expect(page.locator('tr:has-text("Toss뱅크")')).toContainText("기록됨");
   await expect(page.locator('tr:has-text("Toss뱅크")').getByRole("button", { name: "기록" })).toHaveCount(0);
 
+  // Escape는 수정을 취소하고 기존 이름을 유지한다
+  await page.locator('tr:has-text("Toss뱅크")').getByRole("button", { name: "이름" }).click();
+  await page.getByLabel("Toss뱅크 이름").fill("임시 이름");
+  await page.getByLabel("Toss뱅크 이름").press("Escape");
+  await expect(page.locator('tr:has-text("Toss뱅크")')).toBeVisible();
+  await expect(page.getByText("임시 이름")).toHaveCount(0);
+
+  // 기존 반복 규칙이 이름 변경 후에도 같은 account_id를 참조하는지 검증한다
+  await nav(page, "반복 규칙").click();
+  await field(page, "내역").fill("월급");
+  await selectOptionContaining(field(page, "어디서 (from)"), "급여");
+  await selectOptionContaining(field(page, "어디로 (to)"), "Toss뱅크");
+  await field(page, "금액/회").fill("3000000");
+  await field(page, "금액/회").press("Enter");
+  await expect(page.locator("table.ledger")).toContainText("Toss뱅크");
+
+  // 계정 이름 수정 — 기존 거래·반복 규칙의 account_id는 그대로 유지된다
+  await nav(page, "계정·개시잔액").click();
+  await page.locator('tr:has-text("Toss뱅크")').getByRole("button", { name: "이름" }).click();
+  await page.getByLabel("Toss뱅크 이름").fill("토스뱅크");
+  await page.getByLabel("Toss뱅크 이름").press("Enter");
+  await expect(page.locator(".toast")).toContainText('"Toss뱅크" → "토스뱅크" 이름 변경됨');
+  await expect(page.locator("table.ledger")).toContainText("토스뱅크");
+
+  await nav(page, "반복 규칙").click();
+  await expect(page.locator("table.ledger")).toContainText("급여 → 토스뱅크");
+  await expect(page.locator("table.ledger")).not.toContainText("Toss뱅크");
+
   // ── 2.5 거래 입력 — 지출 템플릿 (D22): 복식 미리보기 검산 후 저장
   await nav(page, "거래 입력").click();
   await field(page, "금액").fill("52000");
   await selectOptionContaining(field(page, "무엇에? (비용)"), "야식");
-  await selectOptionContaining(field(page, "어디서 나갔나? (결제 수단)"), "Toss뱅크");
+  await selectOptionContaining(field(page, "어디서 나갔나? (결제 수단)"), "토스뱅크");
   await expect(page.locator(".panel")).toContainText("검산 일치");
   await field(page, "금액").press("Enter"); // 저장 후 계속 (D12)
   await expect(page.locator(".toast")).toContainText("순자산 −₩52,000 반영");
@@ -136,14 +164,10 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
   await expect(page.locator("table.ledger")).toContainText("야식");
   await expect(page.locator("table.ledger")).toContainText("₩52,000");
 
-  // ── 3. 반복 규칙 (월급)
+  // ── 3. 이름 변경 이후에도 기존 반복 규칙 참조 유지 확인
   await nav(page, "반복 규칙").click();
-  await field(page, "내역").fill("월급");
-  await selectOptionContaining(field(page, "어디서 (from)"), "급여");
-  await selectOptionContaining(field(page, "어디로 (to)"), "Toss뱅크");
-  await field(page, "금액/회").fill("3000000");
-  await field(page, "금액/회").press("Enter"); // 키보드 저장 (D12)
   await expect(page.locator("table.ledger")).toContainText("매월 25일");
+  await expect(page.locator("table.ledger")).toContainText("토스뱅크");
 
   // ── 4. 시나리오 fork — copy-on-fork 확인 (D5)
   await nav(page, "시나리오").click();
@@ -156,7 +180,7 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
 
   // 가설 규칙 추가 (자산→자산 이체 = 순자산 중립)
   await editor.locator('.field:has(label:text-is("내역")) input').fill("추가 저축");
-  await selectOptionContaining(editor.locator('.field:has(label:text-is("어디서 (from)")) select'), "Toss뱅크");
+  await selectOptionContaining(editor.locator('.field:has(label:text-is("어디서 (from)")) select'), "토스뱅크");
   await selectOptionContaining(editor.locator('.field:has(label:text-is("어디로 (to)")) select'), "신한적금");
   await editor.locator('.field:has(label:text-is("금액/회")) input').fill("1000000");
   await editor.getByRole("button", { name: "규칙 추가" }).click();

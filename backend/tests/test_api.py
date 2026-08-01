@@ -5,6 +5,7 @@ import datetime
 import pytest
 from fastapi.testclient import TestClient
 
+from moneymap.adapters.sqlite import connect, init_db
 from moneymap.api import create_app
 
 TODAY = datetime.date.today()
@@ -197,6 +198,135 @@ def test_seed_standard_accounts_recovers_from_partial_existing_tree(client):
     assert len(food_rows) == 1 and food_rows[0]["id"] == food
     food_children = {a["name"] for a in accounts if a["parent_id"] == food}
     assert {"외식", "식료품", "배달"} <= food_children
+
+
+def test_account_rename_preserves_id_and_balances(client):
+    toss = make_account(client, "Toss", "asset")
+    salary = make_account(client, "월급", "income")
+    opening = opening_account_id(client)
+    res = client.post("/api/transactions", json={
+        "date": TODAY.isoformat(),
+        "postings": [{"account_id": toss, "amount": 1000}, {"account_id": opening, "amount": -1000}],
+    })
+    assert res.status_code == 201, res.text
+    res = client.post("/api/rules", json={
+        "from_account_id": salary,
+        "to_account_id": toss,
+        "amount": 3000,
+        "schedule": "monthly:25",
+        "start_date": TODAY.isoformat(),
+        "description": "월급",
+    })
+    assert res.status_code == 201, res.text
+    before = client.get("/api/balances").json()
+
+    res = client.patch(f"/api/accounts/{toss}", json={"name": " 토스뱅크 "})
+    assert res.status_code == 200, res.text
+    renamed = res.json()
+    assert renamed["id"] == toss
+    assert renamed["name"] == "토스뱅크"
+
+    after = client.get("/api/balances").json()
+    assert after["net_worth"] == before["net_worth"]
+    assert next(b for b in after["accounts"] if b["account_id"] == toss)["balance"] == 1000
+    assert client.get("/api/status").json()["trial_balance_ok"] is True
+    rule = client.get("/api/rules", params={"scenario_id": 1}).json()[0]
+    assert rule["from_account_id"] == salary
+    assert rule["to_account_id"] == toss
+
+
+def test_account_rename_blocks_missing_system_empty_and_duplicate(client):
+    opening = opening_account_id(client)
+    assert client.patch("/api/accounts/999", json={"name": "없음"}).status_code == 404
+
+    res = client.patch(f"/api/accounts/{opening}", json={"name": "시작자본"})
+    assert res.status_code == 400 and "시스템" in res.json()["detail"]
+
+    toss = make_account(client, "Toss", "asset")
+    res = client.patch(f"/api/accounts/{toss}", json={"name": "   "})
+    assert res.status_code == 400 and "이름" in res.json()["detail"]
+
+    other = make_account(client, "Other", "asset")
+    res = client.patch(f"/api/accounts/{other}", json={"name": " toss "})
+    assert res.status_code == 400 and "이미" in res.json()["detail"]
+
+
+def test_account_create_and_rename_share_name_policy(client):
+    make_account(client, "Toss", "asset")
+
+    res = client.post("/api/accounts", json={"name": " toss ", "type": "asset"})
+    assert res.status_code == 400 and "이미" in res.json()["detail"]
+
+    res = client.post("/api/accounts", json={"name": "   ", "type": "asset"})
+    assert res.status_code == 400 and "이름" in res.json()["detail"]
+
+
+def test_account_rename_duplicate_policy_includes_archived_and_allows_different_parent(client):
+    archived = make_account(client, "Toss", "asset")
+    assert client.post(f"/api/accounts/{archived}/archive").status_code == 200
+    other = make_account(client, "Other", "asset")
+    res = client.patch(f"/api/accounts/{other}", json={"name": " toss "})
+    assert res.status_code == 400 and "이미" in res.json()["detail"]
+
+    food = make_account(client, "식비", "expense")
+    traffic = make_account(client, "교통", "expense")
+    child = make_child_account(client, "기타", "expense", food)
+    peer = make_child_account(client, "임시", "expense", traffic)
+    res = client.patch(f"/api/accounts/{peer}", json={"name": " 기타 "})
+    assert res.status_code == 200, res.text
+    assert res.json()["name"] == "기타"
+    assert res.json()["parent_id"] == traffic
+    assert child != peer
+
+    res = client.patch(f"/api/accounts/{archived}", json={"name": "보관 Toss"})
+    assert res.status_code == 200, res.text
+    assert res.json()["name"] == "보관 Toss"
+    assert res.json()["archived"] is True
+
+
+def test_ordinary_equity_opening_name_can_rename_when_not_system(client):
+    parent = make_account(client, "자본그룹", "equity")
+    ordinary = make_child_account(client, "개시잔액", "equity", parent)
+    assert account_by_name(client, "자본그룹")["is_system"] is False
+
+    res = client.patch(f"/api/accounts/{ordinary}", json={"name": "내 자본"})
+    assert res.status_code == 200, res.text
+    assert res.json()["name"] == "내 자본"
+    assert res.json()["is_system"] is False
+
+
+def test_existing_opening_balance_account_migrates_to_system_flag():
+    conn = connect(":memory:")
+    conn.execute("""
+        CREATE TABLE accounts (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          parent_id INTEGER,
+          currency TEXT NOT NULL DEFAULT 'KRW',
+          archived INTEGER NOT NULL DEFAULT 0,
+          is_placeholder INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    parent = conn.execute(
+        "INSERT INTO accounts (name, type) VALUES ('자본그룹', 'equity')"
+    ).lastrowid
+    ordinary = conn.execute(
+        "INSERT INTO accounts (name, type, parent_id) VALUES ('개시잔액', 'equity', ?)",
+        (parent,),
+    ).lastrowid
+    seeded = conn.execute(
+        "INSERT INTO accounts (name, type) VALUES ('개시잔액', 'equity')"
+    ).lastrowid
+
+    init_db(conn)
+
+    rows = conn.execute(
+        "SELECT id, is_system FROM accounts WHERE name='개시잔액' AND type='equity'"
+    ).fetchall()
+    system_by_id = {row["id"]: row["is_system"] for row in rows}
+    assert system_by_id[seeded] == 1
+    assert system_by_id[ordinary] == 0
 
 
 def test_materialize_idempotent_via_api(client):

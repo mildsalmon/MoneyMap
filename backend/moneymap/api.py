@@ -57,6 +57,10 @@ class AccountIn(BaseModel):
     is_placeholder: bool = False
 
 
+class AccountPatchIn(BaseModel):
+    name: str
+
+
 class PlaceholderIn(BaseModel):
     is_placeholder: bool
 
@@ -98,6 +102,38 @@ def _account_rule_reference_count(conn, account_id: int) -> int:
 
 def _account_referenced_by_rule(conn, account_id: int) -> bool:
     return _account_rule_reference_count(conn, account_id) > 0
+
+
+def _clean_account_name(name: str) -> str:
+    cleaned = name.strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="계정 이름을 입력하세요")
+    return cleaned
+
+
+def _account_name_key(name: str) -> str:
+    return name.strip().casefold()
+
+
+def _assert_account_name_available(
+    accounts: SqliteAccountRepository,
+    *,
+    name: str,
+    account_type: AccountType,
+    parent_id: int | None,
+    exclude_id: int | None = None,
+) -> None:
+    target = _account_name_key(name)
+    for existing in accounts.find_all():
+        if exclude_id is not None and existing.id == exclude_id:
+            continue
+        if existing.type != account_type or existing.parent_id != parent_id:
+            continue
+        if _account_name_key(existing.name) == target:
+            raise HTTPException(
+                status_code=400,
+                detail=f"같은 위치에 이미 '{existing.name}' 계정이 있습니다",
+            )
 
 
 def _find_account_id_by_path(
@@ -231,17 +267,39 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
     @app.post("/api/accounts", status_code=201)
     def create_account(body: AccountIn, request: Request):
         r = repos(request)
+        name = _clean_account_name(body.name)
         account = Account(
-            name=body.name, type=body.type, parent_id=body.parent_id,
+            name=name, type=body.type, parent_id=body.parent_id,
             is_placeholder=body.is_placeholder,
         )
         validate_account_placement(account, r["accounts"])
+        _assert_account_name_available(
+            r["accounts"], name=name, account_type=body.type, parent_id=body.parent_id
+        )
         if body.parent_id is not None and _account_referenced_by_rule(r["conn"], body.parent_id):
             raise HTTPException(
                 status_code=400,
                 detail="이 계정을 참조하는 반복 규칙을 먼저 하위 계정으로 바꾼 뒤 소분류를 추가하세요",
             )
         return r["accounts"].save(account).model_dump()
+
+    @app.patch("/api/accounts/{account_id}")
+    def update_account(account_id: int, body: AccountPatchIn, request: Request):
+        r = repos(request)
+        acc = r["accounts"].find_by_id(account_id)
+        if acc is None:
+            raise HTTPException(status_code=404, detail="계정이 없습니다")
+        if acc.is_system:
+            raise HTTPException(status_code=400, detail="시스템 계정은 이름을 바꿀 수 없습니다")
+        name = _clean_account_name(body.name)
+        _assert_account_name_available(
+            r["accounts"],
+            name=name,
+            account_type=acc.type,
+            parent_id=acc.parent_id,
+            exclude_id=account_id,
+        )
+        return r["accounts"].save(acc.model_copy(update={"name": name})).model_dump()
 
     @app.post("/api/accounts/seed-standard")
     def seed_standard_accounts(request: Request):

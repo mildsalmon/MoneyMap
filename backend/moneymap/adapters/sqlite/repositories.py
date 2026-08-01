@@ -35,18 +35,18 @@ class SqliteAccountRepository:
     def save(self, account: Account) -> Account:
         if account.id is None:
             cur = self._conn.execute(
-                "INSERT INTO accounts (name, type, parent_id, currency, archived, is_placeholder) "
-                "VALUES (?,?,?,?,?,?)",
+                "INSERT INTO accounts (name, type, parent_id, currency, archived, is_placeholder, is_system) "
+                "VALUES (?,?,?,?,?,?,?)",
                 (account.name, account.type.value, account.parent_id, account.currency,
-                 int(account.archived), int(account.is_placeholder)),
+                 int(account.archived), int(account.is_placeholder), int(account.is_system)),
             )
             account = account.model_copy(update={"id": cur.lastrowid})
         else:
             self._conn.execute(
-                "UPDATE accounts SET name=?, type=?, parent_id=?, currency=?, archived=?, is_placeholder=? "
+                "UPDATE accounts SET name=?, type=?, parent_id=?, currency=?, archived=?, is_placeholder=?, is_system=? "
                 "WHERE id=?",
                 (account.name, account.type.value, account.parent_id, account.currency,
-                 int(account.archived), int(account.is_placeholder), account.id),
+                 int(account.archived), int(account.is_placeholder), int(account.is_system), account.id),
             )
         self._conn.commit()
         return account
@@ -77,6 +77,7 @@ class SqliteAccountRepository:
             currency=row["currency"],
             archived=bool(row["archived"]),
             is_placeholder=bool(row["is_placeholder"]),
+            is_system=bool(row["is_system"]),
         )
 
     def find_by_id(self, account_id: int) -> Account | None:

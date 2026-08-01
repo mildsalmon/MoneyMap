@@ -1,7 +1,7 @@
 """Account 엔티티.
 
-개시잔액 컬럼은 없다 (설계 D4) — 개시잔액은 `자본:개시잔액` equity 계정
-상대의 일반 거래로 기록되고, 잔액은 언제나 "거래 합산" 단일 경로다.
+개시잔액은 `자본:개시잔액` equity 계정 상대의 일반 거래로 기록되고,
+잔액은 언제나 "거래 합산" 단일 경로다.
 
 잔액 표시 부호 (설계서 부호 컨벤션):
 
@@ -55,6 +55,8 @@ class Account(BaseModel):
     # 그룹/대분류 (D24, placeholder): 자식을 묶어 집계만 하는 계정. 직접 기장 금지.
     # 실제 비기장 판정은 "is_placeholder OR 자식 있음" — 자식이 붙으면 자동으로 그룹.
     is_placeholder: bool = False
+    # 시스템 계정: 장부 균형을 위해 앱이 관리하는 내부 계정. 사용자가 이름을 바꾸지 않는다.
+    is_system: bool = False
 
     def display_multiplier(self) -> int:
         return SIGN_MULTIPLIER[self.type]

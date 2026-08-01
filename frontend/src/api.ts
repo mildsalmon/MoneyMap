@@ -12,6 +12,7 @@ export interface Account {
   currency: string;
   archived: boolean;
   is_placeholder: boolean;
+  is_system: boolean;
 }
 
 export interface Posting {
@@ -108,6 +109,8 @@ export const api = {
   accounts: () => req<Account[]>("/accounts"),
   createAccount: (b: { name: string; type: AccountType; parent_id?: number | null; is_placeholder?: boolean }) =>
     req<Account>("/accounts", { method: "POST", body: JSON.stringify(b) }),
+  updateAccount: (id: number, b: { name: string }) =>
+    req<Account>(`/accounts/${id}`, { method: "PATCH", body: JSON.stringify(b) }),
   seedStandardAccounts: () =>
     req<{ created: number; skipped: number }>("/accounts/seed-standard", { method: "POST" }),
   archiveAccount: (id: number) => req<Account>(`/accounts/${id}/archive`, { method: "POST" }),
