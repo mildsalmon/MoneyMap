@@ -57,12 +57,12 @@ export function RuleForm({
       <div className="field"><label>어디서 (from)</label>
         <select value={from} onChange={(e) => setFrom(Number(e.target.value))}>
           <option value="">선택</option>
-          {accounts.filter((a) => isPostable(accounts, a)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          {accounts.filter((a) => !a.is_system && isPostable(accounts, a)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select></div>
       <div className="field"><label>어디로 (to)</label>
         <select value={to} onChange={(e) => setTo(Number(e.target.value))}>
           <option value="">선택</option>
-          {accounts.filter((a) => isPostable(accounts, a)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          {accounts.filter((a) => !a.is_system && isPostable(accounts, a)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select></div>
       <div className="field"><label>금액/회</label>
         <input className="num" style={{ width: 120 }} value={amount} placeholder="0"
@@ -82,6 +82,7 @@ export function RuleForm({
 export function Rules({ gen, refresh, showToast }: ViewProps) {
   const [rules, setRules] = useState<Rule[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [deleteErrors, setDeleteErrors] = useState<Record<number, string>>({});
 
   useEffect(() => {
     api.rules(1).then(setRules);
@@ -121,10 +122,18 @@ export function Rules({ gen, refresh, showToast }: ViewProps) {
               <td style={{ width: 60 }}>
                 <button className="btn sm danger" onClick={async () => {
                   if (!window.confirm(`"${r.description || humanSchedule(r.schedule.spec)}" 규칙을 삭제합니다.\n이미 기록된 거래는 그대로 남습니다.`)) return;
-                  await api.deleteRule(r.id);
-                  refresh();
-                  showToast("규칙 삭제됨 — 기록된 거래는 유지됩니다");
+                  setDeleteErrors((current) => ({ ...current, [r.id]: "" }));
+                  try {
+                    await api.deleteRule(r.id);
+                    refresh();
+                    showToast("규칙 삭제됨 — 기록된 거래는 유지됩니다");
+                  } catch (error) {
+                    setDeleteErrors((current) => ({ ...current, [r.id]: (error as Error).message }));
+                  }
                 }}>삭제</button>
+                {deleteErrors[r.id] && (
+                  <span className="row-error action-error" role="alert">{deleteErrors[r.id]}</span>
+                )}
               </td>
             </tr>
           ))}

@@ -13,6 +13,7 @@ export interface Account {
   archived: boolean;
   is_placeholder: boolean;
   is_system: boolean;
+  is_overdraft: boolean;
 }
 
 export interface Posting {
@@ -66,8 +67,16 @@ export interface BalanceRow {
   account_id: number;
   name: string;
   type: AccountType;
+  reporting_type: AccountType;
   balance: number;
   display_balance: number;
+}
+
+export interface OpeningBalanceRecord {
+  account_id: number;
+  transaction_id: number;
+  date: string;
+  state: "positive" | "negative";
 }
 
 export interface RuleBody {
@@ -82,7 +91,11 @@ export interface RuleBody {
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+    public code?: string,
+  ) {
     super(message);
   }
 }
@@ -94,12 +107,20 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     let detail = res.statusText;
+    let code: string | undefined;
     try {
-      detail = (await res.json()).detail ?? detail;
+      const body = await res.json();
+      const bodyDetail = body.detail;
+      if (typeof bodyDetail === "string") {
+        detail = bodyDetail;
+      } else if (bodyDetail && typeof bodyDetail === "object") {
+        detail = typeof bodyDetail.message === "string" ? bodyDetail.message : detail;
+        code = typeof bodyDetail.code === "string" ? bodyDetail.code : undefined;
+      }
     } catch {
       /* body 없음 */
     }
-    throw new ApiError(res.status, typeof detail === "string" ? detail : JSON.stringify(detail));
+    throw new ApiError(res.status, detail, code);
   }
   return res.json();
 }
@@ -107,7 +128,13 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => req<{ status: string }>("/health"),
   accounts: () => req<Account[]>("/accounts"),
-  createAccount: (b: { name: string; type: AccountType; parent_id?: number | null; is_placeholder?: boolean }) =>
+  createAccount: (b: {
+    name: string;
+    type: AccountType;
+    parent_id?: number | null;
+    is_placeholder?: boolean;
+    is_overdraft?: boolean;
+  }) =>
     req<Account>("/accounts", { method: "POST", body: JSON.stringify(b) }),
   updateAccount: (id: number, b: { name: string }) =>
     req<Account>(`/accounts/${id}`, { method: "PATCH", body: JSON.stringify(b) }),
@@ -117,9 +144,22 @@ export const api = {
   restoreAccount: (id: number) => req<Account>(`/accounts/${id}/restore`, { method: "POST" }),
   setPlaceholder: (id: number, is_placeholder: boolean) =>
     req<Account>(`/accounts/${id}/placeholder`, { method: "POST", body: JSON.stringify({ is_placeholder }) }),
+  setOverdraft: (id: number, enabled: boolean) =>
+    req<Account>(`/accounts/${id}/overdraft`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
   reclassifyDirect: (id: number, to: number) =>
     req<{ moved_postings: number; to: number }>(`/accounts/${id}/reclassify-direct?to=${to}`, { method: "POST" }),
   transactions: (scenarioId = 1) => req<Txn[]>(`/transactions?scenario_id=${scenarioId}`),
+  openingBalances: () => req<OpeningBalanceRecord[]>("/opening-balances"),
+  createOpeningBalance: (
+    id: number,
+    b: { date: string; amount: number; state: "positive" | "negative" },
+  ) => req<Txn>(`/accounts/${id}/opening-balance`, {
+    method: "POST",
+    body: JSON.stringify(b),
+  }),
   createTransaction: (b: {
     scenario_id?: number;
     date: string;

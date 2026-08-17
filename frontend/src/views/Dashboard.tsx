@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, chartToggles, type Account, type BalanceRow, type Series, type Txn } from "../api";
 import { fmtWon, todayIso } from "../format";
 import { ProjectionChart } from "../chart/ProjectionChart";
@@ -14,18 +14,25 @@ const FUTURE = [
 export function Dashboard({ gen, go }: ViewProps) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [balances, setBalances] = useState<{ net_worth: number; accounts: BalanceRow[] } | null>(null);
+  const [balancesError, setBalancesError] = useState("");
   const [txns, setTxns] = useState<Txn[]>([]);
   const [rulesCount, setRulesCount] = useState(0);
   const [months, setMonths] = useState(12);
   const [series, setSeries] = useState<Series[] | null>(null);
   const [stale, setStale] = useState(false); // 리페치 중 이전 렌더 유지 + 디밍
 
+  const loadBalances = useCallback(() => {
+    setBalances(null);
+    setBalancesError("");
+    api.balances().then(setBalances).catch((error: Error) => setBalancesError(error.message));
+  }, []);
+
   useEffect(() => {
     api.accounts().then(setAccounts);
-    api.balances().then(setBalances);
+    loadBalances();
     api.transactions().then(setTxns);
     api.rules().then((r) => setRulesCount(r.length));
-  }, [gen]);
+  }, [gen, loadBalances]);
 
   useEffect(() => {
     setStale(true);
@@ -156,13 +163,28 @@ export function Dashboard({ gen, go }: ViewProps) {
             <tbody>
               {acctBalances.map((b) => (
                 <tr key={b.account_id}>
-                  <td>{b.name} {b.type === "liability" && <span className="badge">부채</span>}</td>
+                  <td className="dashboard-account-cell">
+                    {b.name}
+                    {b.type === "asset" && b.reporting_type === "liability" ? (
+                      <span className="badge account-state-badge">부채 · 마이너스 사용 중</span>
+                    ) : b.reporting_type === "liability" ? (
+                      <span className="badge account-state-badge">부채</span>
+                    ) : null}
+                  </td>
                   <td className="num">{b.balance.toLocaleString("ko-KR")}</td>
                 </tr>
               ))}
+              {balancesError && (
+                <tr>
+                  <td colSpan={2} className="cell-error" role="alert">
+                    계정 잔액을 불러오지 못함
+                    <button className="retry-action" type="button" onClick={loadBalances}>다시 시도</button>
+                  </td>
+                </tr>
+              )}
               <tr className="sum">
                 <td>순자산 (검산 일치)</td>
-                <td className="num">{balances ? fmtWon(balances.net_worth) : "—"}</td>
+                <td className="num">{balances ? fmtWon(balances.net_worth) : "…"}</td>
               </tr>
             </tbody>
           </table>

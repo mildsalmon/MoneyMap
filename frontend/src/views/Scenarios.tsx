@@ -19,6 +19,7 @@ function ScenarioEditor({
   const [rules, setRules] = useState<Rule[]>([]);
   const [preview, setPreview] = useState<{ base: number; mine: number } | null>(null);
   const [editAmount, setEditAmount] = useState<Record<number, string>>({});
+  const [deleteErrors, setDeleteErrors] = useState<Record<number, string>>({});
   const [localGen, setLocalGen] = useState(0);
 
   useEffect(() => {
@@ -85,11 +86,19 @@ function ScenarioEditor({
                   onClick={() => saveAmount(r)}>저장</button>{" "}
                 <button className="btn sm danger" onClick={async () => {
                   if (!window.confirm(`이 시나리오에서 "${r.description || nameOf(r.from_account_id)}" 규칙을 삭제합니다.`)) return;
-                  await api.deleteRule(r.id);
-                  setLocalGen((g) => g + 1);
-                  onChanged();
-                  showToast("가설 규칙 삭제됨");
+                  setDeleteErrors((current) => ({ ...current, [r.id]: "" }));
+                  try {
+                    await api.deleteRule(r.id);
+                    setLocalGen((g) => g + 1);
+                    onChanged();
+                    showToast("가설 규칙 삭제됨");
+                  } catch (error) {
+                    setDeleteErrors((current) => ({ ...current, [r.id]: (error as Error).message }));
+                  }
                 }}>삭제</button>
+                {deleteErrors[r.id] && (
+                  <span className="row-error action-error" role="alert">{deleteErrors[r.id]}</span>
+                )}
               </td>
             </tr>
           ))}
