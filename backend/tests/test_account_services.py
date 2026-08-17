@@ -1,7 +1,20 @@
 import pytest
 
-from moneymap.domain import Account, AccountCycleError, AccountType, DomainError
-from moneymap.domain.services import validate_account_placement
+from moneymap.domain import (
+    Account,
+    AccountCycleError,
+    AccountType,
+    DomainConflictError,
+    DomainError,
+    DomainValidationError,
+    reporting_type,
+)
+from moneymap.domain.services import (
+    opening_balance_posting_amount,
+    validate_account_placement,
+    validate_overdraft_shape,
+    validate_overdraft_transition,
+)
 
 
 class InMemoryAccountRepo:
@@ -24,6 +37,9 @@ class InMemoryAccountRepo:
 
     def find_all(self) -> list[Account]:
         return list(self._by_id.values())
+
+    def has_children(self, account_id: int) -> bool:
+        return any(a.parent_id == account_id for a in self._by_id.values())
 
 
 @pytest.fixture
@@ -74,3 +90,134 @@ def test_missing_parent_rejected(repo: InMemoryAccountRepo):
     child = Account(name="고아", type=AccountType.ASSET, parent_id=999)
     with pytest.raises(DomainError):
         validate_account_placement(child, repo)
+
+
+@pytest.mark.parametrize(
+    ("raw_balance", "expected"),
+    [(-1, AccountType.LIABILITY), (0, AccountType.ASSET), (1, AccountType.ASSET)],
+)
+def test_overdraft_reporting_type_changes_only_below_zero(raw_balance, expected):
+    account = Account(
+        name="카오뱅크",
+        type=AccountType.ASSET,
+        is_overdraft=True,
+    )
+    assert reporting_type(account, raw_balance) == expected
+
+
+def test_ordinary_negative_asset_keeps_asset_reporting_type():
+    account = Account(name="현금", type=AccountType.ASSET)
+    assert reporting_type(account, -1) == AccountType.ASSET
+
+
+@pytest.mark.parametrize(
+    "account",
+    [
+        Account(name="대출", type=AccountType.LIABILITY, is_overdraft=True),
+        Account(name="시스템", type=AccountType.ASSET, is_system=True, is_overdraft=True),
+        Account(name="그룹", type=AccountType.ASSET, is_placeholder=True, is_overdraft=True),
+    ],
+)
+def test_overdraft_shape_rejects_non_leaf_asset_shapes(account):
+    with pytest.raises(DomainValidationError) as exc_info:
+        validate_overdraft_shape(account)
+    assert exc_info.value.code == "overdraft_invalid_account"
+
+
+def test_overdraft_transition_rejects_child_and_archived_accounts(repo):
+    parent = repo.save(Account(name="입출금", type=AccountType.ASSET))
+    repo.save(Account(name="토스뱅크", type=AccountType.ASSET, parent_id=parent.id))
+
+    with pytest.raises(DomainConflictError) as child_error:
+        validate_overdraft_transition(
+            parent,
+            parent.model_copy(update={"is_overdraft": True}),
+            repo,
+        )
+    assert child_error.value.code == "overdraft_requires_leaf"
+
+    archived = Account(
+        id=99,
+        name="보관 계정",
+        type=AccountType.ASSET,
+        archived=True,
+    )
+    with pytest.raises(DomainConflictError) as archived_error:
+        validate_overdraft_transition(
+            archived,
+            archived.model_copy(update={"is_overdraft": True}),
+            repo,
+        )
+    assert archived_error.value.code == "archived_account_read_only"
+
+
+@pytest.mark.parametrize(
+    ("account", "state", "expected"),
+    [
+        (Account(name="현금", type=AccountType.ASSET), "positive", 1000),
+        (
+            Account(name="마통", type=AccountType.ASSET, is_overdraft=True),
+            "positive",
+            1000,
+        ),
+        (
+            Account(name="마통", type=AccountType.ASSET, is_overdraft=True),
+            "negative",
+            -1000,
+        ),
+        (Account(name="대출", type=AccountType.LIABILITY), "negative", -1000),
+    ],
+)
+def test_opening_balance_posting_sign(account, state, expected):
+    assert opening_balance_posting_amount(
+        account,
+        1000,
+        state,
+        has_children=False,
+    ) == expected
+
+
+@pytest.mark.parametrize(
+    ("account", "amount", "state", "code"),
+    [
+        (
+            Account(name="현금", type=AccountType.ASSET),
+            1000,
+            "negative",
+            "negative_opening_requires_overdraft",
+        ),
+        (
+            Account(name="대출", type=AccountType.LIABILITY),
+            1000,
+            "positive",
+            "invalid_opening_state",
+        ),
+        (
+            Account(name="급여", type=AccountType.INCOME),
+            1000,
+            "positive",
+            "opening_invalid_account",
+        ),
+        (
+            Account(name="현금", type=AccountType.ASSET),
+            0,
+            "positive",
+            "invalid_opening_amount",
+        ),
+        (
+            Account(name="현금", type=AccountType.ASSET),
+            1000,
+            "unknown",
+            "invalid_opening_state",
+        ),
+    ],
+)
+def test_opening_balance_rejects_invalid_combinations(account, amount, state, code):
+    with pytest.raises(DomainValidationError) as exc_info:
+        opening_balance_posting_amount(
+            account,
+            amount,
+            state,
+            has_children=False,
+        )
+    assert exc_info.value.code == code

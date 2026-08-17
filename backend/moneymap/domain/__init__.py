@@ -4,10 +4,13 @@
 의존한다 — FastAPI/SQLite 등 어댑터 계층의 import는 금지.
 """
 
-from moneymap.domain.account import Account, AccountType
+from moneymap.domain.account import Account, AccountType, reporting_type
 from moneymap.domain.errors import (
     AccountCycleError,
+    DomainConflictError,
     DomainError,
+    DomainNotFoundError,
+    DomainValidationError,
     InvalidScheduleError,
     InvalidScenarioBaseError,
     MixedCurrencyError,
@@ -24,7 +27,10 @@ __all__ = [
     "Account",
     "AccountCycleError",
     "AccountType",
+    "DomainConflictError",
     "DomainError",
+    "DomainNotFoundError",
+    "DomainValidationError",
     "InvalidScenarioBaseError",
     "InvalidScheduleError",
     "MixedCurrencyError",
@@ -35,4 +41,5 @@ __all__ = [
     "Schedule",
     "Transaction",
     "UnbalancedTransactionError",
+    "reporting_type",
 ]

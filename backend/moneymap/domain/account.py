@@ -57,6 +57,16 @@ class Account(BaseModel):
     is_placeholder: bool = False
     # 시스템 계정: 장부 균형을 위해 앱이 관리하는 내부 계정. 사용자가 이름을 바꾸지 않는다.
     is_system: bool = False
+    # 마이너스통장: 저장 type은 asset으로 유지하고 음수 잔액만 보고 시점에
+    # liability로 분류한다. 계정 id/부모/거래 참조는 바뀌지 않는다.
+    is_overdraft: bool = False
 
     def display_multiplier(self) -> int:
         return SIGN_MULTIPLIER[self.type]
+
+
+def reporting_type(account: Account, raw_balance: int) -> AccountType:
+    """저장 계정 타입과 별개인 조회 시점 보고 분류."""
+    if account.is_overdraft and raw_balance < 0:
+        return AccountType.LIABILITY
+    return account.type

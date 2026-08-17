@@ -33,15 +33,21 @@ from moneymap.domain import (
     ACTUAL_SCENARIO_ID,
     Account,
     AccountType,
+    DomainConflictError,
     DomainError,
     Money,
     Posting,
     RecurringRule,
     Schedule,
     Transaction,
+    reporting_type,
 )
+from moneymap.domain.account import OPENING_BALANCE_ACCOUNT_NAME
 from moneymap.domain.materialize import plan_materialization
-from moneymap.domain.services import validate_account_placement
+from moneymap.domain.services import (
+    validate_account_placement,
+    validate_overdraft_shape,
+)
 from moneymap.domain.standard_accounts import STANDARD_ACCOUNTS, StandardAccount
 
 DEFAULT_DB = os.environ.get("MONEYMAP_DB", "moneymap.db")
@@ -55,6 +61,7 @@ class AccountIn(BaseModel):
     type: AccountType
     parent_id: int | None = None
     is_placeholder: bool = False
+    is_overdraft: bool = False
 
 
 class AccountPatchIn(BaseModel):
@@ -63,6 +70,16 @@ class AccountPatchIn(BaseModel):
 
 class PlaceholderIn(BaseModel):
     is_placeholder: bool
+
+
+class OverdraftIn(BaseModel):
+    enabled: bool
+
+
+class OpeningBalanceIn(BaseModel):
+    date: datetime.date
+    amount: int
+    state: str
 
 
 class PostingIn(BaseModel):
@@ -214,7 +231,10 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
     async def _domain_error(request: Request, exc: DomainError):
         from fastapi.responses import JSONResponse
 
-        return JSONResponse(status_code=400, content={"detail": str(exc)})
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": {"code": exc.code, "message": exc.message}},
+        )
 
     def repos(request: Request):
         conn = request.app.state.conn
@@ -270,9 +290,10 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
         name = _clean_account_name(body.name)
         account = Account(
             name=name, type=body.type, parent_id=body.parent_id,
-            is_placeholder=body.is_placeholder,
+            is_placeholder=body.is_placeholder, is_overdraft=body.is_overdraft,
         )
         validate_account_placement(account, r["accounts"])
+        validate_overdraft_shape(account)
         _assert_account_name_available(
             r["accounts"], name=name, account_type=body.type, parent_id=body.parent_id
         )
@@ -282,6 +303,14 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
                 detail="이 계정을 참조하는 반복 규칙을 먼저 하위 계정으로 바꾼 뒤 소분류를 추가하세요",
             )
         return r["accounts"].save(account).model_dump()
+
+    @app.put("/api/accounts/{account_id}/overdraft")
+    def set_overdraft(account_id: int, body: OverdraftIn, request: Request):
+        return app_services.set_overdraft_enabled(
+            account_id,
+            body.enabled,
+            repos(request)["accounts"],
+        ).model_dump()
 
     @app.patch("/api/accounts/{account_id}")
     def update_account(account_id: int, body: AccountPatchIn, request: Request):
@@ -342,6 +371,17 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
                     detail=f"'{a.name}'은 그룹(대분류) 계정이라 직접 기장할 수 없습니다 — 하위 계정을 선택하세요",
                 )
 
+    def _assert_rule_accounts(request: Request, account_ids: list[int]) -> None:
+        _assert_postable(request, account_ids)
+        acc_repo = repos(request)["accounts"]
+        for account_id in set(account_ids):
+            account = acc_repo.find_by_id(account_id)
+            if account is not None and account.is_system:
+                raise HTTPException(
+                    status_code=400,
+                    detail="시스템 계정은 반복 규칙에 사용할 수 없습니다",
+                )
+
     @app.post("/api/accounts/{account_id}/placeholder")
     def set_placeholder(account_id: int, body: PlaceholderIn, request: Request):
         """계정을 그룹으로 전환/해제 (D24). 이미 직접 기장된 거래가 있으면 그룹 전환 차단."""
@@ -349,6 +389,11 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
         acc = r["accounts"].find_by_id(account_id)
         if acc is None:
             raise HTTPException(status_code=404, detail="계정이 없습니다")
+        if body.is_placeholder and acc.is_overdraft:
+            raise DomainConflictError(
+                "마이너스통장 설정을 해제한 뒤 그룹으로 변경하세요",
+                code="overdraft_cannot_be_group",
+            )
         if body.is_placeholder and r["accounts"].has_postings(account_id):
             raise HTTPException(
                 status_code=400,
@@ -439,6 +484,24 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
 
     # ─── 거래 ───
 
+    @app.get("/api/opening-balances")
+    def list_opening_balances(request: Request):
+        return repos(request)["txns"].find_opening_balances()
+
+    @app.post("/api/accounts/{account_id}/opening-balance", status_code=201)
+    def create_opening_balance(
+        account_id: int,
+        body: OpeningBalanceIn,
+        request: Request,
+    ):
+        return app_services.create_opening_balance(
+            account_id,
+            body.date,
+            body.amount,
+            body.state,
+            repos(request)["txns"],
+        ).model_dump()
+
     @app.get("/api/transactions")
     def list_transactions(request: Request, scenario_id: int = ACTUAL_SCENARIO_ID):
         return [t.model_dump() for t in repos(request)["txns"].find_by_scenario(scenario_id)]
@@ -489,7 +552,7 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
             )
         except ValidationError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
-        _assert_postable(request, [body.from_account_id, body.to_account_id])
+        _assert_rule_accounts(request, [body.from_account_id, body.to_account_id])
         return repos(request)["rules"].save(rule).model_dump()
 
     @app.put("/api/rules/{rule_id}")
@@ -515,7 +578,7 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
             )
         except ValidationError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
-        _assert_postable(request, [body.from_account_id, body.to_account_id])
+        _assert_rule_accounts(request, [body.from_account_id, body.to_account_id])
         return r["rules"].save(updated).model_dump()
 
     @app.delete("/api/rules/{rule_id}")
@@ -526,18 +589,34 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
         거래는 보존하되 출처 badge만 사라진다.
         """
         conn = repos(request)["conn"]
+        legacy = conn.execute(
+            "SELECT EXISTS ("
+            "  SELECT 1 FROM transactions t "
+            "  JOIN postings p ON p.txn_id=t.id "
+            "  JOIN accounts a ON a.id=p.account_id "
+            "  WHERE t.source_rule_id=r.id "
+            "    AND a.is_system=1 AND a.type='equity' AND a.name=?"
+            ") AS generated_opening "
+            "FROM recurring_rules r WHERE r.id=?",
+            (OPENING_BALANCE_ACCOUNT_NAME, rule_id),
+        ).fetchone()
+        if legacy is None:
+            raise HTTPException(status_code=404, detail="규칙이 없습니다")
+        if legacy["generated_opening"]:
+            raise DomainConflictError(
+                "시스템 계정 규칙의 자동 생성 거래를 먼저 삭제하세요",
+                code="system_rule_has_materialized_transactions",
+            )
         try:
             conn.execute(
                 "UPDATE transactions SET source_rule_id=NULL WHERE source_rule_id=?",
                 (rule_id,),
             )
-            cur = conn.execute("DELETE FROM recurring_rules WHERE id=?", (rule_id,))
+            conn.execute("DELETE FROM recurring_rules WHERE id=?", (rule_id,))
             conn.commit()
         except Exception:
             conn.rollback()
             raise
-        if cur.rowcount == 0:
-            raise HTTPException(status_code=404, detail="규칙이 없습니다")
         return {"deleted": rule_id}
 
     # ─── materialize (앱 로드 시 프론트가 호출 → 생성 배너 데이터, D10) ───
@@ -598,6 +677,7 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
                     "account_id": a.id,
                     "name": a.name,
                     "type": a.type.value,
+                    "reporting_type": reporting_type(a, raw).value,
                     "balance": raw,
                     "display_balance": raw * a.display_multiplier(),
                 }

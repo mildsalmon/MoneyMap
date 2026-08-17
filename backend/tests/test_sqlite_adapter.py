@@ -18,6 +18,8 @@ from moneymap.domain import (
     ACTUAL_SCENARIO_ID,
     Account,
     AccountType,
+    DomainConflictError,
+    DomainValidationError,
     Money,
     Posting,
     RecurringRule,
@@ -85,6 +87,262 @@ def test_account_roundtrip(conn, accounts):
     found = repo.find_by_id(accounts["toss"].id)
     assert found == accounts["toss"]
     assert len(repo.find_all()) == 4  # 시드 1 + 생성 3
+
+
+def test_account_overdraft_roundtrip_and_reversible(conn):
+    repo = SqliteAccountRepository(conn)
+    account = repo.save(
+        Account(name="카오뱅크", type=AccountType.ASSET, is_overdraft=True)
+    )
+    assert repo.find_by_id(account.id).is_overdraft is True
+    assert repo.set_overdraft_enabled(account.id, False).is_overdraft is False
+    assert repo.set_overdraft_enabled(account.id, True).is_overdraft is True
+
+
+def test_overdraft_migration_defaults_existing_rows_and_is_idempotent():
+    legacy = connect(":memory:")
+    legacy.execute("""
+        CREATE TABLE accounts (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          parent_id INTEGER,
+          currency TEXT NOT NULL DEFAULT 'KRW',
+          archived INTEGER NOT NULL DEFAULT 0,
+          is_placeholder INTEGER NOT NULL DEFAULT 0,
+          is_system INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    account_id = legacy.execute(
+        "INSERT INTO accounts (name, type) VALUES ('현금', 'asset')"
+    ).lastrowid
+
+    init_db(legacy)
+    init_db(legacy)
+
+    row = legacy.execute(
+        "SELECT is_overdraft FROM accounts WHERE id=?",
+        (account_id,),
+    ).fetchone()
+    assert row["is_overdraft"] == 0
+
+
+def test_overdraft_triggers_block_invalid_shape_and_children(conn):
+    repo = SqliteAccountRepository(conn)
+    with pytest.raises(DomainValidationError) as shape_error:
+        repo.save(
+            Account(
+                name="잘못된 대출",
+                type=AccountType.LIABILITY,
+                is_overdraft=True,
+            )
+        )
+    assert shape_error.value.code == "overdraft_invalid_account"
+
+    overdraft = repo.save(
+        Account(name="우리은행", type=AccountType.ASSET, is_overdraft=True)
+    )
+    with pytest.raises(DomainConflictError) as child_error:
+        repo.save(
+            Account(
+                name="하위 계정",
+                type=AccountType.ASSET,
+                parent_id=overdraft.id,
+            )
+        )
+    assert child_error.value.code == "overdraft_parent_forbids_children"
+
+    with pytest.raises(sqlite3.IntegrityError, match="overdraft_cannot_be_group"):
+        conn.execute(
+            "UPDATE accounts SET is_placeholder=1 WHERE id=?",
+            (overdraft.id,),
+        )
+    conn.rollback()
+
+    parent = repo.save(Account(name="자식 있는 계정", type=AccountType.ASSET))
+    repo.save(Account(name="기존 자식", type=AccountType.ASSET, parent_id=parent.id))
+    with pytest.raises(sqlite3.IntegrityError, match="overdraft_requires_leaf"):
+        conn.execute(
+            "UPDATE accounts SET is_overdraft=1 WHERE id=?",
+            (parent.id,),
+        )
+    conn.rollback()
+
+    movable = repo.save(Account(name="이동할 계정", type=AccountType.ASSET))
+    with pytest.raises(sqlite3.IntegrityError, match="overdraft_parent_forbids_children"):
+        conn.execute(
+            "UPDATE accounts SET parent_id=? WHERE id=?",
+            (overdraft.id, movable.id),
+        )
+    conn.rollback()
+
+
+def test_overdraft_transition_rejects_existing_children_and_archived(conn):
+    repo = SqliteAccountRepository(conn)
+    parent = repo.save(Account(name="입출금", type=AccountType.ASSET))
+    repo.save(Account(name="국민은행", type=AccountType.ASSET, parent_id=parent.id))
+    with pytest.raises(DomainConflictError) as child_error:
+        repo.set_overdraft_enabled(parent.id, True)
+    assert child_error.value.code == "overdraft_requires_leaf"
+
+    archived = repo.save(
+        Account(name="보관 통장", type=AccountType.ASSET, archived=True)
+    )
+    with pytest.raises(DomainConflictError) as archived_error:
+        repo.set_overdraft_enabled(archived.id, True)
+    assert archived_error.value.code == "archived_account_read_only"
+
+
+def test_opening_balance_create_match_duplicate_delete_and_recreate(conn):
+    account_repo = SqliteAccountRepository(conn)
+    txn_repo = SqliteTransactionRepository(conn)
+    overdraft = account_repo.save(
+        Account(name="케이뱅크", type=AccountType.ASSET, is_overdraft=True)
+    )
+
+    created = txn_repo.create_opening_balance(
+        overdraft.id,
+        D(2026, 8, 2),
+        74_566_154,
+        "negative",
+    )
+    assert [p.amount.amount for p in created.postings] == [-74_566_154, 74_566_154]
+    assert txn_repo.find_opening_balances(overdraft.id) == [{
+        "account_id": overdraft.id,
+        "transaction_id": created.id,
+        "date": "2026-08-02",
+        "state": "negative",
+    }]
+
+    with pytest.raises(DomainConflictError) as duplicate_error:
+        txn_repo.create_opening_balance(
+            overdraft.id,
+            D(2026, 8, 3),
+            1,
+            "positive",
+        )
+    assert duplicate_error.value.code == "opening_already_recorded"
+
+    assert txn_repo.delete(created.id) is True
+    replacement = txn_repo.create_opening_balance(
+        overdraft.id,
+        D(2026, 8, 3),
+        1,
+        "positive",
+    )
+    assert replacement.id is not None
+
+
+def test_opening_matcher_uses_structure_not_description(conn):
+    account_repo = SqliteAccountRepository(conn)
+    txn_repo = SqliteTransactionRepository(conn)
+    cash = account_repo.save(Account(name="현금", type=AccountType.ASSET))
+    opening = account_repo.find_by_name(OPENING_BALANCE_ACCOUNT_NAME)
+    saved = txn_repo.save(Transaction(
+        scenario_id=ACTUAL_SCENARIO_ID,
+        date=D(2026, 8, 2),
+        description="자유 문구",
+        postings=[
+            Posting(account_id=cash.id, amount=Money(amount=1000)),
+            Posting(account_id=opening.id, amount=Money(amount=-1000)),
+        ],
+    ))
+    assert txn_repo.find_opening_balances(cash.id)[0]["transaction_id"] == saved.id
+
+
+def test_opening_matcher_excludes_three_leg_transaction(conn):
+    account_repo = SqliteAccountRepository(conn)
+    txn_repo = SqliteTransactionRepository(conn)
+    cash = account_repo.save(Account(name="현금", type=AccountType.ASSET))
+    other = account_repo.save(Account(name="예금", type=AccountType.ASSET))
+    opening = account_repo.find_by_name(OPENING_BALANCE_ACCOUNT_NAME)
+    txn_repo.save(Transaction(
+        scenario_id=ACTUAL_SCENARIO_ID,
+        date=D(2026, 8, 2),
+        postings=[
+            Posting(account_id=cash.id, amount=Money(amount=1000)),
+            Posting(account_id=other.id, amount=Money(amount=-100)),
+            Posting(account_id=opening.id, amount=Money(amount=-900)),
+        ],
+    ))
+    assert txn_repo.find_opening_balances() == []
+
+
+def test_opening_matcher_excludes_wrong_scenario_source_zero_and_equity(conn):
+    account_repo = SqliteAccountRepository(conn)
+    txn_repo = SqliteTransactionRepository(conn)
+    cash = account_repo.save(Account(name="현금", type=AccountType.ASSET))
+    food = account_repo.save(Account(name="식비", type=AccountType.EXPENSE))
+    ordinary_equity = account_repo.save(Account(name="일반 자본", type=AccountType.EQUITY))
+    other_system_equity = account_repo.save(
+        Account(name="기타 시스템 자본", type=AccountType.EQUITY, is_system=True)
+    )
+    opening = account_repo.find_by_name(OPENING_BALANCE_ACCOUNT_NAME)
+
+    rule = SqliteRecurringRuleRepository(conn).save(RecurringRule(
+        scenario_id=ACTUAL_SCENARIO_ID,
+        from_account_id=cash.id,
+        to_account_id=food.id,
+        amount=Money(amount=1000),
+        schedule=Schedule(spec="monthly:1"),
+        start_date=D(2026, 8, 1),
+    ))
+    txn_repo.save(Transaction(
+        scenario_id=ACTUAL_SCENARIO_ID,
+        source_rule_id=rule.id,
+        date=D(2026, 8, 1),
+        postings=[
+            Posting(account_id=cash.id, amount=Money(amount=1000)),
+            Posting(account_id=opening.id, amount=Money(amount=-1000)),
+        ],
+    ))
+
+    scenario = SqliteScenarioRepository(conn).save(
+        Scenario(name="가설", base_scenario_id=ACTUAL_SCENARIO_ID, fork_date=D(2026, 8, 1))
+    )
+    txn_repo.save(Transaction(
+        scenario_id=scenario.id,
+        date=D(2026, 8, 1),
+        postings=[
+            Posting(account_id=cash.id, amount=Money(amount=2000)),
+            Posting(account_id=opening.id, amount=Money(amount=-2000)),
+        ],
+    ))
+
+    txn_repo.save(Transaction(
+        scenario_id=ACTUAL_SCENARIO_ID,
+        date=D(2026, 8, 2),
+        postings=[
+            Posting(account_id=cash.id, amount=Money(amount=3000)),
+            Posting(account_id=ordinary_equity.id, amount=Money(amount=-3000)),
+        ],
+    ))
+    txn_repo.save(Transaction(
+        scenario_id=ACTUAL_SCENARIO_ID,
+        date=D(2026, 8, 2),
+        postings=[
+            Posting(account_id=cash.id, amount=Money(amount=4000)),
+            Posting(account_id=other_system_equity.id, amount=Money(amount=-4000)),
+        ],
+    ))
+
+    conn.execute(
+        "INSERT INTO transactions (scenario_id, date, posted) VALUES (?, '2026-08-03', 0)",
+        (ACTUAL_SCENARIO_ID,),
+    )
+    zero_txn_id = conn.execute("SELECT last_insert_rowid() AS id").fetchone()["id"]
+    conn.execute(
+        "INSERT INTO postings (txn_id, account_id, amount) VALUES (?, ?, 0)",
+        (zero_txn_id, cash.id),
+    )
+    conn.execute(
+        "INSERT INTO postings (txn_id, account_id, amount) VALUES (?, ?, 0)",
+        (zero_txn_id, opening.id),
+    )
+    conn.execute("UPDATE transactions SET posted=1 WHERE id=?", (zero_txn_id,))
+    conn.commit()
+
+    assert txn_repo.find_opening_balances() == []
 
 
 # ─── 거래 저장 + 트리거 백스톱 ───────────────────────────

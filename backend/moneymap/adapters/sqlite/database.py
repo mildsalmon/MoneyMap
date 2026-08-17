@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS accounts (
   currency       TEXT NOT NULL DEFAULT 'KRW' CHECK(length(currency)=3),
   archived       INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
   is_placeholder INTEGER NOT NULL DEFAULT 0 CHECK(is_placeholder IN (0,1)),
-  is_system      INTEGER NOT NULL DEFAULT 0 CHECK(is_system IN (0,1))
+  is_system      INTEGER NOT NULL DEFAULT 0 CHECK(is_system IN (0,1)),
+  is_overdraft   INTEGER NOT NULL DEFAULT 0 CHECK(is_overdraft IN (0,1))
 );
 
 CREATE TABLE IF NOT EXISTS scenarios (
@@ -113,6 +114,55 @@ END;
 """
 
 
+# accounts가 이미 존재하는 DB에는 SCHEMA만 실행해도 새 컬럼이 생기지 않는다.
+# migration으로 is_overdraft를 추가한 뒤에만 이 trigger 묶음을 설치한다.
+OVERDRAFT_TRIGGERS = """
+CREATE TRIGGER IF NOT EXISTS trg_account_overdraft_insert_shape
+BEFORE INSERT ON accounts
+WHEN NEW.is_overdraft = 1
+  AND (NEW.type != 'asset' OR NEW.is_system = 1 OR NEW.is_placeholder = 1)
+BEGIN
+  SELECT RAISE(ABORT, 'overdraft_invalid_account');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_account_overdraft_update_shape
+BEFORE UPDATE OF type, is_system, is_placeholder, is_overdraft ON accounts
+WHEN NEW.is_overdraft = 1
+BEGIN
+  SELECT CASE
+    WHEN OLD.is_overdraft = 1 AND NEW.is_placeholder = 1
+      THEN RAISE(ABORT, 'overdraft_cannot_be_group')
+    WHEN NEW.type != 'asset' OR NEW.is_system = 1 OR NEW.is_placeholder = 1
+      THEN RAISE(ABORT, 'overdraft_invalid_account')
+    WHEN EXISTS (SELECT 1 FROM accounts c WHERE c.parent_id = NEW.id)
+      THEN RAISE(ABORT, 'overdraft_requires_leaf')
+  END;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_account_overdraft_child_insert
+BEFORE INSERT ON accounts
+WHEN NEW.parent_id IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM accounts p
+    WHERE p.id = NEW.parent_id AND p.is_overdraft = 1
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'overdraft_parent_forbids_children');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_account_overdraft_child_reparent
+BEFORE UPDATE OF parent_id ON accounts
+WHEN NEW.parent_id IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM accounts p
+    WHERE p.id = NEW.parent_id AND p.is_overdraft = 1
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'overdraft_parent_forbids_children');
+END;
+"""
+
+
 def connect(path: str = ":memory:") -> sqlite3.Connection:
     # check_same_thread=False: FastAPI가 동기 핸들러를 스레드풀에서 돌리므로
     # 연결이 스레드를 넘나든다. CPython sqlite3는 serialized 모드라 안전하다
@@ -134,6 +184,12 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE accounts ADD COLUMN is_placeholder INTEGER NOT NULL DEFAULT 0")
     if "is_system" not in cols:  # 시스템 계정(개시잔액) 명시 플래그
         conn.execute("ALTER TABLE accounts ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0")
+    if "is_overdraft" not in cols:
+        conn.execute(
+            "ALTER TABLE accounts ADD COLUMN is_overdraft INTEGER NOT NULL DEFAULT 0 "
+            "CHECK(is_overdraft IN (0,1))"
+        )
+    conn.executescript(OVERDRAFT_TRIGGERS)
     # actual 시나리오 (id=1) 시드
     conn.execute(
         "INSERT OR IGNORE INTO scenarios (id, name, base_scenario_id, fork_date) "
