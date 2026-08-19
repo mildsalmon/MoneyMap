@@ -650,7 +650,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
                 설정
               </button>
               <button
-                className="btn sm danger"
+                className="btn sm secondary"
                 disabled={!balances || Boolean(balancesError) || Boolean(pending)}
                 onClick={() => void archive(account)}
               >
