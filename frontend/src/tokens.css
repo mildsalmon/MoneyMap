@@ -157,7 +157,7 @@ textarea:focus-visible,
 
 /* ── 대시보드 ── */
 .strip { display: flex; gap: 36px; border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 4px; }
-.strip .cell label { font-size: 11px; color: var(--muted); display: block; }
+.strip .cell .metric-label { font-size: 11px; color: var(--muted); display: block; }
 .strip .cell .hero { font-family: var(--mono); font-weight: 600; font-size: 30px; letter-spacing: 0; }
 .strip .cell .v { font-size: 17px; font-weight: 650; font-variant-numeric: tabular-nums; }
 .strip .cell .d { font-size: 12px; }

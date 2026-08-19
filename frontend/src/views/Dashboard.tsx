@@ -90,7 +90,7 @@ export function Dashboard({ gen, go }: ViewProps) {
     return (
       <div className="empty-wrap">
         <div className="empty">
-          <h2 style={{ fontSize: 19, marginBottom: 6 }}>장부를 시작해볼까요?</h2>
+          <h1 style={{ fontSize: 19, marginBottom: 6 }}>장부를 시작해볼까요?</h1>
           <p style={{ color: "var(--muted)", fontSize: 13.5 }}>세 단계면 첫 미래 자산 곡선을 볼 수 있습니다.</p>
           <div className="steps">
             {steps.map((s, i) => (
@@ -124,15 +124,17 @@ export function Dashboard({ gen, go }: ViewProps) {
       {/* 상단: 테두리 없는 순자산 스트립 (D6) */}
       <div className="strip">
         <div className="cell">
-          <label>순자산 (오늘)</label>
-          <div className="hero">{balances ? fmtWon(balances.net_worth) : "…"}</div>
+          <span className="metric-label" aria-hidden="true">순자산 (오늘)</span>
+          <h1 className="hero" aria-label={`대시보드, 오늘 순자산 ${balances ? fmtWon(balances.net_worth) : "확인 중"}`}>
+            {balances ? fmtWon(balances.net_worth) : "…"}
+          </h1>
         </div>
         <div className="cell">
-          <label>이번 달 수입</label>
+          <span className="metric-label">이번 달 수입</span>
           <div className="v num">{fmtWon(income)}</div>
         </div>
         <div className="cell">
-          <label>이번 달 지출</label>
+          <span className="metric-label">이번 달 지출</span>
           <div className="v num">{fmtWon(expense)}</div>
         </div>
       </div>
