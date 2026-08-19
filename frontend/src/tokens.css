@@ -46,6 +46,7 @@ textarea:focus-visible,
 }
 .sr-only {
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  top: 0; left: 0;
   overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
 
@@ -171,6 +172,16 @@ textarea:focus-visible,
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 20px; }
 .panel { border: 1px solid var(--line-strong); border-radius: 4px; padding: 14px; background: var(--surface); }
 .panel h4 { font-size: 11px; color: var(--muted); font-weight: 600; margin-bottom: 8px; letter-spacing: 0; }
+.rule-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.rules-workspace { max-width: 860px; }
+.scenario-create { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 20px; }
+.scenario-preview {
+  display: flex; gap: 28px; font-size: 14px;
+  border-top: 1px solid var(--line); padding-top: 12px;
+}
+.table-scroll { max-width: 100%; overflow-x: auto; }
+.scenarios-list { max-width: 760px; }
+.history-scroll { max-width: 860px; }
 
 /* ── 온보딩 ── */
 .empty-wrap { display: flex; align-items: center; justify-content: center; min-height: 60vh; }
@@ -301,4 +312,43 @@ textarea:focus-visible,
 @media (max-width: 1199px) {
   .two { grid-template-columns: 1fr; }
   .dashboard-account-cell .account-state-badge { display: table; margin: 3px 0 0; }
+}
+
+@media (max-width: 720px) {
+  .shell { height: 100%; flex-direction: column; }
+  .side {
+    width: 100%; padding-top: 0;
+    border-right: 0; border-bottom: 1px solid var(--line);
+  }
+  .side .logo { padding: 10px 12px 8px; }
+  .side nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); flex: none; }
+  .side nav button {
+    justify-content: center; min-height: 44px; gap: 5px;
+    padding: 8px 4px; font-size: 12px;
+  }
+  .side nav button.on {
+    padding-left: 4px; border-left: 0; border-bottom: 2px solid var(--accent);
+  }
+  .side .health { display: none; }
+  .main { width: 100%; padding: 16px 12px; overflow-x: hidden; }
+  .main h1 { margin-bottom: 12px; }
+  .strip { flex-wrap: wrap; gap: 12px 20px; }
+  .strip .cell:first-child { flex-basis: 100%; min-width: 0; }
+  .strip .cell .hero { font-size: 26px; overflow-wrap: anywhere; }
+  .filters { flex-wrap: wrap; }
+  .filters > span:last-child { flex-basis: 100%; line-height: 1.5; }
+  .empty-wrap { min-height: calc(100vh - 180px); align-items: flex-start; padding-top: 28px; }
+  .empty { width: 100%; }
+  .panel { padding: 12px; }
+  .rule-form, .scenario-create { flex-direction: column; align-items: stretch; }
+  .rule-form .field, .scenario-create .field { width: 100%; }
+  .rule-form input, .rule-form select, .scenario-create input { width: 100% !important; }
+  .rule-form .btn, .scenario-create .btn { min-height: 44px; align-self: stretch; }
+  .txn-workspace { grid-template-columns: 1fr !important; }
+  .table-scroll { -webkit-overflow-scrolling: touch; }
+  .table-scroll > .ledger { min-width: 640px; max-width: none; }
+  .scenario-editor-scroll > .ledger { min-width: 840px; }
+  .scenario-preview { flex-direction: column; gap: 6px; }
+  .accounts-ledger-wrap { margin-right: -12px; padding-right: 12px; }
+  .toast { left: 12px; right: 12px; bottom: 12px; transform: none; }
 }
