@@ -719,8 +719,9 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
         <summary>고급</summary>
         <div className="advanced-fields">
           <div className="field">
-            <label>계정 이름</label>
+            <label htmlFor="advanced-account-name">계정 이름</label>
             <input
+              id="advanced-account-name"
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="예: Toss뱅크"
@@ -728,8 +729,9 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
             />
           </div>
           <div className="field">
-            <label>유형</label>
+            <label htmlFor="advanced-account-type">유형</label>
             <select
+              id="advanced-account-type"
               value={type}
               onChange={(event) => {
                 const nextType = event.target.value as AccountType;
@@ -744,8 +746,9 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
             </select>
           </div>
           <div className="field">
-            <label>상위 그룹 (선택)</label>
+            <label htmlFor="advanced-account-parent">상위 그룹 (선택)</label>
             <select
+              id="advanced-account-parent"
               value={parentId}
               onChange={(event) => {
                 const nextParent = event.target.value === "" ? "" : Number(event.target.value);
