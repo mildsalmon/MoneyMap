@@ -101,7 +101,7 @@ export function Rules({ gen, refresh, showToast }: ViewProps) {
       </p>
 
       <div className="panel rules-workspace" style={{ marginBottom: 20 }}>
-        <h4>새 규칙</h4>
+        <h2 className="panel-heading">새 규칙</h2>
         <RuleForm scenarioId={1} accounts={accounts} onSaved={(r) => {
           refresh();
           showToast(`규칙 "${r.description || humanSchedule(r.schedule.spec)}" 등록됨 — 다음 실행일부터 자동 기록`);

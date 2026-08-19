@@ -264,7 +264,7 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
 
         {/* 복식 미리보기 — 장식이 아니라 신뢰 장치 */}
         <div className="panel" style={{ alignSelf: "flex-start" }}>
-          <h4>이 입력이 만드는 복식부기</h4>
+          <h2 className="panel-heading">이 입력이 만드는 복식부기</h2>
           <table className="ledger">
             <thead><tr><th>계정</th><th className="num">차변</th><th className="num">대변</th></tr></thead>
             <tbody>
@@ -314,7 +314,7 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
       {/* 최근 입력 — 클릭하면 폼에 불러오기 (즉시 저장 아님, D12) */}
       {recent.length > 0 && (
         <div style={{ marginTop: 24 }}>
-          <h4 style={{ fontSize: 11, color: "var(--muted)", fontWeight: 600, marginBottom: 6 }}>방금 입력한 내역 (최근 순)</h4>
+          <h2 className="section-heading">방금 입력한 내역 (최근 순)</h2>
           <table className="ledger" style={{ maxWidth: 720 }}>
             <tbody>
               {recent.slice(0, 5).map((t) => (

@@ -172,7 +172,14 @@ textarea:focus-visible,
 
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 20px; }
 .panel { border: 1px solid var(--line-strong); border-radius: 4px; padding: 14px; background: var(--surface); }
-.panel h4 { font-size: 11px; color: var(--muted); font-weight: 600; margin-bottom: 8px; letter-spacing: 0; }
+.panel .panel-heading {
+  font-size: 11px; color: var(--muted); font-weight: 600;
+  margin-bottom: 8px; letter-spacing: 0;
+}
+.section-heading {
+  font-size: 11px; color: var(--muted); font-weight: 600;
+  margin-bottom: 6px; letter-spacing: 0;
+}
 .rule-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
 .rules-workspace { max-width: 860px; }
 .scenario-create { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 20px; }
@@ -301,7 +308,7 @@ textarea:focus-visible,
 }
 .page-loading { color: var(--muted); min-height: 120px; }
 .archived-accounts { margin-top: 28px; }
-.archived-accounts h4 {
+.archived-accounts .section-heading {
   margin-bottom: 6px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: 0;
 }
 .archived-ledger { min-width: 700px; max-width: 820px; }

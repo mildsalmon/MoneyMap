@@ -60,9 +60,9 @@ function ScenarioEditor({
 
   return (
     <div className="panel" style={{ marginTop: 16 }}>
-      <h4>
+      <h2 className="panel-heading">
         시나리오: {scenario.name} <span style={{ color: "var(--faint)", fontWeight: 400 }}>({scenario.fork_date}에 분기 · 규칙은 분기 시점에 복사됨)</span>
-      </h4>
+      </h2>
       <div className="table-scroll scenario-editor-scroll">
         <table className="ledger">
           <thead>

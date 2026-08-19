@@ -803,7 +803,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
 
       {archivedList.length > 0 && (
         <div className="archived-accounts">
-          <h4>보관된 계정 ({archivedList.length})</h4>
+          <h2 className="section-heading">보관된 계정 ({archivedList.length})</h2>
           <div className="accounts-ledger-wrap">
             <table className="ledger archived-ledger">
               <tbody>
