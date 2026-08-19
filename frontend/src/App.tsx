@@ -78,7 +78,8 @@ export function App() {
         <div className="logo">MoneyMap</div>
         <nav>
           {NAV.map(({ id, label, icon: Icon }) => (
-            <button key={id} className={view === id ? "on" : ""} onClick={() => setView(id)}>
+            <button key={id} className={view === id ? "on" : ""}
+              aria-current={view === id ? "page" : undefined} onClick={() => setView(id)}>
               <Icon size={15} strokeWidth={1.8} /> {label}
             </button>
           ))}

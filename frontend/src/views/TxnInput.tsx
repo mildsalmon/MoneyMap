@@ -3,7 +3,7 @@
  * 템플릿이 분류(차변/대변)를 대신하고, 우측 미리보기가 신뢰 장치로
  * 항상 같은 자리에서 검산을 보여준다.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { accountTree, api, isPostable, type Account, type Txn } from "../api";
 import { commaInput, fmtDelta, fmtWon, todayIso } from "../format";
 import type { ViewProps } from "../App";
@@ -29,10 +29,11 @@ function AccountSelect({
   filter: (a: Account) => boolean;
   label: string;
 }) {
+  const inputId = useId();
   return (
     <div className="field">
-      <label>{label}</label>
-      <select value={value} onChange={(e) => onChange(Number(e.target.value))}>
+      <label htmlFor={inputId}>{label}</label>
+      <select id={inputId} value={value} onChange={(e) => onChange(Number(e.target.value))}>
         <option value="">선택</option>
         {/* 계정 트리 들여쓰기 — 같은 유형끼리만 부모가 될 수 있어 필터 후에도 트리가 온전하다.
             보관된 계정(D23)은 새 입력에서 제외 (과거 거래의 이름 표시는 영향 없음) */}
@@ -153,20 +154,20 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
 
   const amountField = (
     <div className="field">
-      <label>금액</label>
-      <input ref={amountRef} className="num" style={{ width: 150, fontSize: 17, fontWeight: 650 }}
+      <label htmlFor="transaction-amount">금액</label>
+      <input id="transaction-amount" ref={amountRef} className="num" style={{ width: 150, fontSize: 17, fontWeight: 650 }}
         placeholder="0" value={amount}
         onChange={(e) => setAmount(commaInput(e.target.value).display)}
         onKeyDown={onAmountKey} />
     </div>
   );
   const dateField = (
-    <div className="field"><label>날짜</label>
-      <input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
+    <div className="field"><label htmlFor="transaction-date">날짜</label>
+      <input id="transaction-date" type="date" value={date} onChange={(e) => setDate(e.target.value)} /></div>
   );
   const descField = (
-    <div className="field"><label>내역 (선택)</label>
-      <input style={{ width: 160 }} value={desc} onChange={(e) => autofill(e.target.value)}
+    <div className="field"><label htmlFor="transaction-description">내역 (선택)</label>
+      <input id="transaction-description" style={{ width: 160 }} value={desc} onChange={(e) => autofill(e.target.value)}
         placeholder="예: 점심" list="desc-suggest" onKeyDown={onAmountKey} />
       <datalist id="desc-suggest">
         {[...new Set(recent.map((t) => t.description).filter(Boolean))].map((d) => (
@@ -183,11 +184,12 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
       <h1>거래 입력</h1>
       <div className="tabs">
         {TABS.map((t) => (
-          <span key={t.id} className={`tab ${tab === t.id ? "on" : ""}`}
+          <button key={t.id} type="button" className={`tab ${tab === t.id ? "on" : ""}`}
+            aria-pressed={tab === t.id}
             style={t.id === "advanced" ? { marginLeft: "auto", fontSize: 12.5 } : undefined}
             onClick={() => { setTab(t.id); setAcc1(""); setAcc2(""); setAmount(""); setErr(""); }}>
             {t.label}
-          </span>
+          </button>
         ))}
       </div>
 
@@ -230,19 +232,19 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
             <div style={{ display: "flex", gap: 10 }}>{dateField}{descField}</div>
             {advRows.map((r, i) => (
               <div key={i} style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-                <div className="field"><label>{i === 0 ? "계정" : ""}</label>
-                  <select value={r.account}
+                <div className="field"><label htmlFor={`advanced-account-${i}`}>{i === 0 ? "계정" : <span className="sr-only">{i + 1}번째 행 계정</span>}</label>
+                  <select id={`advanced-account-${i}`} value={r.account}
                     onChange={(e) => setAdvRows((rows) => rows.map((x, j) => j === i ? { ...x, account: Number(e.target.value) } : x))}>
                     <option value="">선택</option>
                     {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
                   </select></div>
-                <div className="field"><label>{i === 0 ? "차변/대변" : ""}</label>
-                  <select value={r.debit ? "d" : "c"}
+                <div className="field"><label htmlFor={`advanced-side-${i}`}>{i === 0 ? "차변/대변" : <span className="sr-only">{i + 1}번째 행 차변 또는 대변</span>}</label>
+                  <select id={`advanced-side-${i}`} value={r.debit ? "d" : "c"}
                     onChange={(e) => setAdvRows((rows) => rows.map((x, j) => j === i ? { ...x, debit: e.target.value === "d" } : x))}>
                     <option value="d">차변 (+)</option><option value="c">대변 (−)</option>
                   </select></div>
-                <div className="field"><label>{i === 0 ? "금액" : ""}</label>
-                  <input className="num" style={{ width: 120 }} placeholder="0" value={r.amount}
+                <div className="field"><label htmlFor={`advanced-amount-${i}`}>{i === 0 ? "금액" : <span className="sr-only">{i + 1}번째 행 금액</span>}</label>
+                  <input id={`advanced-amount-${i}`} className="num" style={{ width: 120 }} placeholder="0" value={r.amount}
                     onChange={(e) => setAdvRows((rows) => rows.map((x, j) => j === i ? { ...x, amount: commaInput(e.target.value).display } : x))} /></div>
                 {advRows.length > 2 && (
                   <button className="btn sm secondary" onClick={() => setAdvRows((rows) => rows.filter((_, j) => j !== i))}>−</button>

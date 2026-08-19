@@ -76,7 +76,8 @@ function ScenarioEditor({
               <td className="num">{fmtWon(r.amount.amount)}</td>
               <td>{humanSchedule(r.schedule.spec)}</td>
               <td className="num">
-                <input className="num" placeholder={r.amount.amount.toLocaleString("ko-KR")}
+                <input className="num" aria-label={`${r.description || nameOf(r.from_account_id)} 금액 수정`}
+                  placeholder={r.amount.amount.toLocaleString("ko-KR")}
                   style={{ width: 110, padding: "3px 8px", border: "1px solid var(--line-strong)", borderRadius: 4, background: "var(--surface)" }}
                   value={editAmount[r.id] ?? ""}
                   onChange={(e) => setEditAmount((s) => ({ ...s, [r.id]: commaInput(e.target.value).display }))}
@@ -169,11 +170,11 @@ export function Scenarios({ gen, refresh, showToast }: ViewProps) {
       <h1>시나리오</h1>
 
       <div className="scenario-create">
-        <div className="field"><label>이름</label>
-          <input style={{ width: 240 }} value={name} onChange={(e) => setName(e.target.value)}
+        <div className="field"><label htmlFor="scenario-name">이름</label>
+          <input id="scenario-name" style={{ width: 240 }} value={name} onChange={(e) => setName(e.target.value)}
             placeholder="예: 월 100만 더 저축하면?" onKeyDown={(e) => e.key === "Enter" && name.trim() && create()} /></div>
-        <div className="field"><label>분기 시작일</label>
-          <input type="date" value={forkDate} onChange={(e) => setForkDate(e.target.value)} /></div>
+        <div className="field"><label htmlFor="scenario-fork-date">분기 시작일</label>
+          <input id="scenario-fork-date" type="date" value={forkDate} onChange={(e) => setForkDate(e.target.value)} /></div>
         <button className="btn primary" disabled={!name.trim()} onClick={create}>+ 새 시나리오</button>
       </div>
 
@@ -200,9 +201,11 @@ export function Scenarios({ gen, refresh, showToast }: ViewProps) {
                   <td>{s.name}</td>
                   <td style={{ color: "var(--muted)" }}>{s.fork_date}</td>
                   <td style={{ textAlign: "center" }}>
-                    <input type="checkbox" checked={checked.includes(s.id)} onChange={() => toggle(s.id)} />
+                    <input type="checkbox" aria-label={`${s.name} 차트에 표시`}
+                      checked={checked.includes(s.id)} onChange={() => toggle(s.id)} />
                   </td>
-                  <td><button className="btn sm secondary" onClick={() => setOpenId(openId === s.id ? null : s.id)}>
+                  <td><button className="btn sm secondary" aria-expanded={openId === s.id}
+                    onClick={() => setOpenId(openId === s.id ? null : s.id)}>
                     {openId === s.id ? "닫기" : "열기"}
                   </button></td>
                 </tr>

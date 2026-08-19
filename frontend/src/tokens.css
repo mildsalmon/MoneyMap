@@ -149,7 +149,8 @@ textarea:focus-visible,
 .tabs { display: flex; gap: 3px; border-bottom: 2px solid var(--ink); margin-bottom: 18px; align-items: flex-end; }
 .tab {
   padding: 8px 16px; font-size: 13.5px; color: var(--muted);
-  border-radius: 4px 4px 0 0; cursor: pointer; user-select: none;
+  border: 0; background: transparent; border-radius: 4px 4px 0 0;
+  cursor: pointer; user-select: none;
 }
 .tab:hover { background: var(--surface-selected); }
 .tab.on { background: var(--ink); color: var(--bg); font-weight: 650; }

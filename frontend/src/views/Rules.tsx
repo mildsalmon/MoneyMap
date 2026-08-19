@@ -28,6 +28,7 @@ export function RuleForm({
   const [amount, setAmount] = useState("");
   const [day, setDay] = useState(25);
   const [err, setErr] = useState("");
+  const idPrefix = `rule-${scenarioId}`;
 
   const save = async () => {
     setErr("");
@@ -52,29 +53,29 @@ export function RuleForm({
 
   return (
     <div className="rule-form">
-      <div className="field"><label>내역</label>
-        <input style={{ width: 140 }} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="예: 월급" /></div>
-      <div className="field"><label>어디서 (from)</label>
-        <select value={from} onChange={(e) => setFrom(Number(e.target.value))}>
+      <div className="field"><label htmlFor={`${idPrefix}-description`}>내역</label>
+        <input id={`${idPrefix}-description`} style={{ width: 140 }} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="예: 월급" /></div>
+      <div className="field"><label htmlFor={`${idPrefix}-from`}>어디서 (from)</label>
+        <select id={`${idPrefix}-from`} value={from} onChange={(e) => setFrom(Number(e.target.value))}>
           <option value="">선택</option>
           {accounts.filter((a) => !a.is_system && isPostable(accounts, a)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select></div>
-      <div className="field"><label>어디로 (to)</label>
-        <select value={to} onChange={(e) => setTo(Number(e.target.value))}>
+      <div className="field"><label htmlFor={`${idPrefix}-to`}>어디로 (to)</label>
+        <select id={`${idPrefix}-to`} value={to} onChange={(e) => setTo(Number(e.target.value))}>
           <option value="">선택</option>
           {accounts.filter((a) => !a.is_system && isPostable(accounts, a)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select></div>
-      <div className="field"><label>금액/회</label>
-        <input className="num" style={{ width: 120 }} value={amount} placeholder="0"
+      <div className="field"><label htmlFor={`${idPrefix}-amount`}>금액/회</label>
+        <input id={`${idPrefix}-amount`} className="num" style={{ width: 120 }} value={amount} placeholder="0"
           onChange={(e) => setAmount(commaInput(e.target.value).display)}
           onKeyDown={(e) => e.key === "Enter" && save()} /></div>
-      <div className="field"><label>매월</label>
-        <select value={day} onChange={(e) => setDay(Number(e.target.value))}>
+      <div className="field"><label htmlFor={`${idPrefix}-day`}>매월</label>
+        <select id={`${idPrefix}-day`} value={day} onChange={(e) => setDay(Number(e.target.value))}>
           {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>{d}일</option>)}
         </select></div>
       <button className="btn primary" onClick={save}
         disabled={!commaInput(amount).value || from === "" || to === ""}>규칙 추가</button>
-      {err && <span className="err" style={{ color: "var(--danger)", fontSize: 12 }}>{err}</span>}
+      {err && <span className="err" role="alert" style={{ color: "var(--danger)", fontSize: 12 }}>{err}</span>}
     </div>
   );
 }
