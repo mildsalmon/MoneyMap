@@ -1,0 +1,11 @@
+{
+  "platform": "codex",
+  "search": {
+    "vector": true,
+    "embedModel": "qwen3"
+  },
+  "compaction": {
+    "rootMaxTokens": 3000,
+    "cooldownHours": 3
+  }
+}
