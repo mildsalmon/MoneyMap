@@ -116,6 +116,24 @@
 **Priority:** P3
 **Depends on:** `/balances` 지연 또는 계정 수 증가가 실제로 관측됨
 
+## 개발 환경
+
+### E2E 테스트 포트와 API base URL 환경변수화
+
+**What:** Playwright의 프론트·백엔드 포트와 프론트 API base URL을 환경변수로 설정할 수 있게 한다.
+
+**Why:** 개발 서버가 고정 포트 `5173` 또는 `8765`를 사용 중이면 `npm run e2e`가 테스트 시작 전에 중단되는 문제를 없앤다.
+
+**Pros:** 실행 중인 개발 서버를 종료하지 않고 E2E를 돌릴 수 있고 로컬·CI의 포트 충돌을 줄인다.
+
+**Cons:** `VITE_API_BASE`와 Playwright webServer 설정을 함께 관리해야 하며 환경변수 조합에 대한 검증이 필요하다.
+
+**Context:** 현재 `frontend/playwright.config.ts`는 `5173`과 `8765`를 고정하고 `frontend/src/api.ts`도 API 주소를 고정한다. 계정 설정 기능에서는 공유 DB 경합을 막기 위해 `workers: 1`만 적용하고, 포트 설정 변경은 기능 범위와 분리한다.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
+
 ## Completed
 
 - 2026-08-19: 소형 보조 텍스트 대비를 WCAG AA로 상향하고 주요 폼 라벨·헤딩 구조를 정비했다.
