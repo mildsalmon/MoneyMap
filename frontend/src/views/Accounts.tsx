@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Pencil, Plus, Settings2, X } from "lucide-react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Plus, Settings2 } from "lucide-react";
 import {
   accountTree,
   api,
@@ -7,12 +7,14 @@ import {
   isPostable,
   withDescendants,
   type Account,
+  type AccountSettingsResult,
   type AccountType,
   type BalanceRow,
   type OpeningBalanceRecord,
 } from "../api";
 import { fmtWon, todayIso } from "../format";
 import type { ViewProps } from "../App";
+import { AccountSettingsPanel } from "./AccountSettingsPanel";
 import { OpeningBalanceControl } from "./OpeningBalanceControl";
 
 const TYPE_LABEL: Record<AccountType, string> = {
@@ -37,15 +39,7 @@ interface ChildDraft {
   isOverdraft: boolean;
 }
 
-interface SettingsDraft {
-  id: number;
-  name: string;
-  originalName: string;
-  isOverdraft: boolean;
-  originalOverdraft: boolean;
-}
-
-type RowTask = "settings" | "opening" | "archive" | "restore";
+type RowTask = "opening" | "archive" | "restore";
 
 export function Accounts({ gen, refresh, showToast }: ViewProps) {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
@@ -64,16 +58,22 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   const [advancedOverdraft, setAdvancedOverdraft] = useState(false);
   const [rootDraft, setRootDraft] = useState<RootDraft | null>(null);
   const [childDraft, setChildDraft] = useState<ChildDraft | null>(null);
-  const [settingsDraft, setSettingsDraft] = useState<SettingsDraft | null>(null);
+  const [settingsAccountId, setSettingsAccountId] = useState<number | null>(null);
   const [reclassTargets, setReclassTargets] = useState<Record<number, number | "">>({});
   const inlineRef = useRef<HTMLInputElement>(null);
 
-  const loadAccounts = useCallback(() => {
+  const loadAccounts = useCallback(async () => {
     setAccountsError("");
-    api.accounts().then(setAccounts).catch((error: Error) => {
+    try {
+      const result = await api.accounts();
+      setAccounts(result);
+      return result;
+    } catch (caught) {
+      const error = caught as Error;
       setAccountsError(error.message);
       setAccounts((current) => current ?? null);
-    });
+      return undefined;
+    }
   }, []);
 
   const loadBalances = useCallback(() => {
@@ -93,14 +93,14 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   }, []);
 
   useEffect(() => {
-    loadAccounts();
+    void loadAccounts();
     loadBalances();
     loadOpeningRecords();
   }, [gen, loadAccounts, loadBalances, loadOpeningRecords]);
 
   useEffect(() => {
     inlineRef.current?.focus();
-  }, [rootDraft?.type, childDraft?.parentId, settingsDraft?.id]);
+  }, [rootDraft?.type, childDraft?.parentId]);
 
   const accountList = accounts ?? [];
   const visible = accountList.filter((account) => !account.is_system && !account.archived);
@@ -130,14 +130,10 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     setRowTasks((current) => ({ ...current, [id]: task }));
   };
 
-  const updateAccountLocally = (updated: Account) => {
-    setAccounts((current) => current?.map((account) => account.id === updated.id ? updated : account) ?? null);
-  };
-
   const closeInlineEditors = () => {
     setRootDraft(null);
     setChildDraft(null);
-    setSettingsDraft(null);
+    setSettingsAccountId(null);
   };
 
   const create = async () => {
@@ -219,46 +215,45 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     clearRowError(account.id);
     setRootDraft(null);
     setChildDraft(null);
-    setSettingsDraft({
-      id: account.id,
-      name: account.name,
-      originalName: account.name,
-      isOverdraft: account.is_overdraft,
-      originalOverdraft: account.is_overdraft,
-    });
+    setSettingsAccountId(account.id);
   };
 
   const returnFocusToSettings = (id: number) => {
-    requestAnimationFrame(() => document.getElementById(`account-settings-${id}`)?.focus());
+    requestAnimationFrame(() => {
+      const button = document.getElementById(`account-settings-${id}`);
+      button?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      button?.focus();
+    });
   };
 
-  const saveSettings = async (account: Account) => {
-    if (!settingsDraft || settingsDraft.id !== account.id || rowTasks[account.id]) return;
-    const draftName = settingsDraft.name.trim();
-    const nameChanged = draftName !== settingsDraft.originalName;
-    const overdraftChanged = settingsDraft.isOverdraft !== settingsDraft.originalOverdraft;
-    if (!draftName || (!nameChanged && !overdraftChanged) || (nameChanged && overdraftChanged)) return;
+  const cancelSettings = (id: number) => {
+    setSettingsAccountId(null);
+    returnFocusToSettings(id);
+  };
 
-    clearRowError(account.id);
-    setRowTask(account.id, "settings");
-    try {
-      const updated = nameChanged
-        ? await api.updateAccount(account.id, { name: draftName })
-        : await api.setOverdraft(account.id, settingsDraft.isOverdraft);
-      updateAccountLocally(updated);
-      setSettingsDraft(null);
-      refresh();
-      if (nameChanged) {
-        showToast(`"${account.name}" → "${draftName}" 이름 변경됨`);
-      } else {
-        showToast(updated.is_overdraft ? "마이너스통장으로 설정됨" : "일반 계정으로 변경됨");
-      }
-      returnFocusToSettings(account.id);
-    } catch (error) {
-      setRowErrors((current) => ({ ...current, [account.id]: (error as Error).message }));
-    } finally {
-      setRowTask(account.id);
+  const settingsSaved = async (before: Account, result: AccountSettingsResult) => {
+    setSettingsAccountId(null);
+    await loadAccounts();
+    refresh();
+
+    const nameChanged = before.name !== result.account.name;
+    const overdraftChanged = before.is_overdraft !== result.account.is_overdraft;
+    if (result.effects.moved) {
+      const parent = result.account.parent_id === null
+        ? `${TYPE_LABEL[result.account.type]} 최상위`
+        : accountList.find((candidate) => candidate.id === result.account.parent_id)?.name ?? "새 상위 그룹";
+      const sourceNote = result.effects.source_parent_grouped
+        ? " · 비어진 이전 계정은 그룹으로 유지했습니다"
+        : "";
+      showToast(`"${result.account.name}"을(를) "${parent}" 위치로 이동했습니다${sourceNote}`);
+    } else if (nameChanged && !overdraftChanged) {
+      showToast(`"${before.name}" → "${result.account.name}" 이름 변경됨`);
+    } else if (!nameChanged && overdraftChanged) {
+      showToast(result.account.is_overdraft ? "마이너스통장으로 설정됨" : "일반 계정으로 변경됨");
+    } else {
+      showToast(`"${result.account.name}" 설정을 저장했습니다`);
     }
+    returnFocusToSettings(result.account.id);
   };
 
   const archive = async (account: Account) => {
@@ -523,143 +518,96 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     const hasVisibleChildren = visible.some((child) => child.parent_id === account.id);
     const group = isGroup(accountList, account);
     const rollupIds = hasVisibleChildren ? withDescendants(visible, account.id) : [account.id];
-    const editing = settingsDraft?.id === account.id;
+    const editing = settingsAccountId === account.id;
     const pending = rowTasks[account.id];
-    const eligibleForOverdraft = account.type === "asset" && !group && !account.archived && !account.is_system;
-    const nameChanged = editing && settingsDraft.name.trim() !== settingsDraft.originalName;
-    const overdraftChanged = editing && settingsDraft.isOverdraft !== settingsDraft.originalOverdraft;
-    const settingsSavable = editing && settingsDraft.name.trim() && (nameChanged !== overdraftChanged);
 
     return (
-      <tr key={account.id} className={`account-row${group ? " group-row" : ""}`}>
-        <td style={{ paddingLeft: 8 + depth * 20 }}>
-          {depth > 0 && <span className="tree-guide">└ </span>}
-          {editing ? (
-            <input
-              ref={inlineRef}
-              className="compact-input"
-              aria-label={`${account.name} 이름`}
-              value={settingsDraft.name}
-              disabled={Boolean(overdraftChanged) || pending === "settings"}
-              onChange={(event) => {
-                setSettingsDraft({ ...settingsDraft, name: event.target.value });
-                clearRowError(account.id);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void saveSettings(account);
-                if (event.key === "Escape") {
-                  clearRowError(account.id);
-                  setSettingsDraft(null);
-                }
-              }}
-            />
-          ) : (
+      <Fragment key={account.id}>
+        <tr className={`account-row${group ? " group-row" : ""}${editing ? " settings-open" : ""}`}>
+          <td style={{ paddingLeft: 8 + depth * 20 }}>
+            {depth > 0 && <span className="tree-guide">└ </span>}
             <span className="account-name" title={account.name} aria-label={account.name}>{account.name}</span>
-          )}
-          {!editing && group && (
-            <span className="badge group-badge">{hasChildren ? "그룹 · 합산" : "그룹"}</span>
-          )}
-        </td>
-        <td>
-          <span className="badge">{TYPE_LABEL[account.type]}</span>
-          {!editing && account.is_overdraft && <span className="badge account-state-badge">마이너스통장</span>}
-          {editing && eligibleForOverdraft && (
-            <label className="overdraft-check">
-              <input
-                type="checkbox"
-                aria-label={`${account.name} 마이너스통장`}
-                checked={settingsDraft.isOverdraft}
-                disabled={Boolean(nameChanged) || pending === "settings"}
-                onChange={(event) => {
-                  setSettingsDraft({ ...settingsDraft, isOverdraft: event.target.checked });
-                  clearRowError(account.id);
-                }}
+            {group && (
+              <span className="badge group-badge">{hasChildren ? "그룹 · 합산" : "그룹"}</span>
+            )}
+          </td>
+          <td>
+            <span className="badge">{TYPE_LABEL[account.type]}</span>
+            {account.is_overdraft && <span className="badge account-state-badge">마이너스통장</span>}
+          </td>
+          <td className="num balance-cell">{renderBalanceCell(account, rollupIds)}</td>
+          <td className="opening-cell">
+            {isNetWorthAccount && !group ? (
+              <OpeningBalanceControl
+                key={`${account.id}-${account.is_overdraft}`}
+                account={account}
+                record={openingOf(account.id)}
+                zeroConfirmed={!openingOf(account.id) && zeroConfirmed.includes(account.id)}
+                readState={openingsError ? "error" : openingRecords ? "ready" : "loading"}
+                disabled={Boolean(pending)}
+                pending={pending === "opening"}
+                error={rowErrors[account.id]}
+                onChange={() => clearRowError(account.id)}
+                onRetry={loadOpeningRecords}
+                onRecord={(amount, state) => recordOpening(account, amount, state)}
+                onZero={() => toggleZero(account)}
+                onUndo={(transactionId) => undoOpening(account, transactionId)}
               />
-              마이너스통장
-            </label>
-          )}
-        </td>
-        <td className="num balance-cell">{renderBalanceCell(account, rollupIds)}</td>
-        <td className="opening-cell">
-          {editing ? null : isNetWorthAccount && !group ? (
-            <OpeningBalanceControl
-              key={`${account.id}-${account.is_overdraft}`}
-              account={account}
-              record={openingOf(account.id)}
-              zeroConfirmed={!openingOf(account.id) && zeroConfirmed.includes(account.id)}
-              readState={openingsError ? "error" : openingRecords ? "ready" : "loading"}
-              disabled={Boolean(pending)}
-              pending={pending === "opening"}
-              error={rowErrors[account.id]}
-              onChange={() => clearRowError(account.id)}
-              onRetry={loadOpeningRecords}
-              onRecord={(amount, state) => recordOpening(account, amount, state)}
-              onZero={() => toggleZero(account)}
-              onUndo={(transactionId) => undoOpening(account, transactionId)}
-            />
-          ) : null}
-        </td>
-        <td className="row-actions">
-          {editing ? (
-            <>
+            ) : null}
+          </td>
+          <td className="row-actions">
+            {group && (
               <button
-                className="btn sm primary settings-save"
-                disabled={!settingsSavable || pending === "settings"}
-                onClick={() => void saveSettings(account)}
-              >
-                <Check size={13} aria-hidden="true" />
-                {pending === "settings" ? "저장 중…" : "저장"}
-              </button>
-              <button className="btn sm secondary" disabled={pending === "settings"} onClick={() => {
-                clearRowError(account.id);
-                setSettingsDraft(null);
-              }}>
-                <X size={13} aria-hidden="true" />
-                취소
-              </button>
-              {rowErrors[account.id] && <span className="row-error action-error" role="alert">{rowErrors[account.id]}</span>}
-            </>
-          ) : (
-            <>
-              {group && (
-                <button
-                  className="btn sm secondary"
-                  disabled={Boolean(pending)}
-                  onClick={() => {
-                    setChildDraft({ parentId: account.id, name: "", isOverdraft: false });
-                    setRootDraft(null);
-                    setSettingsDraft(null);
-                  }}
-                >
-                  <Plus size={13} aria-hidden="true" />
-                  소분류
-                </button>
-              )}
-              {!hasChildren && !account.is_overdraft && (
-                <button className="btn sm secondary" disabled={Boolean(pending)} onClick={() => void toggleGroup(account)}>
-                  {account.is_placeholder ? "그룹 해제" : "그룹으로"}
-                </button>
-              )}
-              <button
-                id={`account-settings-${account.id}`}
                 className="btn sm secondary"
                 disabled={Boolean(pending)}
-                onClick={() => startSettings(account)}
+                onClick={() => {
+                  setChildDraft({ parentId: account.id, name: "", isOverdraft: false });
+                  setRootDraft(null);
+                  setSettingsAccountId(null);
+                }}
               >
-                <Settings2 size={13} aria-hidden="true" />
-                설정
+                <Plus size={13} aria-hidden="true" />
+                소분류
               </button>
+            )}
+            {!hasChildren && !account.is_overdraft && (
               <button
                 className="btn sm secondary"
-                disabled={!balances || Boolean(balancesError) || Boolean(pending)}
-                onClick={() => void archive(account)}
+                disabled={Boolean(pending)}
+                onClick={() => void toggleGroup(account)}
               >
-                {pending === "archive" ? "보관 중…" : "보관"}
+                {account.is_placeholder ? "그룹 해제" : "그룹으로"}
               </button>
-            </>
-          )}
-        </td>
-      </tr>
+            )}
+            <button
+              id={`account-settings-${account.id}`}
+              className={`btn sm secondary${editing ? " on" : ""}`}
+              disabled={Boolean(pending)}
+              aria-expanded={editing}
+              aria-controls={`account-settings-panel-${account.id}`}
+              onClick={() => editing ? cancelSettings(account.id) : startSettings(account)}
+            >
+              <Settings2 size={13} aria-hidden="true" />
+              설정
+            </button>
+            <button
+              className="btn sm secondary"
+              disabled={!balances || Boolean(balancesError) || Boolean(pending)}
+              onClick={() => void archive(account)}
+            >
+              {pending === "archive" ? "보관 중…" : "보관"}
+            </button>
+          </td>
+        </tr>
+        {editing && (
+          <AccountSettingsPanel
+            account={account}
+            accounts={accountList}
+            onCancel={() => cancelSettings(account.id)}
+            onSaved={(result) => settingsSaved(account, result)}
+          />
+        )}
+      </Fragment>
     );
   };
 
@@ -811,31 +759,11 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
             <table className="ledger archived-ledger">
               <tbody>
                 {archivedList.map((account) => {
-                  const editing = settingsDraft?.id === account.id;
                   const pending = rowTasks[account.id];
-                  const nameChanged = editing && settingsDraft.name.trim() !== settingsDraft.originalName;
                   return (
                     <tr key={account.id} className="muted-row">
                       <td>
-                        {editing ? (
-                          <input
-                            ref={inlineRef}
-                            className="compact-input"
-                            aria-label={`${account.name} 이름`}
-                            value={settingsDraft.name}
-                            disabled={pending === "settings"}
-                            onChange={(event) => {
-                              setSettingsDraft({ ...settingsDraft, name: event.target.value });
-                              clearRowError(account.id);
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") void saveSettings(account);
-                              if (event.key === "Escape") setSettingsDraft(null);
-                            }}
-                          />
-                        ) : (
-                          <span className="account-name" title={account.name}>{account.name}</span>
-                        )}
+                        <span className="account-name" title={account.name}>{account.name}</span>
                       </td>
                       <td>
                         <span className="badge">{TYPE_LABEL[account.type]}</span>
@@ -845,38 +773,9 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
                         {balancesError ? "불러오지 못함" : balances ? fmtWon(balanceOf(account.id)?.balance ?? 0) : "…"}
                       </td>
                       <td className="row-actions">
-                        {editing ? (
-                          <>
-                            <button
-                              className="btn sm primary"
-                              disabled={!nameChanged || !settingsDraft.name.trim() || pending === "settings"}
-                              onClick={() => void saveSettings(account)}
-                            >
-                              <Check size={13} aria-hidden="true" />
-                              {pending === "settings" ? "저장 중…" : "저장"}
-                            </button>
-                            <button className="btn sm secondary" disabled={pending === "settings"} onClick={() => setSettingsDraft(null)}>
-                              <X size={13} aria-hidden="true" />
-                              취소
-                            </button>
-                            {rowErrors[account.id] && <span className="row-error" role="alert">{rowErrors[account.id]}</span>}
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              id={`account-settings-${account.id}`}
-                              className="btn sm secondary"
-                              disabled={Boolean(pending)}
-                              onClick={() => startSettings(account)}
-                            >
-                              <Pencil size={13} aria-hidden="true" />
-                              설정
-                            </button>
-                            <button className="btn sm secondary" disabled={Boolean(pending)} onClick={() => void restore(account)}>
-                              {pending === "restore" ? "복원 중…" : "복원"}
-                            </button>
-                          </>
-                        )}
+                        <button className="btn sm secondary" disabled={Boolean(pending)} onClick={() => void restore(account)}>
+                          {pending === "restore" ? "복원 중…" : "복원"}
+                        </button>
                       </td>
                     </tr>
                   );

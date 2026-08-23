@@ -277,7 +277,39 @@ textarea:focus-visible,
 .opening-cell { min-width: 280px; }
 .row-actions { white-space: nowrap; }
 .row-actions .btn + .btn { margin-left: 4px; }
+.account-row .btn.on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
 .settings-save { min-width: 70px; }
+.account-row.settings-open td { border-bottom-color: transparent; }
+.account-settings-row td {
+  padding: 0 8px 12px; background: color-mix(in srgb, var(--accent-soft) 38%, var(--surface));
+  border-bottom: 1px solid var(--line-strong);
+}
+.account-settings-panel {
+  display: grid; grid-template-columns: minmax(160px, .8fr) minmax(260px, 1.4fr) minmax(170px, auto) auto;
+  gap: 10px 14px; align-items: end; padding: 14px;
+  border: 1px solid var(--line); border-radius: 6px; background: var(--surface);
+}
+.settings-field { display: flex; min-width: 0; flex-direction: column; gap: 5px; }
+.settings-field label { color: var(--muted); font-size: 11px; font-weight: 650; }
+.settings-field input,
+.settings-field select {
+  width: 100%; min-width: 0; height: 34px; padding: 5px 8px; color: var(--ink);
+  border: 1px solid var(--line-strong); border-radius: 4px; background: var(--surface);
+  text-overflow: ellipsis;
+}
+.settings-parent-path {
+  display: none; color: var(--muted); font-size: 11px; line-height: 1.35;
+}
+.settings-overdraft {
+  display: flex; min-height: 34px; align-items: center; gap: 7px;
+  color: var(--ink); font-size: 12px; font-weight: 550;
+}
+.settings-overdraft input { accent-color: var(--accent); }
+.settings-overdraft span { display: flex; flex-direction: column; gap: 1px; }
+.settings-overdraft small { max-width: 190px; color: var(--faint); font-size: 10px; font-weight: 450; line-height: 1.25; }
+.settings-overdraft.disabled { color: var(--faint); }
+.settings-actions { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+.settings-error { grid-column: 1 / -1; margin: 0; }
 .opening-control { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; min-height: 30px; }
 .opening-entry { display: flex; align-items: center; gap: 5px; white-space: nowrap; }
 .opening-amount {
@@ -375,5 +407,18 @@ textarea:focus-visible,
   .scenario-editor-scroll > .ledger { min-width: 840px; }
   .scenario-preview { flex-direction: column; gap: 6px; }
   .accounts-ledger-wrap { margin-right: -12px; padding-right: 12px; }
+  .account-settings-row td { position: sticky; left: 0; padding-right: 12px; }
+  .account-settings-panel {
+    width: calc(100vw - 40px); grid-template-columns: minmax(0, 1fr); gap: 12px;
+    padding: 12px;
+  }
+  .account-settings-panel input,
+  .account-settings-panel select,
+  .account-settings-panel .btn { min-height: 44px; }
+  .settings-parent-path {
+    display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  }
+  .settings-overdraft { min-height: 44px; }
+  .settings-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .toast { left: 12px; right: 12px; bottom: 12px; transform: none; }
 }

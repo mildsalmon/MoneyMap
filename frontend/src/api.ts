@@ -18,6 +18,15 @@ export interface Account {
   version: number;
 }
 
+export interface AccountSettingsResult {
+  account: Account;
+  effects: {
+    moved: boolean;
+    previous_parent_id: number | null;
+    source_parent_grouped: boolean;
+  };
+}
+
 export interface Posting {
   account_id: number;
   amount: { amount: number; currency: string };
@@ -138,19 +147,21 @@ export const api = {
     is_overdraft?: boolean;
   }) =>
     req<Account>("/accounts", { method: "POST", body: JSON.stringify(b) }),
-  updateAccount: (id: number, b: { name: string }) =>
-    req<Account>(`/accounts/${id}`, { method: "PATCH", body: JSON.stringify(b) }),
+  updateAccountSettings: (id: number, b: {
+    name: string;
+    parent_id: number | null;
+    is_overdraft: boolean;
+    version: number;
+  }) => req<AccountSettingsResult>(`/accounts/${id}/settings`, {
+    method: "PUT",
+    body: JSON.stringify(b),
+  }),
   seedStandardAccounts: () =>
     req<{ created: number; skipped: number }>("/accounts/seed-standard", { method: "POST" }),
   archiveAccount: (id: number) => req<Account>(`/accounts/${id}/archive`, { method: "POST" }),
   restoreAccount: (id: number) => req<Account>(`/accounts/${id}/restore`, { method: "POST" }),
   setPlaceholder: (id: number, is_placeholder: boolean) =>
     req<Account>(`/accounts/${id}/placeholder`, { method: "POST", body: JSON.stringify({ is_placeholder }) }),
-  setOverdraft: (id: number, enabled: boolean) =>
-    req<Account>(`/accounts/${id}/overdraft`, {
-      method: "PUT",
-      body: JSON.stringify({ enabled }),
-    }),
   reclassifyDirect: (id: number, to: number) =>
     req<{ moved_postings: number; to: number }>(`/accounts/${id}/reclassify-direct?to=${to}`, { method: "POST" }),
   transactions: (scenarioId = 1) => req<Txn[]>(`/transactions?scenario_id=${scenarioId}`),
