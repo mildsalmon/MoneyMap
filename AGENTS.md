@@ -65,3 +65,12 @@ Key routing rules:
 - Save progress -> invoke /context-save
 - Resume context -> invoke /context-restore
 - Author a backlog-ready spec/issue -> invoke /spec
+
+## Testing
+
+- Backend: `cd backend && uv run pytest`
+- Frontend E2E: `cd frontend && npm run e2e`
+- Test locations: `backend/tests/` and `frontend/e2e/`
+- Run both suites after behavior or design changes; see each test directory for established conventions.
+- When adding a function, bug fix, error path, or conditional branch, add a focused test covering the resulting behavior.
+- Never commit changes that leave an existing test failing.
