@@ -8,7 +8,7 @@ import { api, type Account, type Txn } from "../api";
 import { fmtWon } from "../format";
 import type { ViewProps } from "../App";
 
-export function History({ gen, refresh, showToast }: ViewProps) {
+export function History({ gen, refresh, showToast, go }: ViewProps) {
   const [txns, setTxns] = useState<Txn[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
 
@@ -67,7 +67,16 @@ export function History({ gen, refresh, showToast }: ViewProps) {
               </tr>
             ))}
             {txns.length === 0 && (
-              <tr><td colSpan={5} style={{ color: "var(--muted)" }}>아직 거래가 없습니다 — 거래 입력에서 시작하세요.</td></tr>
+              <tr>
+                <td colSpan={5}>
+                  <div className="history-empty">
+                    <span>아직 거래가 없습니다.</span>
+                    <button type="button" className="btn sm secondary" onClick={() => go("input")}>
+                      거래 입력
+                    </button>
+                  </div>
+                </td>
+              </tr>
             )}
           </tbody>
         </table>

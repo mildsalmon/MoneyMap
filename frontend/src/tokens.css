@@ -188,6 +188,10 @@ textarea:focus-visible,
   border-top: 1px solid var(--line); padding-top: 12px;
 }
 .table-scroll { max-width: 100%; overflow-x: auto; }
+.history-empty {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  color: var(--muted);
+}
 .scenarios-list { max-width: 760px; }
 .history-scroll { max-width: 860px; }
 
