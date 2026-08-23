@@ -728,13 +728,17 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
         </div>
       </details>
 
-      {accountsError && !accounts ? (
+      {accountsError && (
         <div className="banner err" role="alert">
           계정을 불러오지 못했습니다. {accountsError}
           <button className="btn sm secondary" type="button" onClick={loadAccounts}>다시 시도</button>
         </div>
-      ) : !accounts ? (
-        <p className="page-loading">계정 확인 중…</p>
+      )}
+
+      {!accounts ? (
+        accountsError ? null : (
+          <p className="page-loading">계정 확인 중…</p>
+        )
       ) : (
         <div className="accounts-ledger-wrap">
           <table className="ledger accounts-ledger">

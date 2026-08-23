@@ -218,3 +218,39 @@ test("보관 계정은 복원만 제공하고 좁은 화면의 설정 패널은 
   expect(errorBox!.x + errorBox!.width).toBeLessThanOrEqual(panelBox!.x + panelBox!.width);
   await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
 });
+
+test("설정 저장 후 계정 갱신 실패는 기존 행과 재시도 경로를 함께 유지한다", async ({ page, request }) => {
+  const account = await createAccount(request, "설정-E2E-갱신전이름");
+  let failAccountReads = false;
+  await page.route("**/api/accounts", async (route) => {
+    if (failAccountReads && route.request().method() === "GET") {
+      await route.fulfill({
+        status: 503,
+        contentType: "application/json",
+        body: JSON.stringify({ detail: "계정 갱신 임시 실패" }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await page.goto("/");
+  await nav(page, "계정·개시잔액").click();
+  await accountRow(page, account.name).getByRole("button", { name: "설정" }).click();
+
+  const renamed = "설정-E2E-갱신후이름";
+  await page.getByLabel(`${account.name} 이름`).fill(renamed);
+  failAccountReads = true;
+  await page.getByRole("form", { name: `${account.name} 계정 설정` })
+    .getByRole("button", { name: "변경 저장" }).click();
+
+  const refreshError = page.getByRole("alert").filter({ hasText: "계정을 불러오지 못했습니다" });
+  await expect(refreshError).toBeVisible();
+  await expect(accountRow(page, account.name)).toBeVisible();
+  await expect(accountRow(page, renamed)).toHaveCount(0);
+
+  failAccountReads = false;
+  await refreshError.getByRole("button", { name: "다시 시도" }).click();
+  await expect(accountRow(page, renamed)).toBeVisible();
+  await expect(refreshError).toBeHidden();
+});
