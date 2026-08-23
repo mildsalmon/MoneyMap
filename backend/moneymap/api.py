@@ -49,7 +49,14 @@ from moneymap.domain.services import is_account_group
 from moneymap.domain.standard_accounts import STANDARD_ACCOUNTS
 
 DEFAULT_DB = os.environ.get("MONEYMAP_DB", "moneymap.db")
-CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+DEFAULT_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+
+def _cors_origins() -> list[str]:
+    configured = os.environ.get("MONEYMAP_CORS_ORIGINS")
+    if configured is None:
+        return DEFAULT_CORS_ORIGINS
+    return [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
 
 
 # ─── 요청 스키마 ─────────────────────────────────────────
@@ -147,7 +154,7 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=CORS_ORIGINS,
+        allow_origins=_cors_origins(),
         allow_methods=["*"],
         allow_headers=["*"],
     )

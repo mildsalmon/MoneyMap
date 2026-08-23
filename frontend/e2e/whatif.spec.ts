@@ -4,6 +4,9 @@
  */
 import { expect, test, type Page } from "@playwright/test";
 
+const API_BASE = (process.env.MONEYMAP_E2E_API_BASE
+  ?? `http://127.0.0.1:${process.env.MONEYMAP_E2E_BACKEND_PORT ?? "8765"}/api`).replace(/\/+$/, "");
+
 function field(page: Page, label: string) {
   return page.locator(`.field:has(label:text-is("${label}"))`).locator("input, select");
 }
@@ -158,11 +161,11 @@ test("마이너스통장 개시잔액은 대시보드에서만 부채로 보고�
   await expect(dashboardRow).toContainText("부채 · 마이너스 사용 중");
   await expect(dashboardRow).toContainText("-123,456");
 
-  const accountResponse = await page.request.get("http://127.0.0.1:8765/api/accounts");
+  const accountResponse = await page.request.get(`${API_BASE}/accounts`);
   const accounts = await accountResponse.json();
   const overdraftId = accounts.find((account: { name: string }) => account.name === "케이뱅크").id;
   const incomeId = accounts.find((account: { name: string }) => account.name === "급여").id;
-  const repayment = await page.request.post("http://127.0.0.1:8765/api/transactions", {
+  const repayment = await page.request.post(`${API_BASE}/transactions`, {
     data: {
       date: new Date().toISOString().slice(0, 10),
       description: "마이너스통장 상환",
@@ -178,7 +181,7 @@ test("마이너스통장 개시잔액은 대시보드에서만 부채로 보고�
   await expect(zeroRow).toContainText("0");
   await expect(zeroRow).not.toContainText("마이너스 사용 중");
   await expect(page.locator("table.ledger tr", { hasText: "신용카드" })).toContainText("부채");
-  await page.request.delete(`http://127.0.0.1:8765/api/transactions/${(await repayment.json()).id}`);
+  await page.request.delete(`${API_BASE}/transactions/${(await repayment.json()).id}`);
 
   // 다음 공유 DB 테스트의 순자산을 변경하지 않도록 개시 거래를 되돌린다.
   await nav(page, "계정·개시잔액").click();
@@ -313,7 +316,9 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
   // 1200px 미만: 대시보드 표를 한 열로 쌓는다.
   await page.setViewportSize({ width: 1100, height: 900 });
   await nav(page, "대시보드").click();
-  const narrowTableTops = await page.locator(".two > div").evaluateAll(
+  const dashboardTables = page.locator(".two > div");
+  await expect(dashboardTables).toHaveCount(2);
+  const narrowTableTops = await dashboardTables.evaluateAll(
     (elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)),
   );
   expect(narrowTableTops[0]).not.toBe(narrowTableTops[1]);
@@ -321,7 +326,8 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
   // 1440px: 대시보드 하단 표는 승인된 2열 배치를 유지한다.
   await page.setViewportSize({ width: 1440, height: 900 });
   await nav(page, "대시보드").click();
-  const tableTops = await page.locator(".two > div").evaluateAll(
+  await expect(dashboardTables).toHaveCount(2);
+  const tableTops = await dashboardTables.evaluateAll(
     (elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)),
   );
   expect(tableTops[0]).toBe(tableTops[1]);

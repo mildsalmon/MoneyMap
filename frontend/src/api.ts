@@ -1,6 +1,5 @@
-// 백엔드 API 클라이언트 — 실행 분리 구조(D17-eng)라 절대 주소 사용
-
-const BASE = "http://127.0.0.1:8765/api";
+// 백엔드 API 클라이언트 — 로컬 기본값은 유지하고 E2E/배포에서 주입할 수 있다.
+const BASE = (import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8765/api").replace(/\/+$/, "");
 
 export type AccountType = "asset" | "liability" | "income" | "expense" | "equity";
 
@@ -90,6 +89,12 @@ export interface OpeningBalanceRecord {
   state: "positive" | "negative";
 }
 
+export interface StatusSummary {
+  trial_balance_ok: boolean;
+  last_entry: string | null;
+  last_backup: string | null;
+}
+
 export interface RuleBody {
   scenario_id?: number;
   description?: string;
@@ -138,6 +143,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => req<{ status: string }>("/health"),
+  status: () => req<StatusSummary>("/status"),
   accounts: () => req<Account[]>("/accounts"),
   createAccount: (b: {
     name: string;
