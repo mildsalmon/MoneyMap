@@ -125,6 +125,14 @@ def _account_referenced_by_rule(conn, account_id: int) -> bool:
     return _account_rule_reference_count(conn, account_id) > 0
 
 
+def _assert_account_rule_free_before_grouping(conn, account_id: int) -> None:
+    if _account_referenced_by_rule(conn, account_id):
+        raise HTTPException(
+            status_code=400,
+            detail="이 계정을 참조하는 반복 규칙을 먼저 다른 계정으로 바꾼 뒤 그룹으로 변경하세요",
+        )
+
+
 # ─── 앱 팩토리 ───────────────────────────────────────────
 
 def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
@@ -229,11 +237,8 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
             name=body.name, type=body.type, parent_id=body.parent_id,
             is_placeholder=body.is_placeholder, is_overdraft=body.is_overdraft,
         )
-        if body.parent_id is not None and _account_referenced_by_rule(r["conn"], body.parent_id):
-            raise HTTPException(
-                status_code=400,
-                detail="이 계정을 참조하는 반복 규칙을 먼저 하위 계정으로 바꾼 뒤 소분류를 추가하세요",
-            )
+        if body.parent_id is not None:
+            _assert_account_rule_free_before_grouping(r["conn"], body.parent_id)
         return r["accounts"].create(account).model_dump()
 
     @app.put("/api/accounts/{account_id}/settings")
@@ -301,6 +306,8 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
                 "마이너스통장 설정을 해제한 뒤 그룹으로 변경하세요",
                 code="overdraft_cannot_be_group",
             )
+        if body.is_placeholder:
+            _assert_account_rule_free_before_grouping(r["conn"], account_id)
         if body.is_placeholder and r["accounts"].has_postings(account_id):
             raise HTTPException(
                 status_code=400,

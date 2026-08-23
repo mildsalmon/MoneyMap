@@ -775,6 +775,19 @@ def test_reclassify_direct_rejects_non_child_or_group_target(client):
 def test_placeholder_toggle_guard(client):
     toss = make_account(client, "Toss", "asset")
     opening = opening_account_id(client)
+    salary = make_account(client, "급여", "income")
+    rule = client.post("/api/rules", json={
+        "from_account_id": salary, "to_account_id": toss,
+        "amount": 3_000_000, "schedule": "monthly:25",
+        "start_date": TODAY.replace(day=1).isoformat(),
+    }).json()
+    # 반복 규칙이 계속 그룹을 직접 참조하게 되는 전환도 차단한다.
+    blocked_by_rule = client.post(
+        f"/api/accounts/{toss}/placeholder", json={"is_placeholder": True}
+    )
+    assert blocked_by_rule.status_code == 400
+    assert "반복 규칙" in blocked_by_rule.json()["detail"]
+    assert client.delete(f"/api/rules/{rule['id']}").status_code == 200
     # 그룹 전환 가능 (거래 없음)
     assert client.post(f"/api/accounts/{toss}/placeholder", json={"is_placeholder": True}).json()["is_placeholder"] is True
     # 해제 후 거래 기록
