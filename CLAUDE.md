@@ -1,9 +1,10 @@
 # MoneyMap
 
-복식부기 개인 가계부 + What-if 미래 자산 시뮬레이터. 로컬 단일 사용자, FastAPI+SQLite+Pydantic 백엔드(`backend/`, 헥사고날) + React 프론트(예정).
+복식부기 개인 가계부 + What-if 미래 자산 시뮬레이터. 로컬 단일 사용자, FastAPI+SQLite+Pydantic 백엔드(`backend/`, 헥사고날) + React+TypeScript 프론트(`frontend/`).
 
+- 프로젝트 지침·테스트: `AGENTS.md`
 - 설계서(source of truth): `DESIGN.md`
-- 진행 상태: 로컬 `WORKING.md`가 있을 때 참고 · 테스트: `cd backend && uv run pytest`
+- 진행 상태: 로컬 `WORKING.md`가 있을 때 참고
 
 ## Design System
 Always read DESIGN.md before making any visual or UI decisions.

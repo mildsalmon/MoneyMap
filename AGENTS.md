@@ -71,6 +71,14 @@ Key routing rules:
 - Resume context -> invoke /context-restore
 - Author a backlog-ready spec/issue -> invoke /spec
 
+## Documentation
+
+- [CHANGELOG.md](CHANGELOG.md) — released user-facing behavior and migration notes
+- [DESIGN.md](DESIGN.md) — visual design system and interaction constraints
+- [TODOS.md](TODOS.md) — deferred work and completed release tasks
+- [Account reparenting design](docs/designs/account-reparenting.md) — account settings, ordering, migration, API, and test decisions
+- [CLAUDE.md](CLAUDE.md) — concise project context for Claude-based agents
+
 ## Testing
 
 - Backend: `cd backend && uv run pytest`
