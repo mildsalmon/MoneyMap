@@ -17,9 +17,11 @@ from moneymap.adapters.sqlite import (
 from moneymap.domain import (
     ACTUAL_SCENARIO_ID,
     Account,
+    AccountSettingsCommand,
     AccountType,
     DomainConflictError,
-    DomainValidationError,
+    DomainInvariantError,
+    DomainUnavailableError,
     Money,
     Posting,
     RecurringRule,
@@ -43,9 +45,9 @@ def conn() -> sqlite3.Connection:
 def accounts(conn) -> dict[str, Account]:
     repo = SqliteAccountRepository(conn)
     return {
-        "toss": repo.save(Account(name="Toss", type=AccountType.ASSET)),
-        "food": repo.save(Account(name="식비", type=AccountType.EXPENSE)),
-        "card": repo.save(Account(name="현대카드", type=AccountType.LIABILITY)),
+        "toss": repo.create(Account(name="Toss", type=AccountType.ASSET)),
+        "food": repo.create(Account(name="식비", type=AccountType.EXPENSE)),
+        "card": repo.create(Account(name="현대카드", type=AccountType.LIABILITY)),
         "opening": repo.find_by_name(OPENING_BALANCE_ACCOUNT_NAME),
     }
 
@@ -60,6 +62,19 @@ def expense_txn(scenario_id: int, date: D, food_id: int, card_id: int, amount: i
             Posting(account_id=card_id, amount=Money(amount=-amount)),
         ],
     )
+
+
+def settings_command(account: Account, **changes) -> AccountSettingsCommand:
+    assert account.id is not None
+    values = {
+        "account_id": account.id,
+        "name": account.name,
+        "parent_id": account.parent_id,
+        "is_overdraft": account.is_overdraft,
+        "version": account.version,
+        **changes,
+    }
+    return AccountSettingsCommand(**values)
 
 
 # ─── 시드 ───────────────────────────────────────────────
@@ -165,15 +180,17 @@ def test_position_migration_rolls_back_schema_changes_on_failure():
 
 def test_account_positions_allocate_per_sibling_scope_and_updates_preserve_order(conn):
     repo = SqliteAccountRepository(conn)
-    first = repo.save(Account(name="첫 루트", type=AccountType.ASSET))
-    second = repo.save(Account(name="둘째 루트", type=AccountType.ASSET))
-    child = repo.save(
+    first = repo.create(Account(name="첫 루트", type=AccountType.ASSET))
+    second = repo.create(Account(name="둘째 루트", type=AccountType.ASSET))
+    child = repo.create(
         Account(name="첫 자식", type=AccountType.ASSET, parent_id=first.id)
     )
 
     assert (first.position, second.position, child.position) == (1, 2, 1)
-    renamed = repo.save(second.model_copy(update={"name": "이름 변경"}))
-    archived = repo.save(renamed.model_copy(update={"archived": True}))
+    renamed = repo.update_settings(
+        settings_command(second, name="이름 변경")
+    ).account
+    archived = repo.set_archived(renamed.id, True)
     assert archived.position == 2
     assert archived.version == 3
 
@@ -192,7 +209,7 @@ def test_account_positions_allocate_per_sibling_scope_and_updates_preserve_order
 
 def test_position_constraints_block_raw_invalid_or_duplicate_values(conn):
     repo = SqliteAccountRepository(conn)
-    account = repo.save(Account(name="현금", type=AccountType.ASSET))
+    account = repo.create(Account(name="현금", type=AccountType.ASSET))
 
     with pytest.raises(sqlite3.IntegrityError, match="account_position_invalid"):
         conn.execute(
@@ -228,12 +245,18 @@ def test_account_roundtrip(conn, accounts):
 
 def test_account_overdraft_roundtrip_and_reversible(conn):
     repo = SqliteAccountRepository(conn)
-    account = repo.save(
+    account = repo.create(
         Account(name="카오뱅크", type=AccountType.ASSET, is_overdraft=True)
     )
     assert repo.find_by_id(account.id).is_overdraft is True
-    assert repo.set_overdraft_enabled(account.id, False).is_overdraft is False
-    assert repo.set_overdraft_enabled(account.id, True).is_overdraft is True
+    disabled = repo.update_settings(
+        settings_command(account, is_overdraft=False)
+    ).account
+    assert disabled.is_overdraft is False
+    enabled = repo.update_settings(
+        settings_command(disabled, is_overdraft=True)
+    ).account
+    assert enabled.is_overdraft is True
 
 
 def test_overdraft_migration_defaults_existing_rows_and_is_idempotent():
@@ -266,8 +289,8 @@ def test_overdraft_migration_defaults_existing_rows_and_is_idempotent():
 
 def test_overdraft_triggers_block_invalid_shape_and_children(conn):
     repo = SqliteAccountRepository(conn)
-    with pytest.raises(DomainValidationError) as shape_error:
-        repo.save(
+    with pytest.raises(DomainConflictError) as shape_error:
+        repo.create(
             Account(
                 name="잘못된 대출",
                 type=AccountType.LIABILITY,
@@ -276,11 +299,11 @@ def test_overdraft_triggers_block_invalid_shape_and_children(conn):
         )
     assert shape_error.value.code == "overdraft_invalid_account"
 
-    overdraft = repo.save(
+    overdraft = repo.create(
         Account(name="우리은행", type=AccountType.ASSET, is_overdraft=True)
     )
     with pytest.raises(DomainConflictError) as child_error:
-        repo.save(
+        repo.create(
             Account(
                 name="하위 계정",
                 type=AccountType.ASSET,
@@ -296,8 +319,8 @@ def test_overdraft_triggers_block_invalid_shape_and_children(conn):
         )
     conn.rollback()
 
-    parent = repo.save(Account(name="자식 있는 계정", type=AccountType.ASSET))
-    repo.save(Account(name="기존 자식", type=AccountType.ASSET, parent_id=parent.id))
+    parent = repo.create(Account(name="자식 있는 계정", type=AccountType.ASSET))
+    repo.create(Account(name="기존 자식", type=AccountType.ASSET, parent_id=parent.id))
     with pytest.raises(sqlite3.IntegrityError, match="overdraft_requires_leaf"):
         conn.execute(
             "UPDATE accounts SET is_overdraft=1 WHERE id=?",
@@ -305,7 +328,7 @@ def test_overdraft_triggers_block_invalid_shape_and_children(conn):
         )
     conn.rollback()
 
-    movable = repo.save(Account(name="이동할 계정", type=AccountType.ASSET))
+    movable = repo.create(Account(name="이동할 계정", type=AccountType.ASSET))
     with pytest.raises(sqlite3.IntegrityError, match="overdraft_parent_forbids_children"):
         conn.execute(
             "UPDATE accounts SET parent_id=? WHERE id=?",
@@ -316,24 +339,152 @@ def test_overdraft_triggers_block_invalid_shape_and_children(conn):
 
 def test_overdraft_transition_rejects_existing_children_and_archived(conn):
     repo = SqliteAccountRepository(conn)
-    parent = repo.save(Account(name="입출금", type=AccountType.ASSET))
-    repo.save(Account(name="국민은행", type=AccountType.ASSET, parent_id=parent.id))
+    parent = repo.create(Account(name="입출금", type=AccountType.ASSET))
+    repo.create(Account(name="국민은행", type=AccountType.ASSET, parent_id=parent.id))
     with pytest.raises(DomainConflictError) as child_error:
-        repo.set_overdraft_enabled(parent.id, True)
+        repo.update_settings(settings_command(parent, is_overdraft=True))
     assert child_error.value.code == "overdraft_requires_leaf"
 
-    archived = repo.save(
+    archived = repo.create(
         Account(name="보관 통장", type=AccountType.ASSET, archived=True)
     )
     with pytest.raises(DomainConflictError) as archived_error:
-        repo.set_overdraft_enabled(archived.id, True)
+        repo.update_settings(settings_command(archived, is_overdraft=True))
     assert archived_error.value.code == "archived_account_read_only"
+
+
+def test_atomic_settings_move_allocates_last_position_and_groups_empty_source(conn):
+    repo = SqliteAccountRepository(conn)
+    source = repo.create(Account(name="저축", type=AccountType.ASSET))
+    target = repo.create(
+        Account(name="입출금", type=AccountType.ASSET, is_placeholder=True)
+    )
+    existing = repo.create(
+        Account(name="기존 통장", type=AccountType.ASSET, parent_id=target.id)
+    )
+    moving = repo.create(
+        Account(name="기업은행", type=AccountType.ASSET, parent_id=source.id)
+    )
+
+    result = repo.update_settings(
+        settings_command(
+            moving,
+            name=" 기업은행 급여통장 ",
+            parent_id=target.id,
+            is_overdraft=True,
+        )
+    )
+
+    assert result.account.name == "기업은행 급여통장"
+    assert result.account.parent_id == target.id
+    assert result.account.is_overdraft is True
+    assert result.account.position == existing.position + 1
+    assert result.account.version == moving.version + 1
+    assert result.effects.model_dump() == {
+        "moved": True,
+        "previous_parent_id": source.id,
+        "source_parent_grouped": True,
+    }
+    repaired_source = repo.find_by_id(source.id)
+    assert repaired_source.is_placeholder is True
+    assert repaired_source.version == source.version + 1
+
+
+def test_atomic_settings_stale_version_writes_nothing(conn):
+    repo = SqliteAccountRepository(conn)
+    first_parent = repo.create(
+        Account(name="첫 그룹", type=AccountType.ASSET, is_placeholder=True)
+    )
+    second_parent = repo.create(
+        Account(name="둘째 그룹", type=AccountType.ASSET, is_placeholder=True)
+    )
+    account = repo.create(
+        Account(name="통장", type=AccountType.ASSET, parent_id=first_parent.id)
+    )
+    renamed = repo.update_settings(
+        settings_command(account, name="최신 이름")
+    ).account
+
+    with pytest.raises(DomainConflictError) as error:
+        repo.update_settings(
+            settings_command(
+                account,
+                name="오래된 이름",
+                parent_id=second_parent.id,
+                is_overdraft=True,
+            )
+        )
+    assert error.value.code == "account_settings_stale"
+    assert repo.find_by_id(account.id) == renamed
+    assert repo.find_by_id(first_parent.id).is_placeholder is True
+
+
+def test_atomic_settings_rolls_back_every_field_and_source_cleanup(conn):
+    repo = SqliteAccountRepository(conn)
+    source = repo.create(Account(name="원본", type=AccountType.ASSET))
+    target = repo.create(
+        Account(name="대상", type=AccountType.ASSET, is_placeholder=True)
+    )
+    moving = repo.create(
+        Account(name="이동", type=AccountType.ASSET, parent_id=source.id)
+    )
+    conn.execute(f"""
+        CREATE TRIGGER fail_account_settings
+        BEFORE UPDATE OF name ON accounts
+        WHEN NEW.id = {moving.id}
+        BEGIN SELECT RAISE(ABORT, 'account_position_invalid'); END;
+    """)
+    conn.commit()
+
+    with pytest.raises(DomainInvariantError):
+        repo.update_settings(
+            settings_command(
+                moving,
+                name="실패 이름",
+                parent_id=target.id,
+                is_overdraft=True,
+            )
+        )
+
+    assert repo.find_by_id(moving.id) == moving
+    assert repo.find_by_id(source.id) == source
+
+
+def test_explicit_account_state_writers_increment_version(conn):
+    repo = SqliteAccountRepository(conn)
+    account = repo.create(Account(name="현금", type=AccountType.ASSET))
+    grouped = repo.set_placeholder(account.id, True)
+    archived = repo.set_archived(account.id, True)
+    restored = repo.set_archived(account.id, False)
+    assert grouped.version == 2
+    assert archived.version == 3
+    assert restored.version == 4
+
+
+def test_account_write_translates_database_busy(tmp_path):
+    db_path = tmp_path / "locked.db"
+    owner = connect(str(db_path))
+    init_db(owner)
+    contender = connect(str(db_path))
+    contender.execute("PRAGMA busy_timeout = 1")
+    owner.execute("BEGIN IMMEDIATE")
+    try:
+        with pytest.raises(DomainUnavailableError) as error:
+            SqliteAccountRepository(contender).create(
+                Account(name="대기", type=AccountType.ASSET)
+            )
+        assert error.value.code == "database_busy"
+        assert error.value.context == {"retryable": True}
+    finally:
+        owner.rollback()
+        contender.close()
+        owner.close()
 
 
 def test_opening_balance_create_match_duplicate_delete_and_recreate(conn):
     account_repo = SqliteAccountRepository(conn)
     txn_repo = SqliteTransactionRepository(conn)
-    overdraft = account_repo.save(
+    overdraft = account_repo.create(
         Account(name="케이뱅크", type=AccountType.ASSET, is_overdraft=True)
     )
 
@@ -373,7 +524,7 @@ def test_opening_balance_create_match_duplicate_delete_and_recreate(conn):
 def test_opening_matcher_uses_structure_not_description(conn):
     account_repo = SqliteAccountRepository(conn)
     txn_repo = SqliteTransactionRepository(conn)
-    cash = account_repo.save(Account(name="현금", type=AccountType.ASSET))
+    cash = account_repo.create(Account(name="현금", type=AccountType.ASSET))
     opening = account_repo.find_by_name(OPENING_BALANCE_ACCOUNT_NAME)
     saved = txn_repo.save(Transaction(
         scenario_id=ACTUAL_SCENARIO_ID,
@@ -390,8 +541,8 @@ def test_opening_matcher_uses_structure_not_description(conn):
 def test_opening_matcher_excludes_three_leg_transaction(conn):
     account_repo = SqliteAccountRepository(conn)
     txn_repo = SqliteTransactionRepository(conn)
-    cash = account_repo.save(Account(name="현금", type=AccountType.ASSET))
-    other = account_repo.save(Account(name="예금", type=AccountType.ASSET))
+    cash = account_repo.create(Account(name="현금", type=AccountType.ASSET))
+    other = account_repo.create(Account(name="예금", type=AccountType.ASSET))
     opening = account_repo.find_by_name(OPENING_BALANCE_ACCOUNT_NAME)
     txn_repo.save(Transaction(
         scenario_id=ACTUAL_SCENARIO_ID,
@@ -408,10 +559,10 @@ def test_opening_matcher_excludes_three_leg_transaction(conn):
 def test_opening_matcher_excludes_wrong_scenario_source_zero_and_equity(conn):
     account_repo = SqliteAccountRepository(conn)
     txn_repo = SqliteTransactionRepository(conn)
-    cash = account_repo.save(Account(name="현금", type=AccountType.ASSET))
-    food = account_repo.save(Account(name="식비", type=AccountType.EXPENSE))
-    ordinary_equity = account_repo.save(Account(name="일반 자본", type=AccountType.EQUITY))
-    other_system_equity = account_repo.save(
+    cash = account_repo.create(Account(name="현금", type=AccountType.ASSET))
+    food = account_repo.create(Account(name="식비", type=AccountType.EXPENSE))
+    ordinary_equity = account_repo.create(Account(name="일반 자본", type=AccountType.EQUITY))
+    other_system_equity = account_repo.create(
         Account(name="기타 시스템 자본", type=AccountType.EQUITY, is_system=True)
     )
     opening = account_repo.find_by_name(OPENING_BALANCE_ACCOUNT_NAME)

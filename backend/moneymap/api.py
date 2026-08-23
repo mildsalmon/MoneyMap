@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from moneymap import app_services
 from moneymap.adapters.sqlite import (
@@ -29,10 +29,10 @@ from moneymap.adapters.sqlite import (
 )
 from moneymap.adapters.sqlite.backup import run_daily_backup
 from moneymap.adapters.sqlite.repositories import apply_materialization
-from moneymap.adapters.sqlite.database import _next_sibling_position
 from moneymap.domain import (
     ACTUAL_SCENARIO_ID,
     Account,
+    AccountSettingsCommand,
     AccountType,
     DomainConflictError,
     DomainError,
@@ -45,11 +45,8 @@ from moneymap.domain import (
 )
 from moneymap.domain.account import OPENING_BALANCE_ACCOUNT_NAME
 from moneymap.domain.materialize import plan_materialization
-from moneymap.domain.services import (
-    validate_account_placement,
-    validate_overdraft_shape,
-)
-from moneymap.domain.standard_accounts import STANDARD_ACCOUNTS, StandardAccount
+from moneymap.domain.services import is_account_group
+from moneymap.domain.standard_accounts import STANDARD_ACCOUNTS
 
 DEFAULT_DB = os.environ.get("MONEYMAP_DB", "moneymap.db")
 CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
@@ -65,16 +62,15 @@ class AccountIn(BaseModel):
     is_overdraft: bool = False
 
 
-class AccountPatchIn(BaseModel):
+class AccountSettingsIn(BaseModel):
     name: str
+    parent_id: int | None
+    is_overdraft: bool
+    version: int = Field(ge=1)
 
 
 class PlaceholderIn(BaseModel):
     is_placeholder: bool
-
-
-class OverdraftIn(BaseModel):
-    enabled: bool
 
 
 class OpeningBalanceIn(BaseModel):
@@ -122,80 +118,6 @@ def _account_referenced_by_rule(conn, account_id: int) -> bool:
     return _account_rule_reference_count(conn, account_id) > 0
 
 
-def _clean_account_name(name: str) -> str:
-    cleaned = name.strip()
-    if not cleaned:
-        raise HTTPException(status_code=400, detail="계정 이름을 입력하세요")
-    return cleaned
-
-
-def _account_name_key(name: str) -> str:
-    return name.strip().casefold()
-
-
-def _assert_account_name_available(
-    accounts: SqliteAccountRepository,
-    *,
-    name: str,
-    account_type: AccountType,
-    parent_id: int | None,
-    exclude_id: int | None = None,
-) -> None:
-    target = _account_name_key(name)
-    for existing in accounts.find_all():
-        if exclude_id is not None and existing.id == exclude_id:
-            continue
-        if existing.type != account_type or existing.parent_id != parent_id:
-            continue
-        if _account_name_key(existing.name) == target:
-            raise HTTPException(
-                status_code=400,
-                detail=f"같은 위치에 이미 '{existing.name}' 계정이 있습니다",
-            )
-
-
-def _find_account_id_by_path(
-    conn,
-    path: tuple[str, ...],
-    account_type: AccountType,
-) -> int | None:
-    """표준 시드의 path 멱등 키 조회.
-
-    같은 이름이 다른 부모 아래에 있어도 parent_id 체인을 따라 정확한 path만
-    찾는다. 중복 path가 이미 있으면 가장 먼저 만들어진 행을 대표로 삼는다.
-    """
-    parent_id: int | None = None
-    found_id: int | None = None
-    for name in path:
-        row = conn.execute(
-            "SELECT id FROM accounts WHERE name=? AND type=? AND parent_id IS ? "
-            "ORDER BY id LIMIT 1",
-            (name, account_type.value, parent_id),
-        ).fetchone()
-        if row is None:
-            return None
-        found_id = row["id"]
-        parent_id = found_id
-    return found_id
-
-
-def _insert_standard_account(conn, item: StandardAccount) -> bool:
-    if _find_account_id_by_path(conn, item.path, item.type) is not None:
-        return False
-    parent_id = None
-    if len(item.path) > 1:
-        parent_id = _find_account_id_by_path(conn, item.path[:-1], item.type)
-        if parent_id is None:
-            raise RuntimeError(f"표준 계정 상위 경로가 없습니다: {'/'.join(item.path[:-1])}")
-    position = _next_sibling_position(conn, item.type.value, parent_id)
-    conn.execute(
-        "INSERT INTO accounts (name, type, parent_id, is_placeholder, position) "
-        "VALUES (?,?,?,?,?)",
-        (item.path[-1], item.type.value, parent_id, int(item.is_group), position),
-    )
-    return True
-
-
 # ─── 앱 팩토리 ───────────────────────────────────────────
 
 def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
@@ -236,7 +158,13 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
 
         return JSONResponse(
             status_code=exc.status_code,
-            content={"detail": {"code": exc.code, "message": exc.message}},
+            content={
+                "detail": {
+                    "code": exc.code,
+                    "message": exc.message,
+                    **exc.context,
+                }
+            },
         )
 
     def repos(request: Request):
@@ -290,71 +218,39 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
     @app.post("/api/accounts", status_code=201)
     def create_account(body: AccountIn, request: Request):
         r = repos(request)
-        name = _clean_account_name(body.name)
         account = Account(
-            name=name, type=body.type, parent_id=body.parent_id,
+            name=body.name, type=body.type, parent_id=body.parent_id,
             is_placeholder=body.is_placeholder, is_overdraft=body.is_overdraft,
-        )
-        validate_account_placement(account, r["accounts"])
-        validate_overdraft_shape(account)
-        _assert_account_name_available(
-            r["accounts"], name=name, account_type=body.type, parent_id=body.parent_id
         )
         if body.parent_id is not None and _account_referenced_by_rule(r["conn"], body.parent_id):
             raise HTTPException(
                 status_code=400,
                 detail="이 계정을 참조하는 반복 규칙을 먼저 하위 계정으로 바꾼 뒤 소분류를 추가하세요",
             )
-        return r["accounts"].save(account).model_dump()
+        return r["accounts"].create(account).model_dump()
 
-    @app.put("/api/accounts/{account_id}/overdraft")
-    def set_overdraft(account_id: int, body: OverdraftIn, request: Request):
-        return app_services.set_overdraft_enabled(
-            account_id,
-            body.enabled,
+    @app.put("/api/accounts/{account_id}/settings")
+    def update_account_settings(
+        account_id: int,
+        body: AccountSettingsIn,
+        request: Request,
+    ):
+        result = app_services.update_account_settings(
+            AccountSettingsCommand(
+                account_id=account_id,
+                name=body.name,
+                parent_id=body.parent_id,
+                is_overdraft=body.is_overdraft,
+                version=body.version,
+            ),
             repos(request)["accounts"],
-        ).model_dump()
-
-    @app.patch("/api/accounts/{account_id}")
-    def update_account(account_id: int, body: AccountPatchIn, request: Request):
-        r = repos(request)
-        acc = r["accounts"].find_by_id(account_id)
-        if acc is None:
-            raise HTTPException(status_code=404, detail="계정이 없습니다")
-        if acc.is_system:
-            raise HTTPException(status_code=400, detail="시스템 계정은 이름을 바꿀 수 없습니다")
-        name = _clean_account_name(body.name)
-        _assert_account_name_available(
-            r["accounts"],
-            name=name,
-            account_type=acc.type,
-            parent_id=acc.parent_id,
-            exclude_id=account_id,
         )
-        return r["accounts"].save(acc.model_copy(update={"name": name})).model_dump()
+        return result.model_dump()
 
     @app.post("/api/accounts/seed-standard")
     def seed_standard_accounts(request: Request):
-        """표준 계정과목 시드 — path 기준 멱등, 단일 SQL 트랜잭션."""
-        conn = repos(request)["conn"]
-        created = 0
-        skipped = 0
-        try:
-            conn.execute("BEGIN")
-            roots = [a for a in STANDARD_ACCOUNTS if len(a.path) == 1]
-            children = sorted(
-                [a for a in STANDARD_ACCOUNTS if len(a.path) > 1],
-                key=lambda a: len(a.path),
-            )
-            for item in [*roots, *children]:
-                if _insert_standard_account(conn, item):
-                    created += 1
-                else:
-                    skipped += 1
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+        """표준 계정과목 시드 — repository의 한 트랜잭션에서 path 기준 멱등."""
+        created, skipped = repos(request)["accounts"].seed_standard(STANDARD_ACCOUNTS)
         return {"created": created, "skipped": skipped}
 
     def _assert_postable(request: Request, account_ids: list[int]) -> None:
@@ -364,11 +260,12 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
         자동 규칙(자식 붙은 순간)을 겹쳐 어느 경로로도 그룹에 기장되지 않게 한다.
         """
         acc_repo = repos(request)["accounts"]
+        account_snapshot = acc_repo.find_all()
         for aid in set(account_ids):
             a = acc_repo.find_by_id(aid)
             if a is None:
                 continue  # 존재하지 않는 계정은 FK가 걸러낸다
-            if a.is_placeholder or acc_repo.has_children(aid):
+            if is_account_group(a, account_snapshot):
                 raise HTTPException(
                     status_code=400,
                     detail=f"'{a.name}'은 그룹(대분류) 계정이라 직접 기장할 수 없습니다 — 하위 계정을 선택하세요",
@@ -402,7 +299,7 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
                 status_code=400,
                 detail="이 계정에는 이미 거래가 있어 그룹으로 바꿀 수 없습니다 (거래를 옮긴 뒤 시도하세요)",
             )
-        return r["accounts"].save(acc.model_copy(update={"is_placeholder": body.is_placeholder})).model_dump()
+        return r["accounts"].set_placeholder(account_id, body.is_placeholder).model_dump()
 
     @app.post("/api/accounts/{account_id}/archive")
     def archive_account(account_id: int, request: Request):
@@ -428,7 +325,7 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
                 status_code=400,
                 detail=f"이 계정을 참조하는 반복 규칙 {rules}개(시나리오 포함)를 먼저 삭제하세요",
             )
-        return r["accounts"].save(acc.model_copy(update={"archived": True})).model_dump()
+        return r["accounts"].set_archived(account_id, True).model_dump()
 
     @app.post("/api/accounts/{account_id}/restore")
     def restore_account(account_id: int, request: Request):
@@ -441,7 +338,7 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
             parent = r["accounts"].find_by_id(acc.parent_id)
             if parent is not None and parent.archived:
                 raise HTTPException(status_code=400, detail=f"상위 그룹 '{parent.name}'을 먼저 복원하세요")
-        return r["accounts"].save(acc.model_copy(update={"archived": False})).model_dump()
+        return r["accounts"].set_archived(account_id, False).model_dump()
 
     @app.post("/api/accounts/{account_id}/reclassify-direct")
     def reclassify_direct_postings(account_id: int, request: Request, to: int = Query(...)):

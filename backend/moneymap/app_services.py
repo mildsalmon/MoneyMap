@@ -9,7 +9,12 @@ from __future__ import annotations
 import calendar
 import datetime
 
-from moneymap.domain.account import Account, AccountType
+from moneymap.domain.account import (
+    Account,
+    AccountSettingsCommand,
+    AccountSettingsResult,
+    AccountType,
+)
 from moneymap.domain.ports import (
     AccountRepository,
     RecurringRuleRepository,
@@ -33,13 +38,12 @@ def add_months(d: datetime.date, months: int) -> datetime.date:
     return datetime.date(year, month, min(d.day, calendar.monthrange(year, month)[1]))
 
 
-def set_overdraft_enabled(
-    account_id: int,
-    enabled: bool,
+def update_account_settings(
+    command: AccountSettingsCommand,
     account_repo: AccountRepository,
-) -> Account:
-    """원자적 계정 설정 명령을 어댑터 포트에 위임한다."""
-    return account_repo.set_overdraft_enabled(account_id, enabled)
+) -> AccountSettingsResult:
+    """원자적 전체 상태 설정 명령을 어댑터 포트에 위임한다."""
+    return account_repo.update_settings(command)
 
 
 def create_opening_balance(

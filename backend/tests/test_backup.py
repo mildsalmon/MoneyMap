@@ -28,8 +28,8 @@ def make_db_with_data(tmp_path: Path):
     conn = connect(str(tmp_path / "moneymap.db"))
     init_db(conn)
     acc = SqliteAccountRepository(conn)
-    toss = acc.save(Account(name="Toss", type=AccountType.ASSET))
-    food = acc.save(Account(name="식비", type=AccountType.EXPENSE))
+    toss = acc.create(Account(name="Toss", type=AccountType.ASSET))
+    food = acc.create(Account(name="식비", type=AccountType.EXPENSE))
     SqliteTransactionRepository(conn).save(
         Transaction(
             scenario_id=ACTUAL_SCENARIO_ID,

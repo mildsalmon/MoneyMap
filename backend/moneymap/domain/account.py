@@ -9,8 +9,7 @@
       asset, expense           → +1 (차변 잔액이 자연 양수)
       liability, income, equity → −1 (대변 잔액이 자연 양수)
 
-부모 타입 일치·순환 방지는 저장 시점에 리포지토리가 필요하므로
-services.validate_account_placement()에서 검사한다.
+부모 타입·순환·그룹 불변식은 services의 순수 account snapshot validator가 검사한다.
 """
 
 from __future__ import annotations
@@ -67,6 +66,25 @@ class Account(BaseModel):
 
     def display_multiplier(self) -> int:
         return SIGN_MULTIPLIER[self.type]
+
+
+class AccountSettingsCommand(BaseModel):
+    account_id: int
+    name: str
+    parent_id: int | None
+    is_overdraft: bool
+    version: int = Field(ge=1)
+
+
+class AccountSettingsEffects(BaseModel):
+    moved: bool
+    previous_parent_id: int | None
+    source_parent_grouped: bool
+
+
+class AccountSettingsResult(BaseModel):
+    account: Account
+    effects: AccountSettingsEffects
 
 
 def reporting_type(account: Account, raw_balance: int) -> AccountType:
