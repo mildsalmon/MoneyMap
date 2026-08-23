@@ -2,6 +2,22 @@
 
 All notable changes to MoneyMap are documented in this file.
 
+## [Unreleased] - 2026-08-23
+
+### Added
+- Move an existing account to another active group of the same type without changing its ID, transactions, recurring-rule references, opening balance, or raw balance.
+- Edit an account's name, parent group, and overdraft state through one atomic, optimistic-concurrency-protected settings request.
+- Preserve account drafts on duplicate-name and stale-version errors, restore focus after successful saves, and expose only restore for archived accounts.
+- Configure Playwright frontend/backend ports and the frontend API base with `MONEYMAP_E2E_FRONTEND_PORT`, `MONEYMAP_E2E_BACKEND_PORT`, and `MONEYMAP_E2E_API_BASE`.
+
+### Changed
+- Persist sibling display order with `accounts.position`; new and moved accounts now appear last in their target sibling group and keep that order across rename, archive/restore, restart, and standard reseeding.
+- Backfill legacy sibling positions by account creation ID. Existing accounts may therefore change once from alphabetical display order to historical creation order on upgrade.
+- Run the shared-database Playwright suite with one worker and a port-scoped temporary database.
+
+### Fixed
+- Prevent a recurring-rule-backed leaf account from being converted into a group, keeping the canonical `placeholder OR has children` non-postable invariant across current tree mutation paths.
+
 ## [0.1.0.0] - 2026-08-17
 
 ### Added
