@@ -316,6 +316,9 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
   // 1200px 미만: 대시보드 표를 한 열로 쌓는다.
   await page.setViewportSize({ width: 1100, height: 900 });
   await nav(page, "대시보드").click();
+  // Dashboard는 여러 API를 병렬 로드하므로 실제 잔액이 렌더될 때까지 기다린다.
+  // 초기 표 렌더와 온보딩 판정 사이의 짧은 전환을 레이아웃으로 오인하지 않는다.
+  await expect(page.locator(".strip .hero")).toHaveText("₩9,935,655");
   const dashboardTables = page.locator(".two > div");
   await expect(dashboardTables).toHaveCount(2);
   const narrowTableTops = await dashboardTables.evaluateAll(
