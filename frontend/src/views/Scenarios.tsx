@@ -19,6 +19,7 @@ function ScenarioEditor({
   const [rules, setRules] = useState<Rule[]>([]);
   const [preview, setPreview] = useState<{ base: number; mine: number } | null>(null);
   const [editAmount, setEditAmount] = useState<Record<number, string>>({});
+  const [deleteErrors, setDeleteErrors] = useState<Record<number, string>>({});
   const [localGen, setLocalGen] = useState(0);
 
   useEffect(() => {
@@ -59,22 +60,24 @@ function ScenarioEditor({
 
   return (
     <div className="panel" style={{ marginTop: 16 }}>
-      <h4>
+      <h2 className="panel-heading">
         시나리오: {scenario.name} <span style={{ color: "var(--faint)", fontWeight: 400 }}>({scenario.fork_date}에 분기 · 규칙은 분기 시점에 복사됨)</span>
-      </h4>
-      <table className="ledger">
-        <thead>
-          <tr><th>규칙</th><th>흐름</th><th className="num">금액/회</th><th>일정</th><th className="num">수정</th><th /></tr>
-        </thead>
-        <tbody>
-          {rules.map((r) => (
-            <tr key={r.id}>
+      </h2>
+      <div className="table-scroll scenario-editor-scroll">
+        <table className="ledger">
+          <thead>
+            <tr><th>규칙</th><th>흐름</th><th className="num">금액/회</th><th>일정</th><th className="num">수정</th><th /></tr>
+          </thead>
+          <tbody>
+            {rules.map((r) => (
+              <tr key={r.id}>
               <td>{r.description || "—"}</td>
               <td style={{ color: "var(--muted)" }}>{nameOf(r.from_account_id)} → {nameOf(r.to_account_id)}</td>
               <td className="num">{fmtWon(r.amount.amount)}</td>
               <td>{humanSchedule(r.schedule.spec)}</td>
               <td className="num">
-                <input className="num" placeholder={r.amount.amount.toLocaleString("ko-KR")}
+                <input className="num" aria-label={`${r.description || nameOf(r.from_account_id)} 금액 수정`}
+                  placeholder={r.amount.amount.toLocaleString("ko-KR")}
                   style={{ width: 110, padding: "3px 8px", border: "1px solid var(--line-strong)", borderRadius: 4, background: "var(--surface)" }}
                   value={editAmount[r.id] ?? ""}
                   onChange={(e) => setEditAmount((s) => ({ ...s, [r.id]: commaInput(e.target.value).display }))}
@@ -85,16 +88,25 @@ function ScenarioEditor({
                   onClick={() => saveAmount(r)}>저장</button>{" "}
                 <button className="btn sm danger" onClick={async () => {
                   if (!window.confirm(`이 시나리오에서 "${r.description || nameOf(r.from_account_id)}" 규칙을 삭제합니다.`)) return;
-                  await api.deleteRule(r.id);
-                  setLocalGen((g) => g + 1);
-                  onChanged();
-                  showToast("가설 규칙 삭제됨");
+                  setDeleteErrors((current) => ({ ...current, [r.id]: "" }));
+                  try {
+                    await api.deleteRule(r.id);
+                    setLocalGen((g) => g + 1);
+                    onChanged();
+                    showToast("가설 규칙 삭제됨");
+                  } catch (error) {
+                    setDeleteErrors((current) => ({ ...current, [r.id]: (error as Error).message }));
+                  }
                 }}>삭제</button>
+                {deleteErrors[r.id] && (
+                  <span className="row-error action-error" role="alert">{deleteErrors[r.id]}</span>
+                )}
               </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       <div style={{ margin: "14px 0" }}>
         <RuleForm scenarioId={scenario.id} accounts={accounts}
@@ -102,7 +114,7 @@ function ScenarioEditor({
       </div>
 
       {preview && (
-        <div style={{ display: "flex", gap: 28, fontSize: 14, borderTop: "1px solid var(--line)", paddingTop: 12 }}>
+        <div className="scenario-preview">
           <span>1년 뒤 — 현재 패턴 유지: <b className="num" style={{ fontVariantNumeric: "tabular-nums" }}>{fmtWon(preview.base)}</b></span>
           <span>이 시나리오: <b style={{ color: "var(--accent)" }}>{fmtWon(preview.mine)}</b></span>
           <span>차이: <b style={{ color: preview.mine >= preview.base ? "var(--accent)" : "var(--danger)" }}>{fmtDelta(preview.mine - preview.base)}</b></span>
@@ -157,12 +169,12 @@ export function Scenarios({ gen, refresh, showToast }: ViewProps) {
     <div>
       <h1>시나리오</h1>
 
-      <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 20 }}>
-        <div className="field"><label>이름</label>
-          <input style={{ width: 240 }} value={name} onChange={(e) => setName(e.target.value)}
+      <div className="scenario-create">
+        <div className="field"><label htmlFor="scenario-name">이름</label>
+          <input id="scenario-name" className="scenario-name" value={name} onChange={(e) => setName(e.target.value)}
             placeholder="예: 월 100만 더 저축하면?" onKeyDown={(e) => e.key === "Enter" && name.trim() && create()} /></div>
-        <div className="field"><label>분기 시작일</label>
-          <input type="date" value={forkDate} onChange={(e) => setForkDate(e.target.value)} /></div>
+        <div className="field"><label htmlFor="scenario-fork-date">분기 시작일</label>
+          <input id="scenario-fork-date" type="date" value={forkDate} onChange={(e) => setForkDate(e.target.value)} /></div>
         <button className="btn primary" disabled={!name.trim()} onClick={create}>+ 새 시나리오</button>
       </div>
 
@@ -178,25 +190,29 @@ export function Scenarios({ gen, refresh, showToast }: ViewProps) {
           </div>
         </div>
       ) : (
-        <table className="ledger" style={{ maxWidth: 760 }}>
-          <thead>
-            <tr><th>이름</th><th>분기일</th><th style={{ width: 90 }}>차트에 표시</th><th /></tr>
-          </thead>
-          <tbody>
-            {scenarios.map((s) => (
-              <tr key={s.id}>
-                <td>{s.name}</td>
-                <td style={{ color: "var(--muted)" }}>{s.fork_date}</td>
-                <td style={{ textAlign: "center" }}>
-                  <input type="checkbox" checked={checked.includes(s.id)} onChange={() => toggle(s.id)} />
-                </td>
-                <td><button className="btn sm secondary" onClick={() => setOpenId(openId === s.id ? null : s.id)}>
-                  {openId === s.id ? "닫기" : "열기"}
-                </button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="table-scroll scenarios-list">
+          <table className="ledger">
+            <thead>
+              <tr><th>이름</th><th>분기일</th><th style={{ width: 90 }}>차트에 표시</th><th /></tr>
+            </thead>
+            <tbody>
+              {scenarios.map((s) => (
+                <tr key={s.id}>
+                  <td>{s.name}</td>
+                  <td style={{ color: "var(--muted)" }}>{s.fork_date}</td>
+                  <td style={{ textAlign: "center" }}>
+                    <input type="checkbox" aria-label={`${s.name} 차트에 표시`}
+                      checked={checked.includes(s.id)} onChange={() => toggle(s.id)} />
+                  </td>
+                  <td><button className="btn sm secondary" aria-expanded={openId === s.id}
+                    onClick={() => setOpenId(openId === s.id ? null : s.id)}>
+                    {openId === s.id ? "닫기" : "열기"}
+                  </button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {open && (

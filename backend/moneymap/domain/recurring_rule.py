@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import datetime
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, model_validator
 
 from moneymap.domain.money import Money
 from moneymap.domain.schedule import Schedule

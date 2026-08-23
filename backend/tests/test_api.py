@@ -5,6 +5,7 @@ import datetime
 import pytest
 from fastapi.testclient import TestClient
 
+from moneymap.adapters.sqlite import connect, init_db
 from moneymap.api import create_app
 
 TODAY = datetime.date.today()
@@ -39,6 +40,20 @@ def opening_account_id(client) -> int:
 
 def account_by_name(client, name: str):
     return next(a for a in client.get("/api/accounts").json() if a["name"] == name)
+
+
+def update_settings(client, account_id: int, **changes):
+    account = next(
+        a for a in client.get("/api/accounts").json() if a["id"] == account_id
+    )
+    body = {
+        "name": account["name"],
+        "parent_id": account["parent_id"],
+        "is_overdraft": account["is_overdraft"],
+        "version": account["version"],
+        **changes,
+    }
+    return client.put(f"/api/accounts/{account_id}/settings", json=body)
 
 
 def test_health(client):
@@ -144,13 +159,15 @@ def test_unbalanced_transaction_returns_400(client):
         },
     )
     assert res.status_code == 400
-    assert "0이 아닙니다" in res.json()["detail"]
+    assert res.json()["detail"]["code"] == "domain_error"
+    assert "0이 아닙니다" in res.json()["detail"]["message"]
 
 
-def test_account_cycle_returns_400(client):
+def test_account_parent_type_mismatch_returns_stable_conflict(client):
     a = make_account(client, "A", "asset")
     res = client.post("/api/accounts", json={"name": "B", "type": "expense", "parent_id": a})
-    assert res.status_code == 400  # 부모 타입 불일치 (DomainError 핸들러 경유)
+    assert res.status_code == 409
+    assert res.json()["detail"]["code"] == "account_parent_type_mismatch"
 
 
 def test_projection_rejects_more_than_3_scenarios(client):
@@ -197,6 +214,270 @@ def test_seed_standard_accounts_recovers_from_partial_existing_tree(client):
     assert len(food_rows) == 1 and food_rows[0]["id"] == food
     food_children = {a["name"] for a in accounts if a["parent_id"] == food}
     assert {"외식", "식료품", "배달"} <= food_children
+
+
+def test_account_rename_preserves_id_and_balances(client):
+    toss = make_account(client, "Toss", "asset")
+    salary = make_account(client, "월급", "income")
+    opening = opening_account_id(client)
+    res = client.post("/api/transactions", json={
+        "date": TODAY.isoformat(),
+        "postings": [{"account_id": toss, "amount": 1000}, {"account_id": opening, "amount": -1000}],
+    })
+    assert res.status_code == 201, res.text
+    res = client.post("/api/rules", json={
+        "from_account_id": salary,
+        "to_account_id": toss,
+        "amount": 3000,
+        "schedule": "monthly:25",
+        "start_date": TODAY.isoformat(),
+        "description": "월급",
+    })
+    assert res.status_code == 201, res.text
+    before = client.get("/api/balances").json()
+
+    res = update_settings(client, toss, name=" 토스뱅크 ")
+    assert res.status_code == 200, res.text
+    renamed = res.json()["account"]
+    assert renamed["id"] == toss
+    assert renamed["name"] == "토스뱅크"
+
+    after = client.get("/api/balances").json()
+    assert after["net_worth"] == before["net_worth"]
+    assert next(b for b in after["accounts"] if b["account_id"] == toss)["balance"] == 1000
+    assert client.get("/api/status").json()["trial_balance_ok"] is True
+    rule = client.get("/api/rules", params={"scenario_id": 1}).json()[0]
+    assert rule["from_account_id"] == salary
+    assert rule["to_account_id"] == toss
+
+
+def test_account_rename_blocks_missing_system_empty_and_duplicate(client):
+    opening = opening_account_id(client)
+    missing = client.put(
+        "/api/accounts/999/settings",
+        json={"name": "없음", "parent_id": None, "is_overdraft": False, "version": 1},
+    )
+    assert missing.status_code == 404
+
+    res = update_settings(client, opening, name="시작자본")
+    assert res.status_code == 409
+    assert res.json()["detail"]["code"] == "system_account_read_only"
+
+    toss = make_account(client, "Toss", "asset")
+    res = update_settings(client, toss, name="   ")
+    assert res.status_code == 400
+    assert res.json()["detail"]["code"] == "account_name_required"
+
+    other = make_account(client, "Other", "asset")
+    res = update_settings(client, other, name=" toss ")
+    assert res.status_code == 409
+    assert res.json()["detail"]["code"] == "account_name_conflict"
+
+
+def test_account_create_and_rename_share_name_policy(client):
+    make_account(client, "Toss", "asset")
+
+    res = client.post("/api/accounts", json={"name": " toss ", "type": "asset"})
+    assert res.status_code == 409
+    assert res.json()["detail"]["code"] == "account_name_conflict"
+
+    res = client.post("/api/accounts", json={"name": "   ", "type": "asset"})
+    assert res.status_code == 400
+    assert res.json()["detail"]["code"] == "account_name_required"
+
+
+def test_account_rename_duplicate_policy_includes_archived_and_allows_different_parent(client):
+    archived = make_account(client, "Toss", "asset")
+    assert client.post(f"/api/accounts/{archived}/archive").status_code == 200
+    other = make_account(client, "Other", "asset")
+    res = update_settings(client, other, name=" toss ")
+    assert res.status_code == 409
+    assert res.json()["detail"]["code"] == "account_name_conflict"
+    assert res.json()["detail"]["conflicting_account_archived"] is True
+
+    food = make_account(client, "식비", "expense")
+    traffic = make_account(client, "교통", "expense")
+    child = make_child_account(client, "기타", "expense", food)
+    peer = make_child_account(client, "임시", "expense", traffic)
+    res = update_settings(client, peer, name=" 기타 ")
+    assert res.status_code == 200, res.text
+    assert res.json()["account"]["name"] == "기타"
+    assert res.json()["account"]["parent_id"] == traffic
+    assert child != peer
+
+    res = update_settings(client, archived, name="보관 Toss")
+    assert res.status_code == 409
+    assert res.json()["detail"]["code"] == "archived_account_read_only"
+
+
+def test_ordinary_equity_opening_name_can_rename_when_not_system(client):
+    parent = make_account(client, "자본그룹", "equity")
+    ordinary = make_child_account(client, "개시잔액", "equity", parent)
+    assert account_by_name(client, "자본그룹")["is_system"] is False
+
+    res = update_settings(client, ordinary, name="내 자본")
+    assert res.status_code == 200, res.text
+    assert res.json()["account"]["name"] == "내 자본"
+    assert res.json()["account"]["is_system"] is False
+
+
+def test_account_settings_reparent_preserves_linked_accounting_data(client):
+    source = make_account(client, "저축", "asset")
+    target = client.post(
+        "/api/accounts",
+        json={"name": "입출금통장", "type": "asset", "is_placeholder": True},
+    ).json()["id"]
+    moving = make_child_account(client, "기업은행", "asset", source)
+    income = make_account(client, "급여", "income")
+
+    opening = client.post(
+        f"/api/accounts/{moving}/opening-balance",
+        json={"date": TODAY.isoformat(), "amount": 5_000_000, "state": "positive"},
+    )
+    assert opening.status_code == 201, opening.text
+    rule = client.post(
+        "/api/rules",
+        json={
+            "from_account_id": income,
+            "to_account_id": moving,
+            "amount": 3_000_000,
+            "schedule": "monthly:25",
+            "start_date": TODAY.isoformat(),
+            "description": "월급",
+        },
+    )
+    assert rule.status_code == 201, rule.text
+    before_balance = next(
+        row for row in client.get("/api/balances").json()["accounts"]
+        if row["account_id"] == moving
+    )
+    before_opening = client.get("/api/opening-balances").json()
+    before_rule = client.get("/api/rules").json()[0]
+
+    moved = update_settings(
+        client,
+        moving,
+        name="기업은행 급여통장",
+        parent_id=target,
+        is_overdraft=False,
+    )
+    assert moved.status_code == 200, moved.text
+    payload = moved.json()
+    assert payload["account"]["id"] == moving
+    assert payload["account"]["parent_id"] == target
+    assert payload["effects"] == {
+        "moved": True,
+        "previous_parent_id": source,
+        "source_parent_grouped": True,
+    }
+
+    after_balance = next(
+        row for row in client.get("/api/balances").json()["accounts"]
+        if row["account_id"] == moving
+    )
+    assert after_balance["balance"] == before_balance["balance"]
+    assert client.get("/api/opening-balances").json() == before_opening
+    assert client.get("/api/rules").json()[0]["id"] == before_rule["id"]
+    assert client.get("/api/rules").json()[0]["to_account_id"] == moving
+    assert account_by_name(client, "저축")["is_placeholder"] is True
+    assert client.get("/api/status").json()["trial_balance_ok"] is True
+
+
+def test_account_settings_moves_account_to_top_level_with_null_parent(client):
+    source = make_account(client, "저축 그룹", "asset")
+    existing_root = make_account(client, "기존 최상위", "asset")
+    moving = make_child_account(client, "옮길 계정", "asset", source)
+    current = account_by_name(client, "옮길 계정")
+    existing_root_position = next(
+        account["position"]
+        for account in client.get("/api/accounts").json()
+        if account["id"] == existing_root
+    )
+
+    moved = client.put(
+        f"/api/accounts/{moving}/settings",
+        json={
+            "name": current["name"],
+            "parent_id": None,
+            "is_overdraft": current["is_overdraft"],
+            "version": current["version"],
+        },
+    )
+
+    assert moved.status_code == 200, moved.text
+    payload = moved.json()
+    assert payload["account"]["id"] == moving
+    assert payload["account"]["parent_id"] is None
+    assert payload["account"]["position"] == existing_root_position + 1
+    assert payload["effects"] == {
+        "moved": True,
+        "previous_parent_id": source,
+        "source_parent_grouped": True,
+    }
+    assert account_by_name(client, "저축 그룹")["is_placeholder"] is True
+
+
+def test_account_settings_combines_fields_and_rejects_stale_version(client):
+    account_id = make_account(client, "현금", "asset")
+    original = account_by_name(client, "현금")
+
+    changed = update_settings(
+        client,
+        account_id,
+        name="생활비 통장",
+        is_overdraft=True,
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["account"]["version"] == original["version"] + 1
+
+    stale = client.put(
+        f"/api/accounts/{account_id}/settings",
+        json={
+            "name": "오래된 수정",
+            "parent_id": None,
+            "is_overdraft": False,
+            "version": original["version"],
+        },
+    )
+    assert stale.status_code == 409
+    assert stale.json()["detail"]["code"] == "account_settings_stale"
+    assert stale.json()["detail"]["current_version"] == original["version"] + 1
+    latest = account_by_name(client, "생활비 통장")
+    assert latest["is_overdraft"] is True
+
+
+def test_existing_opening_balance_account_migrates_to_system_flag():
+    conn = connect(":memory:")
+    conn.execute("""
+        CREATE TABLE accounts (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          parent_id INTEGER,
+          currency TEXT NOT NULL DEFAULT 'KRW',
+          archived INTEGER NOT NULL DEFAULT 0,
+          is_placeholder INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    parent = conn.execute(
+        "INSERT INTO accounts (name, type) VALUES ('자본그룹', 'equity')"
+    ).lastrowid
+    ordinary = conn.execute(
+        "INSERT INTO accounts (name, type, parent_id) VALUES ('개시잔액', 'equity', ?)",
+        (parent,),
+    ).lastrowid
+    seeded = conn.execute(
+        "INSERT INTO accounts (name, type) VALUES ('개시잔액', 'equity')"
+    ).lastrowid
+
+    init_db(conn)
+
+    rows = conn.execute(
+        "SELECT id, is_system FROM accounts WHERE name='개시잔액' AND type='equity'"
+    ).fetchall()
+    system_by_id = {row["id"]: row["is_system"] for row in rows}
+    assert system_by_id[seeded] == 1
+    assert system_by_id[ordinary] == 0
 
 
 def test_materialize_idempotent_via_api(client):
@@ -323,6 +604,70 @@ def test_delete_rule_keeps_materialized_txns(client):
     assert len(txns) == created                      # 거래는 보존 (D9)
     assert all(t["source_rule_id"] is None for t in txns)  # 출처 참조만 해제
     assert client.get("/api/rules").json() == []
+
+
+def test_system_accounts_cannot_be_used_by_recurring_rules(client):
+    cash = make_account(client, "현금", "asset")
+    opening = opening_account_id(client)
+    invalid = client.post("/api/rules", json={
+        "from_account_id": opening,
+        "to_account_id": cash,
+        "amount": 1000,
+        "schedule": "monthly:1",
+        "start_date": TODAY.replace(day=1).isoformat(),
+    })
+    assert invalid.status_code == 400
+    assert "시스템" in invalid.json()["detail"]
+
+    income = make_account(client, "급여", "income")
+    valid = client.post("/api/rules", json={
+        "from_account_id": income,
+        "to_account_id": cash,
+        "amount": 1000,
+        "schedule": "monthly:1",
+        "start_date": TODAY.replace(day=1).isoformat(),
+    }).json()
+    update = client.put(f"/api/rules/{valid['id']}", json={
+        "from_account_id": opening,
+        "to_account_id": cash,
+        "amount": 1000,
+        "schedule": "monthly:1",
+        "start_date": TODAY.replace(day=1).isoformat(),
+    })
+    assert update.status_code == 400
+    assert "시스템" in update.json()["detail"]
+
+
+def test_legacy_system_rule_cannot_turn_materialized_txn_into_opening(client):
+    cash = make_account(client, "현금", "asset")
+    opening = opening_account_id(client)
+    conn = client.app.state.conn
+    rule_id = conn.execute(
+        "INSERT INTO recurring_rules "
+        "(scenario_id, description, from_account_id, to_account_id, amount, schedule, start_date) "
+        "VALUES (1, '잘못된 기존 규칙', ?, ?, 1000, ?, ?)",
+        (
+            opening,
+            cash,
+            f"monthly:{TODAY.day}",
+            TODAY.replace(day=1).isoformat(),
+        ),
+    ).lastrowid
+    conn.commit()
+
+    materialized = client.post("/api/materialize").json()
+    assert materialized["created"] == 1
+    assert client.get("/api/opening-balances").json() == []
+
+    blocked = client.delete(f"/api/rules/{rule_id}")
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["code"] == "system_rule_has_materialized_transactions"
+    assert client.get("/api/opening-balances").json() == []
+
+    txn_id = materialized["transactions"][0]["id"]
+    assert client.delete(f"/api/transactions/{txn_id}").status_code == 200
+    assert client.delete(f"/api/rules/{rule_id}").status_code == 200
+    assert client.get("/api/opening-balances").json() == []
 
 
 def test_placeholder_account_blocks_posting(client):
@@ -464,6 +809,19 @@ def test_reclassify_direct_rejects_non_child_or_group_target(client):
 def test_placeholder_toggle_guard(client):
     toss = make_account(client, "Toss", "asset")
     opening = opening_account_id(client)
+    salary = make_account(client, "급여", "income")
+    rule = client.post("/api/rules", json={
+        "from_account_id": salary, "to_account_id": toss,
+        "amount": 3_000_000, "schedule": "monthly:25",
+        "start_date": TODAY.replace(day=1).isoformat(),
+    }).json()
+    # 반복 규칙이 계속 그룹을 직접 참조하게 되는 전환도 차단한다.
+    blocked_by_rule = client.post(
+        f"/api/accounts/{toss}/placeholder", json={"is_placeholder": True}
+    )
+    assert blocked_by_rule.status_code == 400
+    assert "반복 규칙" in blocked_by_rule.json()["detail"]
+    assert client.delete(f"/api/rules/{rule['id']}").status_code == 200
     # 그룹 전환 가능 (거래 없음)
     assert client.post(f"/api/accounts/{toss}/placeholder", json={"is_placeholder": True}).json()["is_placeholder"] is True
     # 해제 후 거래 기록
@@ -475,3 +833,225 @@ def test_placeholder_toggle_guard(client):
     # 거래가 있으면 그룹 전환 차단
     res = client.post(f"/api/accounts/{toss}/placeholder", json={"is_placeholder": True})
     assert res.status_code == 400 and "이미 거래" in res.json()["detail"]
+
+
+def test_overdraft_account_api_contract_and_reversible_setting(client):
+    ordinary = client.post(
+        "/api/accounts",
+        json={"name": "현금", "type": "asset"},
+    )
+    assert ordinary.status_code == 201
+    assert ordinary.json()["is_overdraft"] is False
+
+    invalid = client.post(
+        "/api/accounts",
+        json={"name": "대출", "type": "liability", "is_overdraft": True},
+    )
+    assert invalid.status_code == 409
+    assert invalid.json()["detail"]["code"] == "overdraft_invalid_account"
+
+    account_id = ordinary.json()["id"]
+    enabled = update_settings(client, account_id, is_overdraft=True)
+    assert enabled.status_code == 200
+    assert enabled.json()["account"]["is_overdraft"] is True
+    disabled = update_settings(client, account_id, is_overdraft=False)
+    assert disabled.status_code == 200
+    assert disabled.json()["account"]["is_overdraft"] is False
+
+    missing = client.put(
+        "/api/accounts/999/settings",
+        json={"name": "없음", "parent_id": None, "is_overdraft": True, "version": 1},
+    )
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["code"] == "account_not_found"
+
+
+def test_overdraft_hierarchy_and_archived_conflicts(client):
+    parent = make_account(client, "입출금통장", "asset")
+    make_child_account(client, "국민은행", "asset", parent)
+    res = update_settings(client, parent, is_overdraft=True)
+    assert res.status_code == 409
+    assert res.json()["detail"]["code"] == "overdraft_requires_leaf"
+
+    overdraft = client.post(
+        "/api/accounts",
+        json={"name": "토스뱅크", "type": "asset", "is_overdraft": True},
+    ).json()["id"]
+    child = client.post(
+        "/api/accounts",
+        json={"name": "하위 계정", "type": "asset", "parent_id": overdraft},
+    )
+    assert child.status_code == 409
+    assert child.json()["detail"]["code"] == "overdraft_parent_forbids_children"
+
+    placeholder = client.post(
+        f"/api/accounts/{overdraft}/placeholder",
+        json={"is_placeholder": True},
+    )
+    assert placeholder.status_code == 409
+    assert placeholder.json()["detail"]["code"] == "overdraft_cannot_be_group"
+
+    archived = client.post(f"/api/accounts/{overdraft}/archive")
+    assert archived.status_code == 200
+    assert archived.json()["is_overdraft"] is True
+    read_only = update_settings(client, overdraft, is_overdraft=False)
+    assert read_only.status_code == 409
+    assert read_only.json()["detail"]["code"] == "archived_account_read_only"
+    restored = client.post(f"/api/accounts/{overdraft}/restore")
+    assert restored.json()["is_overdraft"] is True
+
+
+def test_negative_opening_balance_reports_liability_and_keeps_trial_balance(client):
+    overdraft = client.post(
+        "/api/accounts",
+        json={"name": "케이뱅크", "type": "asset", "is_overdraft": True},
+    ).json()["id"]
+    before_net_worth = client.get("/api/balances").json()["net_worth"]
+
+    created = client.post(
+        f"/api/accounts/{overdraft}/opening-balance",
+        json={"date": "2026-08-02", "amount": 74_566_154, "state": "negative"},
+    )
+    assert created.status_code == 201, created.text
+    postings = [p["amount"]["amount"] for p in created.json()["postings"]]
+    assert postings == [-74_566_154, 74_566_154]
+
+    openings = client.get("/api/opening-balances").json()
+    assert openings == [{
+        "account_id": overdraft,
+        "transaction_id": created.json()["id"],
+        "date": "2026-08-02",
+        "state": "negative",
+    }]
+    balance = client.get("/api/balances", params={"at": "2026-08-02"}).json()
+    row = next(b for b in balance["accounts"] if b["account_id"] == overdraft)
+    assert row["type"] == "asset"
+    assert row["reporting_type"] == "liability"
+    assert row["balance"] == -74_566_154
+    assert balance["net_worth"] == before_net_worth - 74_566_154
+    assert client.get("/api/status").json()["trial_balance_ok"] is True
+
+
+def test_overdraft_reporting_type_returns_to_asset_at_zero(client):
+    overdraft = client.post(
+        "/api/accounts",
+        json={"name": "우리은행", "type": "asset", "is_overdraft": True},
+    ).json()["id"]
+    income = make_account(client, "상환 재원", "income")
+    client.post(
+        f"/api/accounts/{overdraft}/opening-balance",
+        json={"date": "2026-08-02", "amount": 1000, "state": "negative"},
+    )
+    client.post(
+        "/api/transactions",
+        json={
+            "date": "2026-08-03",
+            "postings": [
+                {"account_id": overdraft, "amount": 1000},
+                {"account_id": income, "amount": -1000},
+            ],
+        },
+    )
+
+    negative = client.get("/api/balances", params={"at": "2026-08-02"}).json()
+    at_zero = client.get("/api/balances", params={"at": "2026-08-03"}).json()
+    negative_row = next(b for b in negative["accounts"] if b["account_id"] == overdraft)
+    zero_row = next(b for b in at_zero["accounts"] if b["account_id"] == overdraft)
+    assert negative_row["reporting_type"] == "liability"
+    assert zero_row["balance"] == 0
+    assert zero_row["reporting_type"] == "asset"
+
+
+def test_opening_balance_duplicate_delete_and_validation(client):
+    cash = make_account(client, "현금", "asset")
+    created = client.post(
+        f"/api/accounts/{cash}/opening-balance",
+        json={"date": TODAY.isoformat(), "amount": 1000, "state": "positive"},
+    )
+    assert created.status_code == 201
+
+    duplicate = client.post(
+        f"/api/accounts/{cash}/opening-balance",
+        json={"date": TODAY.isoformat(), "amount": 2000, "state": "positive"},
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["detail"]["code"] == "opening_already_recorded"
+
+    assert client.delete(f"/api/transactions/{created.json()['id']}").status_code == 200
+    retry = client.post(
+        f"/api/accounts/{cash}/opening-balance",
+        json={"date": TODAY.isoformat(), "amount": 2000, "state": "positive"},
+    )
+    assert retry.status_code == 201
+
+    negative = client.post(
+        f"/api/accounts/{make_account(client, '예금', 'asset')}/opening-balance",
+        json={"date": TODAY.isoformat(), "amount": 1, "state": "negative"},
+    )
+    assert negative.status_code == 400
+    assert negative.json()["detail"]["code"] == "negative_opening_requires_overdraft"
+
+
+def test_opening_balance_rejects_missing_group_and_system_accounts(client):
+    missing = client.post(
+        "/api/accounts/999/opening-balance",
+        json={"date": TODAY.isoformat(), "amount": 1, "state": "positive"},
+    )
+    assert missing.status_code == 404
+    assert missing.json()["detail"]["code"] == "account_not_found"
+
+    group = client.post(
+        "/api/accounts",
+        json={"name": "입출금통장", "type": "asset", "is_placeholder": True},
+    ).json()["id"]
+    invalid_group = client.post(
+        f"/api/accounts/{group}/opening-balance",
+        json={"date": TODAY.isoformat(), "amount": 1, "state": "positive"},
+    )
+    assert invalid_group.status_code == 400
+    assert invalid_group.json()["detail"]["code"] == "opening_invalid_account"
+
+    opening = opening_account_id(client)
+    invalid_system = client.post(
+        f"/api/accounts/{opening}/opening-balance",
+        json={"date": TODAY.isoformat(), "amount": 1, "state": "positive"},
+    )
+    assert invalid_system.status_code == 400
+    assert invalid_system.json()["detail"]["code"] == "opening_invalid_account"
+
+
+def test_opening_balance_requires_seeded_system_equity(client):
+    cash = make_account(client, "현금", "asset")
+    conn = client.app.state.conn
+    conn.execute("DELETE FROM accounts WHERE is_system=1 AND type='equity'")
+    conn.commit()
+
+    res = client.post(
+        f"/api/accounts/{cash}/opening-balance",
+        json={"date": TODAY.isoformat(), "amount": 1, "state": "positive"},
+    )
+    assert res.status_code == 404
+    assert res.json()["detail"]["code"] == "opening_account_not_found"
+
+
+def test_scenario_balance_uses_raw_balance_for_overdraft_reporting(client):
+    overdraft = client.post(
+        "/api/accounts",
+        json={"name": "마이너스통장", "type": "asset", "is_overdraft": True},
+    ).json()["id"]
+    client.post(
+        f"/api/accounts/{overdraft}/opening-balance",
+        json={"date": "2026-08-01", "amount": 1000, "state": "negative"},
+    )
+    scenario = client.post(
+        "/api/scenarios",
+        json={"name": "가설", "fork_date": "2026-08-02"},
+    ).json()
+
+    result = client.get(
+        "/api/balances",
+        params={"scenario_id": scenario["id"], "at": "2026-08-02"},
+    ).json()
+    row = next(item for item in result["accounts"] if item["account_id"] == overdraft)
+    assert row["balance"] == -1000
+    assert row["reporting_type"] == "liability"

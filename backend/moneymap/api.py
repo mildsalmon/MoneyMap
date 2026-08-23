@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 
 from moneymap import app_services
 from moneymap.adapters.sqlite import (
@@ -32,20 +32,31 @@ from moneymap.adapters.sqlite.repositories import apply_materialization
 from moneymap.domain import (
     ACTUAL_SCENARIO_ID,
     Account,
+    AccountSettingsCommand,
     AccountType,
+    DomainConflictError,
     DomainError,
     Money,
     Posting,
     RecurringRule,
     Schedule,
     Transaction,
+    reporting_type,
 )
+from moneymap.domain.account import OPENING_BALANCE_ACCOUNT_NAME
 from moneymap.domain.materialize import plan_materialization
-from moneymap.domain.services import validate_account_placement
-from moneymap.domain.standard_accounts import STANDARD_ACCOUNTS, StandardAccount
+from moneymap.domain.services import is_account_group
+from moneymap.domain.standard_accounts import STANDARD_ACCOUNTS
 
 DEFAULT_DB = os.environ.get("MONEYMAP_DB", "moneymap.db")
-CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+DEFAULT_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+
+def _cors_origins() -> list[str]:
+    configured = os.environ.get("MONEYMAP_CORS_ORIGINS")
+    if configured is None:
+        return DEFAULT_CORS_ORIGINS
+    return [origin.strip().rstrip("/") for origin in configured.split(",") if origin.strip()]
 
 
 # ─── 요청 스키마 ─────────────────────────────────────────
@@ -55,10 +66,24 @@ class AccountIn(BaseModel):
     type: AccountType
     parent_id: int | None = None
     is_placeholder: bool = False
+    is_overdraft: bool = False
+
+
+class AccountSettingsIn(BaseModel):
+    name: str
+    parent_id: int | None
+    is_overdraft: bool
+    version: int = Field(ge=1)
 
 
 class PlaceholderIn(BaseModel):
     is_placeholder: bool
+
+
+class OpeningBalanceIn(BaseModel):
+    date: datetime.date
+    amount: int
+    state: str
 
 
 class PostingIn(BaseModel):
@@ -100,44 +125,12 @@ def _account_referenced_by_rule(conn, account_id: int) -> bool:
     return _account_rule_reference_count(conn, account_id) > 0
 
 
-def _find_account_id_by_path(
-    conn,
-    path: tuple[str, ...],
-    account_type: AccountType,
-) -> int | None:
-    """표준 시드의 path 멱등 키 조회.
-
-    같은 이름이 다른 부모 아래에 있어도 parent_id 체인을 따라 정확한 path만
-    찾는다. 중복 path가 이미 있으면 가장 먼저 만들어진 행을 대표로 삼는다.
-    """
-    parent_id: int | None = None
-    found_id: int | None = None
-    for name in path:
-        row = conn.execute(
-            "SELECT id FROM accounts WHERE name=? AND type=? AND parent_id IS ? "
-            "ORDER BY id LIMIT 1",
-            (name, account_type.value, parent_id),
-        ).fetchone()
-        if row is None:
-            return None
-        found_id = row["id"]
-        parent_id = found_id
-    return found_id
-
-
-def _insert_standard_account(conn, item: StandardAccount) -> bool:
-    if _find_account_id_by_path(conn, item.path, item.type) is not None:
-        return False
-    parent_id = None
-    if len(item.path) > 1:
-        parent_id = _find_account_id_by_path(conn, item.path[:-1], item.type)
-        if parent_id is None:
-            raise RuntimeError(f"표준 계정 상위 경로가 없습니다: {'/'.join(item.path[:-1])}")
-    conn.execute(
-        "INSERT INTO accounts (name, type, parent_id, is_placeholder) VALUES (?,?,?,?)",
-        (item.path[-1], item.type.value, parent_id, int(item.is_group)),
-    )
-    return True
+def _assert_account_rule_free_before_grouping(conn, account_id: int) -> None:
+    if _account_referenced_by_rule(conn, account_id):
+        raise HTTPException(
+            status_code=400,
+            detail="이 계정을 참조하는 반복 규칙을 먼저 다른 계정으로 바꾼 뒤 그룹으로 변경하세요",
+        )
 
 
 # ─── 앱 팩토리 ───────────────────────────────────────────
@@ -169,7 +162,7 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=CORS_ORIGINS,
+        allow_origins=_cors_origins(),
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -178,7 +171,16 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
     async def _domain_error(request: Request, exc: DomainError):
         from fastapi.responses import JSONResponse
 
-        return JSONResponse(status_code=400, content={"detail": str(exc)})
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "detail": {
+                    "code": exc.code,
+                    "message": exc.message,
+                    **exc.context,
+                }
+            },
+        )
 
     def repos(request: Request):
         conn = request.app.state.conn
@@ -233,38 +235,34 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
         r = repos(request)
         account = Account(
             name=body.name, type=body.type, parent_id=body.parent_id,
-            is_placeholder=body.is_placeholder,
+            is_placeholder=body.is_placeholder, is_overdraft=body.is_overdraft,
         )
-        validate_account_placement(account, r["accounts"])
-        if body.parent_id is not None and _account_referenced_by_rule(r["conn"], body.parent_id):
-            raise HTTPException(
-                status_code=400,
-                detail="이 계정을 참조하는 반복 규칙을 먼저 하위 계정으로 바꾼 뒤 소분류를 추가하세요",
-            )
-        return r["accounts"].save(account).model_dump()
+        if body.parent_id is not None:
+            _assert_account_rule_free_before_grouping(r["conn"], body.parent_id)
+        return r["accounts"].create(account).model_dump()
+
+    @app.put("/api/accounts/{account_id}/settings")
+    def update_account_settings(
+        account_id: int,
+        body: AccountSettingsIn,
+        request: Request,
+    ):
+        result = app_services.update_account_settings(
+            AccountSettingsCommand(
+                account_id=account_id,
+                name=body.name,
+                parent_id=body.parent_id,
+                is_overdraft=body.is_overdraft,
+                version=body.version,
+            ),
+            repos(request)["accounts"],
+        )
+        return result.model_dump()
 
     @app.post("/api/accounts/seed-standard")
     def seed_standard_accounts(request: Request):
-        """표준 계정과목 시드 — path 기준 멱등, 단일 SQL 트랜잭션."""
-        conn = repos(request)["conn"]
-        created = 0
-        skipped = 0
-        try:
-            conn.execute("BEGIN")
-            roots = [a for a in STANDARD_ACCOUNTS if len(a.path) == 1]
-            children = sorted(
-                [a for a in STANDARD_ACCOUNTS if len(a.path) > 1],
-                key=lambda a: len(a.path),
-            )
-            for item in [*roots, *children]:
-                if _insert_standard_account(conn, item):
-                    created += 1
-                else:
-                    skipped += 1
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+        """표준 계정과목 시드 — repository의 한 트랜잭션에서 path 기준 멱등."""
+        created, skipped = repos(request)["accounts"].seed_standard(STANDARD_ACCOUNTS)
         return {"created": created, "skipped": skipped}
 
     def _assert_postable(request: Request, account_ids: list[int]) -> None:
@@ -274,14 +272,26 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
         자동 규칙(자식 붙은 순간)을 겹쳐 어느 경로로도 그룹에 기장되지 않게 한다.
         """
         acc_repo = repos(request)["accounts"]
+        account_snapshot = acc_repo.find_all()
         for aid in set(account_ids):
             a = acc_repo.find_by_id(aid)
             if a is None:
                 continue  # 존재하지 않는 계정은 FK가 걸러낸다
-            if a.is_placeholder or acc_repo.has_children(aid):
+            if is_account_group(a, account_snapshot):
                 raise HTTPException(
                     status_code=400,
                     detail=f"'{a.name}'은 그룹(대분류) 계정이라 직접 기장할 수 없습니다 — 하위 계정을 선택하세요",
+                )
+
+    def _assert_rule_accounts(request: Request, account_ids: list[int]) -> None:
+        _assert_postable(request, account_ids)
+        acc_repo = repos(request)["accounts"]
+        for account_id in set(account_ids):
+            account = acc_repo.find_by_id(account_id)
+            if account is not None and account.is_system:
+                raise HTTPException(
+                    status_code=400,
+                    detail="시스템 계정은 반복 규칙에 사용할 수 없습니다",
                 )
 
     @app.post("/api/accounts/{account_id}/placeholder")
@@ -291,12 +301,19 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
         acc = r["accounts"].find_by_id(account_id)
         if acc is None:
             raise HTTPException(status_code=404, detail="계정이 없습니다")
+        if body.is_placeholder and acc.is_overdraft:
+            raise DomainConflictError(
+                "마이너스통장 설정을 해제한 뒤 그룹으로 변경하세요",
+                code="overdraft_cannot_be_group",
+            )
+        if body.is_placeholder:
+            _assert_account_rule_free_before_grouping(r["conn"], account_id)
         if body.is_placeholder and r["accounts"].has_postings(account_id):
             raise HTTPException(
                 status_code=400,
                 detail="이 계정에는 이미 거래가 있어 그룹으로 바꿀 수 없습니다 (거래를 옮긴 뒤 시도하세요)",
             )
-        return r["accounts"].save(acc.model_copy(update={"is_placeholder": body.is_placeholder})).model_dump()
+        return r["accounts"].set_placeholder(account_id, body.is_placeholder).model_dump()
 
     @app.post("/api/accounts/{account_id}/archive")
     def archive_account(account_id: int, request: Request):
@@ -322,7 +339,7 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
                 status_code=400,
                 detail=f"이 계정을 참조하는 반복 규칙 {rules}개(시나리오 포함)를 먼저 삭제하세요",
             )
-        return r["accounts"].save(acc.model_copy(update={"archived": True})).model_dump()
+        return r["accounts"].set_archived(account_id, True).model_dump()
 
     @app.post("/api/accounts/{account_id}/restore")
     def restore_account(account_id: int, request: Request):
@@ -335,7 +352,7 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
             parent = r["accounts"].find_by_id(acc.parent_id)
             if parent is not None and parent.archived:
                 raise HTTPException(status_code=400, detail=f"상위 그룹 '{parent.name}'을 먼저 복원하세요")
-        return r["accounts"].save(acc.model_copy(update={"archived": False})).model_dump()
+        return r["accounts"].set_archived(account_id, False).model_dump()
 
     @app.post("/api/accounts/{account_id}/reclassify-direct")
     def reclassify_direct_postings(account_id: int, request: Request, to: int = Query(...)):
@@ -380,6 +397,24 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
         return {"moved_postings": cur.rowcount, "to": to}
 
     # ─── 거래 ───
+
+    @app.get("/api/opening-balances")
+    def list_opening_balances(request: Request):
+        return repos(request)["txns"].find_opening_balances()
+
+    @app.post("/api/accounts/{account_id}/opening-balance", status_code=201)
+    def create_opening_balance(
+        account_id: int,
+        body: OpeningBalanceIn,
+        request: Request,
+    ):
+        return app_services.create_opening_balance(
+            account_id,
+            body.date,
+            body.amount,
+            body.state,
+            repos(request)["txns"],
+        ).model_dump()
 
     @app.get("/api/transactions")
     def list_transactions(request: Request, scenario_id: int = ACTUAL_SCENARIO_ID):
@@ -431,7 +466,7 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
             )
         except ValidationError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
-        _assert_postable(request, [body.from_account_id, body.to_account_id])
+        _assert_rule_accounts(request, [body.from_account_id, body.to_account_id])
         return repos(request)["rules"].save(rule).model_dump()
 
     @app.put("/api/rules/{rule_id}")
@@ -457,7 +492,7 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
             )
         except ValidationError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
-        _assert_postable(request, [body.from_account_id, body.to_account_id])
+        _assert_rule_accounts(request, [body.from_account_id, body.to_account_id])
         return r["rules"].save(updated).model_dump()
 
     @app.delete("/api/rules/{rule_id}")
@@ -468,18 +503,34 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
         거래는 보존하되 출처 badge만 사라진다.
         """
         conn = repos(request)["conn"]
+        legacy = conn.execute(
+            "SELECT EXISTS ("
+            "  SELECT 1 FROM transactions t "
+            "  JOIN postings p ON p.txn_id=t.id "
+            "  JOIN accounts a ON a.id=p.account_id "
+            "  WHERE t.source_rule_id=r.id "
+            "    AND a.is_system=1 AND a.type='equity' AND a.name=?"
+            ") AS generated_opening "
+            "FROM recurring_rules r WHERE r.id=?",
+            (OPENING_BALANCE_ACCOUNT_NAME, rule_id),
+        ).fetchone()
+        if legacy is None:
+            raise HTTPException(status_code=404, detail="규칙이 없습니다")
+        if legacy["generated_opening"]:
+            raise DomainConflictError(
+                "시스템 계정 규칙의 자동 생성 거래를 먼저 삭제하세요",
+                code="system_rule_has_materialized_transactions",
+            )
         try:
             conn.execute(
                 "UPDATE transactions SET source_rule_id=NULL WHERE source_rule_id=?",
                 (rule_id,),
             )
-            cur = conn.execute("DELETE FROM recurring_rules WHERE id=?", (rule_id,))
+            conn.execute("DELETE FROM recurring_rules WHERE id=?", (rule_id,))
             conn.commit()
         except Exception:
             conn.rollback()
             raise
-        if cur.rowcount == 0:
-            raise HTTPException(status_code=404, detail="규칙이 없습니다")
         return {"deleted": rule_id}
 
     # ─── materialize (앱 로드 시 프론트가 호출 → 생성 배너 데이터, D10) ───
@@ -540,6 +591,7 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
                     "account_id": a.id,
                     "name": a.name,
                     "type": a.type.value,
+                    "reporting_type": reporting_type(a, raw).value,
                     "balance": raw,
                     "display_balance": raw * a.display_multiplier(),
                 }

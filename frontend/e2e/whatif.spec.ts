@@ -4,6 +4,9 @@
  */
 import { expect, test, type Page } from "@playwright/test";
 
+const API_BASE = (process.env.MONEYMAP_E2E_API_BASE
+  ?? `http://127.0.0.1:${process.env.MONEYMAP_E2E_BACKEND_PORT ?? "8765"}/api`).replace(/\/+$/, "");
+
 function field(page: Page, label: string) {
   return page.locator(`.field:has(label:text-is("${label}"))`).locator("input, select");
 }
@@ -45,8 +48,8 @@ test("개시잔액이 0원이어도 '기록'으로 확인하고 진입할 수 �
   await nav(page, "계정·개시잔액").click();
   await createRootCategory(page, "자산", "빈통장");
 
-  // 금액을 비워둔 채(=0원) 기록 → 거래 없이 확인 표시만
-  await page.locator('tr:has-text("빈통장")').getByRole("button", { name: "기록" }).click();
+  // 0원은 빈 금액의 암묵적 의미가 아니라 별도 확인 작업이다.
+  await page.locator('tr:has-text("빈통장")').getByRole("button", { name: "0원으로 확인" }).click();
   await expect(page.locator(".toast")).toContainText("0원으로 확인됨");
   await expect(page.locator('tr:has-text("빈통장")')).toContainText("기록됨 (0원)");
 
@@ -81,6 +84,23 @@ test("그룹(대분류) 계정은 거래 입력에서 선택 불가 (D24)", asyn
   await expect(pay.locator("option", { hasText: "카카오뱅크" })).toBeEnabled();
 });
 
+test("개시잔액 상태 조회가 실패해도 계정 계층과 재시도는 유지된다", async ({ page }) => {
+  await page.route("**/api/opening-balances", (route) => route.fulfill({
+    status: 503,
+    contentType: "application/json",
+    body: JSON.stringify({ detail: "임시 오류" }),
+  }));
+  await page.goto("/");
+  await nav(page, "계정·개시잔액").click();
+
+  await expect(page.locator("tr.account-row", { hasText: "빈통장" })).toBeVisible();
+  await expect(page.getByText("불러오지 못함").first()).toBeVisible();
+
+  await page.unroute("**/api/opening-balances");
+  await page.getByRole("button", { name: "다시 시도" }).first().click();
+  await expect(page.locator("tr.account-row", { hasText: "빈통장" }).getByRole("button", { name: "0원으로 확인" })).toBeVisible();
+});
+
 test("표준 시드 후 그룹 아래 소분류를 추가하고 그 소분류로 기장한다", async ({ page }) => {
   await page.goto("/");
   await nav(page, "계정·개시잔액").click();
@@ -102,6 +122,73 @@ test("표준 시드 후 그룹 아래 소분류를 추가하고 그 소분류로
   await expect(page.locator("table.ledger", { hasText: "이번 달 지출 상위" })).toContainText("야식");
 });
 
+test("마이너스통장 개시잔액은 대시보드에서만 부채로 보고된다", async ({ page }) => {
+  await page.goto("/");
+  await nav(page, "계정·개시잔액").click();
+  await createChildCategory(page, "입출금통장", "케이뱅크");
+
+  const row = page.locator("tr.account-row", { hasText: "케이뱅크" });
+  await row.getByRole("button", { name: "설정" }).click();
+  const settingsRow = page.getByLabel("케이뱅크 마이너스통장").locator("xpath=ancestor::tr");
+  await page.getByLabel("케이뱅크 마이너스통장").check();
+  await settingsRow.getByRole("button", { name: "저장" }).click();
+  await expect(row).toContainText("마이너스통장");
+  await expect(row.getByRole("button", { name: "설정" })).toBeFocused();
+
+  await page.reload();
+  await nav(page, "계정·개시잔액").click();
+  await expect(row).toContainText("마이너스통장");
+  await expect(row.getByRole("radio", { name: "예금" })).not.toBeChecked();
+  await expect(row.getByRole("radio", { name: "마이너스 사용" })).not.toBeChecked();
+  await row.getByRole("radio", { name: "예금" }).focus();
+  await row.getByRole("radio", { name: "예금" }).press("Space");
+  await expect(row.getByRole("radio", { name: "예금" })).toBeChecked();
+  await row.getByRole("radio", { name: "예금" }).press("ArrowRight");
+  await expect(row.getByRole("radio", { name: "마이너스 사용" })).toBeChecked();
+  await page.getByLabel("케이뱅크 개시잔액").fill("123456");
+  await page.route("**/api/accounts/*/opening-balance", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    await route.continue();
+  });
+  await row.getByRole("button", { name: "기록", exact: true }).click();
+  await expect(row.getByRole("button", { name: "설정" })).toBeDisabled();
+  await expect(row.getByRole("button", { name: "기록 중…" })).toBeDisabled();
+  await expect(row).toContainText("기록됨");
+  await page.unroute("**/api/accounts/*/opening-balance");
+
+  await nav(page, "대시보드").click();
+  const dashboardRow = page.locator("table.ledger tr", { hasText: "케이뱅크" });
+  await expect(dashboardRow).toContainText("부채 · 마이너스 사용 중");
+  await expect(dashboardRow).toContainText("-123,456");
+
+  const accountResponse = await page.request.get(`${API_BASE}/accounts`);
+  const accounts = await accountResponse.json();
+  const overdraftId = accounts.find((account: { name: string }) => account.name === "케이뱅크").id;
+  const incomeId = accounts.find((account: { name: string }) => account.name === "급여").id;
+  const repayment = await page.request.post(`${API_BASE}/transactions`, {
+    data: {
+      date: new Date().toISOString().slice(0, 10),
+      description: "마이너스통장 상환",
+      postings: [
+        { account_id: overdraftId, amount: 123456 },
+        { account_id: incomeId, amount: -123456 },
+      ],
+    },
+  });
+  expect(repayment.ok()).toBe(true);
+  await page.reload();
+  const zeroRow = page.locator("table.ledger tr", { hasText: "케이뱅크" });
+  await expect(zeroRow).toContainText("0");
+  await expect(zeroRow).not.toContainText("마이너스 사용 중");
+  await expect(page.locator("table.ledger tr", { hasText: "신용카드" })).toContainText("부채");
+  await page.request.delete(`${API_BASE}/transactions/${(await repayment.json()).id}`);
+
+  // 다음 공유 DB 테스트의 순자산을 변경하지 않도록 개시 거래를 되돌린다.
+  await nav(page, "계정·개시잔액").click();
+  await page.locator("tr.account-row", { hasText: "케이뱅크" }).getByRole("button", { name: "기록 취소" }).click();
+  await expect(page.locator("tr.account-row", { hasText: "케이뱅크" })).toContainText("0원으로 확인");
+});
+
 test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
   // ── 1. 첫 실행 흐름 (앞 테스트의 0원 계정과 무관하게 자체 데이터로 진행)
   await page.goto("/");
@@ -119,13 +206,42 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
   await expect(page.locator('tr:has-text("Toss뱅크")')).toContainText("₩10,000,000");
   // 개시잔액은 계정당 1회 — 기록 후 입력칸이 잠긴다
   await expect(page.locator('tr:has-text("Toss뱅크")')).toContainText("기록됨");
-  await expect(page.locator('tr:has-text("Toss뱅크")').getByRole("button", { name: "기록" })).toHaveCount(0);
+  await expect(page.locator('tr:has-text("Toss뱅크")').getByRole("button", { name: "기록", exact: true })).toHaveCount(0);
+
+  // Escape는 수정을 취소하고 기존 이름을 유지한다
+  await page.locator('tr:has-text("Toss뱅크")').getByRole("button", { name: "설정" }).click();
+  await page.getByLabel("Toss뱅크 이름").fill("임시 이름");
+  await page.getByLabel("Toss뱅크 이름").press("Escape");
+  await expect(page.locator('tr:has-text("Toss뱅크")')).toBeVisible();
+  await expect(page.getByText("임시 이름")).toHaveCount(0);
+
+  // 기존 반복 규칙이 이름 변경 후에도 같은 account_id를 참조하는지 검증한다
+  await nav(page, "반복 규칙").click();
+  await expect(field(page, "어디서 (from)").locator("option", { hasText: "개시잔액" })).toHaveCount(0);
+  await field(page, "내역").fill("월급");
+  await selectOptionContaining(field(page, "어디서 (from)"), "급여");
+  await selectOptionContaining(field(page, "어디로 (to)"), "Toss뱅크");
+  await field(page, "금액/회").fill("3000000");
+  await field(page, "금액/회").press("Enter");
+  await expect(page.locator("table.ledger")).toContainText("Toss뱅크");
+
+  // 계정 이름 수정 — 기존 거래·반복 규칙의 account_id는 그대로 유지된다
+  await nav(page, "계정·개시잔액").click();
+  await page.locator('tr:has-text("Toss뱅크")').getByRole("button", { name: "설정" }).click();
+  await page.getByLabel("Toss뱅크 이름").fill("토스뱅크");
+  await page.getByLabel("Toss뱅크 이름").press("Enter");
+  await expect(page.locator(".toast")).toContainText('"Toss뱅크" → "토스뱅크" 이름 변경됨');
+  await expect(page.locator("table.ledger")).toContainText("토스뱅크");
+
+  await nav(page, "반복 규칙").click();
+  await expect(page.locator("table.ledger")).toContainText("급여 → 토스뱅크");
+  await expect(page.locator("table.ledger")).not.toContainText("Toss뱅크");
 
   // ── 2.5 거래 입력 — 지출 템플릿 (D22): 복식 미리보기 검산 후 저장
   await nav(page, "거래 입력").click();
   await field(page, "금액").fill("52000");
   await selectOptionContaining(field(page, "무엇에? (비용)"), "야식");
-  await selectOptionContaining(field(page, "어디서 나갔나? (결제 수단)"), "Toss뱅크");
+  await selectOptionContaining(field(page, "어디서 나갔나? (결제 수단)"), "토스뱅크");
   await expect(page.locator(".panel")).toContainText("검산 일치");
   await field(page, "금액").press("Enter"); // 저장 후 계속 (D12)
   await expect(page.locator(".toast")).toContainText("순자산 −₩52,000 반영");
@@ -136,14 +252,10 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
   await expect(page.locator("table.ledger")).toContainText("야식");
   await expect(page.locator("table.ledger")).toContainText("₩52,000");
 
-  // ── 3. 반복 규칙 (월급)
+  // ── 3. 이름 변경 이후에도 기존 반복 규칙 참조 유지 확인
   await nav(page, "반복 규칙").click();
-  await field(page, "내역").fill("월급");
-  await selectOptionContaining(field(page, "어디서 (from)"), "급여");
-  await selectOptionContaining(field(page, "어디로 (to)"), "Toss뱅크");
-  await field(page, "금액/회").fill("3000000");
-  await field(page, "금액/회").press("Enter"); // 키보드 저장 (D12)
   await expect(page.locator("table.ledger")).toContainText("매월 25일");
+  await expect(page.locator("table.ledger")).toContainText("토스뱅크");
 
   // ── 4. 시나리오 fork — copy-on-fork 확인 (D5)
   await nav(page, "시나리오").click();
@@ -156,7 +268,7 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
 
   // 가설 규칙 추가 (자산→자산 이체 = 순자산 중립)
   await editor.locator('.field:has(label:text-is("내역")) input').fill("추가 저축");
-  await selectOptionContaining(editor.locator('.field:has(label:text-is("어디서 (from)")) select'), "Toss뱅크");
+  await selectOptionContaining(editor.locator('.field:has(label:text-is("어디서 (from)")) select'), "토스뱅크");
   await selectOptionContaining(editor.locator('.field:has(label:text-is("어디로 (to)")) select'), "신한적금");
   await editor.locator('.field:has(label:text-is("금액/회")) input').fill("1000000");
   await editor.getByRole("button", { name: "규칙 추가" }).click();
@@ -191,4 +303,35 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
 
   // 상태 스트립 갱신 (D8)
   await expect(page.locator(".side .health")).toContainText("검산 정상");
+
+  // 1024px: 페이지 전체는 고정하고 계정 원장만 내부 스크롤한다.
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await nav(page, "계정·개시잔액").click();
+  await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 1024);
+  const ledgerOverflow = await page.locator(".accounts-ledger-wrap").first().evaluate(
+    (element) => element.scrollWidth > element.clientWidth,
+  );
+  expect(ledgerOverflow).toBe(true);
+
+  // 1200px 미만: 대시보드 표를 한 열로 쌓는다.
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await nav(page, "대시보드").click();
+  // Dashboard는 여러 API를 병렬 로드하므로 실제 잔액이 렌더될 때까지 기다린다.
+  // 초기 표 렌더와 온보딩 판정 사이의 짧은 전환을 레이아웃으로 오인하지 않는다.
+  await expect(page.locator(".strip .hero")).toHaveText("₩9,935,655");
+  const dashboardTables = page.locator(".two > div");
+  await expect(dashboardTables).toHaveCount(2);
+  const narrowTableTops = await dashboardTables.evaluateAll(
+    (elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)),
+  );
+  expect(narrowTableTops[0]).not.toBe(narrowTableTops[1]);
+
+  // 1440px: 대시보드 하단 표는 승인된 2열 배치를 유지한다.
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await nav(page, "대시보드").click();
+  await expect(dashboardTables).toHaveCount(2);
+  const tableTops = await dashboardTables.evaluateAll(
+    (elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)),
+  );
+  expect(tableTops[0]).toBe(tableTops[1]);
 });

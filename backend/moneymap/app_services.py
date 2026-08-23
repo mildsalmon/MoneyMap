@@ -9,8 +9,14 @@ from __future__ import annotations
 import calendar
 import datetime
 
-from moneymap.domain.account import Account, AccountType
+from moneymap.domain.account import (
+    Account,
+    AccountSettingsCommand,
+    AccountSettingsResult,
+    AccountType,
+)
 from moneymap.domain.ports import (
+    AccountRepository,
     RecurringRuleRepository,
     ScenarioRepository,
     TransactionRepository,
@@ -21,6 +27,7 @@ from moneymap.domain.simulation import (
     project_net_worth,
     variable_monthly_spend,
 )
+from moneymap.domain.transaction import Transaction
 
 
 def add_months(d: datetime.date, months: int) -> datetime.date:
@@ -29,6 +36,25 @@ def add_months(d: datetime.date, months: int) -> datetime.date:
     year, month = divmod(total, 12)
     month += 1
     return datetime.date(year, month, min(d.day, calendar.monthrange(year, month)[1]))
+
+
+def update_account_settings(
+    command: AccountSettingsCommand,
+    account_repo: AccountRepository,
+) -> AccountSettingsResult:
+    """원자적 전체 상태 설정 명령을 어댑터 포트에 위임한다."""
+    return account_repo.update_settings(command)
+
+
+def create_opening_balance(
+    account_id: int,
+    date: datetime.date,
+    amount: int,
+    state: str,
+    txn_repo: TransactionRepository,
+) -> Transaction:
+    """서버가 부호와 상대 계정을 소유하는 개시잔액 명령."""
+    return txn_repo.create_opening_balance(account_id, date, amount, state)
 
 
 def fork_scenario(

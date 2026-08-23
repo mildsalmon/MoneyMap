@@ -1,6 +1,5 @@
-// 백엔드 API 클라이언트 — 실행 분리 구조(D17-eng)라 절대 주소 사용
-
-const BASE = "http://127.0.0.1:8765/api";
+// 백엔드 API 클라이언트 — 로컬 기본값은 유지하고 E2E/배포에서 주입할 수 있다.
+const BASE = (import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8765/api").replace(/\/+$/, "");
 
 export type AccountType = "asset" | "liability" | "income" | "expense" | "equity";
 
@@ -12,6 +11,19 @@ export interface Account {
   currency: string;
   archived: boolean;
   is_placeholder: boolean;
+  is_system: boolean;
+  is_overdraft: boolean;
+  position: number;
+  version: number;
+}
+
+export interface AccountSettingsResult {
+  account: Account;
+  effects: {
+    moved: boolean;
+    previous_parent_id: number | null;
+    source_parent_grouped: boolean;
+  };
 }
 
 export interface Posting {
@@ -65,8 +77,22 @@ export interface BalanceRow {
   account_id: number;
   name: string;
   type: AccountType;
+  reporting_type: AccountType;
   balance: number;
   display_balance: number;
+}
+
+export interface OpeningBalanceRecord {
+  account_id: number;
+  transaction_id: number;
+  date: string;
+  state: "positive" | "negative";
+}
+
+export interface StatusSummary {
+  trial_balance_ok: boolean;
+  last_entry: string | null;
+  last_backup: string | null;
 }
 
 export interface RuleBody {
@@ -81,7 +107,11 @@ export interface RuleBody {
 }
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(
+    public status: number,
+    message: string,
+    public code?: string,
+  ) {
     super(message);
   }
 }
@@ -93,21 +123,45 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     let detail = res.statusText;
+    let code: string | undefined;
     try {
-      detail = (await res.json()).detail ?? detail;
+      const body = await res.json();
+      const bodyDetail = body.detail;
+      if (typeof bodyDetail === "string") {
+        detail = bodyDetail;
+      } else if (bodyDetail && typeof bodyDetail === "object") {
+        detail = typeof bodyDetail.message === "string" ? bodyDetail.message : detail;
+        code = typeof bodyDetail.code === "string" ? bodyDetail.code : undefined;
+      }
     } catch {
       /* body 없음 */
     }
-    throw new ApiError(res.status, typeof detail === "string" ? detail : JSON.stringify(detail));
+    throw new ApiError(res.status, detail, code);
   }
   return res.json();
 }
 
 export const api = {
   health: () => req<{ status: string }>("/health"),
+  status: () => req<StatusSummary>("/status"),
   accounts: () => req<Account[]>("/accounts"),
-  createAccount: (b: { name: string; type: AccountType; parent_id?: number | null; is_placeholder?: boolean }) =>
+  createAccount: (b: {
+    name: string;
+    type: AccountType;
+    parent_id?: number | null;
+    is_placeholder?: boolean;
+    is_overdraft?: boolean;
+  }) =>
     req<Account>("/accounts", { method: "POST", body: JSON.stringify(b) }),
+  updateAccountSettings: (id: number, b: {
+    name: string;
+    parent_id: number | null;
+    is_overdraft: boolean;
+    version: number;
+  }) => req<AccountSettingsResult>(`/accounts/${id}/settings`, {
+    method: "PUT",
+    body: JSON.stringify(b),
+  }),
   seedStandardAccounts: () =>
     req<{ created: number; skipped: number }>("/accounts/seed-standard", { method: "POST" }),
   archiveAccount: (id: number) => req<Account>(`/accounts/${id}/archive`, { method: "POST" }),
@@ -117,6 +171,14 @@ export const api = {
   reclassifyDirect: (id: number, to: number) =>
     req<{ moved_postings: number; to: number }>(`/accounts/${id}/reclassify-direct?to=${to}`, { method: "POST" }),
   transactions: (scenarioId = 1) => req<Txn[]>(`/transactions?scenario_id=${scenarioId}`),
+  openingBalances: () => req<OpeningBalanceRecord[]>("/opening-balances"),
+  createOpeningBalance: (
+    id: number,
+    b: { date: string; amount: number; state: "positive" | "negative" },
+  ) => req<Txn>(`/accounts/${id}/opening-balance`, {
+    method: "POST",
+    body: JSON.stringify(b),
+  }),
   createTransaction: (b: {
     scenario_id?: number;
     date: string;
@@ -143,7 +205,7 @@ export const api = {
     req<{ series: Series[] }>(`/projection?months=${months}&scenario_ids=${scenarioIds.join(",")}`),
 };
 
-/** 계정 트리 정렬: 유형 순 → 루트 이름 순 → 자식은 부모 바로 아래 (depth 포함) */
+/** 계정 트리 정렬: 유형 순 → 영속 위치 순 → 자식은 부모 바로 아래 (depth 포함) */
 const TYPE_ORDER: AccountType[] = ["asset", "liability", "income", "expense", "equity"];
 
 export function accountTree(accounts: Account[]): { account: Account; depth: number }[] {
@@ -156,7 +218,7 @@ export function accountTree(accounts: Account[]): { account: Account; depth: num
   const walk = (parent: number | null, depth: number, type?: AccountType) => {
     const children = (byParent.get(parent) ?? [])
       .filter((a) => !type || a.type === type)
-      .sort((x, y) => x.name.localeCompare(y.name, "ko"));
+      .sort((x, y) => x.position - y.position || x.id - y.id);
     for (const a of children) {
       out.push({ account: a, depth });
       walk(a.id, depth + 1);

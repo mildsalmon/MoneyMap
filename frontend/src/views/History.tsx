@@ -8,7 +8,7 @@ import { api, type Account, type Txn } from "../api";
 import { fmtWon } from "../format";
 import type { ViewProps } from "../App";
 
-export function History({ gen, refresh, showToast }: ViewProps) {
+export function History({ gen, refresh, showToast, go }: ViewProps) {
   const [txns, setTxns] = useState<Txn[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
 
@@ -47,29 +47,40 @@ export function History({ gen, refresh, showToast }: ViewProps) {
       <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 14 }}>
         수정이 필요하면 삭제 후 다시 입력하세요 — 장부에 애매한 중간 상태를 남기지 않기 위한 v1 규칙입니다.
       </p>
-      <table className="ledger" style={{ maxWidth: 860 }}>
-        <thead>
-          <tr><th>날짜</th><th>내역</th><th>흐름</th><th className="num">금액</th><th /></tr>
-        </thead>
-        <tbody>
-          {txns.map((t) => (
-            <tr key={t.id}>
-              <td style={{ width: 100, color: "var(--muted)" }}>{t.date}</td>
-              <td>{t.description || "—"} {t.source_rule_id && <span className="badge auto">자동</span>}</td>
-              <td style={{ color: "var(--muted)", fontSize: 12.5 }}>{flow(t)}</td>
-              <td className="num">
-                {fmtWon(t.postings.filter((p) => p.amount.amount > 0).reduce((s, p) => s + p.amount.amount, 0))}
-              </td>
-              <td style={{ width: 60 }}>
-                <button className="btn sm danger" onClick={() => remove(t)}>삭제</button>
-              </td>
-            </tr>
-          ))}
-          {txns.length === 0 && (
-            <tr><td colSpan={5} style={{ color: "var(--muted)" }}>아직 거래가 없습니다 — 거래 입력에서 시작하세요.</td></tr>
-          )}
-        </tbody>
-      </table>
+      <div className="table-scroll history-scroll">
+        <table className="ledger">
+          <thead>
+            <tr><th>날짜</th><th>내역</th><th>흐름</th><th className="num">금액</th><th /></tr>
+          </thead>
+          <tbody>
+            {txns.map((t) => (
+              <tr key={t.id}>
+                <td style={{ width: 100, color: "var(--muted)" }}>{t.date}</td>
+                <td>{t.description || "—"} {t.source_rule_id && <span className="badge auto">자동</span>}</td>
+                <td style={{ color: "var(--muted)", fontSize: 12.5 }}>{flow(t)}</td>
+                <td className="num">
+                  {fmtWon(t.postings.filter((p) => p.amount.amount > 0).reduce((s, p) => s + p.amount.amount, 0))}
+                </td>
+                <td style={{ width: 60 }}>
+                  <button className="btn sm danger" onClick={() => remove(t)}>삭제</button>
+                </td>
+              </tr>
+            ))}
+            {txns.length === 0 && (
+              <tr>
+                <td colSpan={5}>
+                  <div className="history-empty">
+                    <span>아직 거래가 없습니다.</span>
+                    <button type="button" className="btn sm secondary" onClick={() => go("input")}>
+                      거래 입력
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

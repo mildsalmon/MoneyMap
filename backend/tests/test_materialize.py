@@ -98,8 +98,8 @@ def conn() -> sqlite3.Connection:
 @pytest.fixture
 def rule_in_db(conn) -> RecurringRule:
     acc = SqliteAccountRepository(conn)
-    toss = acc.save(Account(name="Toss", type=AccountType.ASSET))
-    rent = acc.save(Account(name="월세", type=AccountType.EXPENSE))
+    toss = acc.create(Account(name="Toss", type=AccountType.ASSET))
+    rent = acc.create(Account(name="월세", type=AccountType.EXPENSE))
     return SqliteRecurringRuleRepository(conn).save(
         make_rule(id=None, from_account_id=toss.id, to_account_id=rent.id)
     )

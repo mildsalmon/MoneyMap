@@ -26,7 +26,11 @@ CREATE TABLE IF NOT EXISTS accounts (
   parent_id      INTEGER REFERENCES accounts(id),
   currency       TEXT NOT NULL DEFAULT 'KRW' CHECK(length(currency)=3),
   archived       INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
-  is_placeholder INTEGER NOT NULL DEFAULT 0 CHECK(is_placeholder IN (0,1))
+  is_placeholder INTEGER NOT NULL DEFAULT 0 CHECK(is_placeholder IN (0,1)),
+  is_system      INTEGER NOT NULL DEFAULT 0 CHECK(is_system IN (0,1)),
+  is_overdraft   INTEGER NOT NULL DEFAULT 0 CHECK(is_overdraft IN (0,1)),
+  position       INTEGER NOT NULL CHECK(position > 0),
+  version        INTEGER NOT NULL DEFAULT 1 CHECK(version > 0)
 );
 
 CREATE TABLE IF NOT EXISTS scenarios (
@@ -112,6 +116,139 @@ END;
 """
 
 
+# accounts가 이미 존재하는 DB에는 SCHEMA만 실행해도 새 컬럼이 생기지 않는다.
+# migration으로 is_overdraft를 추가한 뒤에만 이 trigger 묶음을 설치한다.
+OVERDRAFT_TRIGGERS = """
+CREATE TRIGGER IF NOT EXISTS trg_account_overdraft_insert_shape
+BEFORE INSERT ON accounts
+WHEN NEW.is_overdraft = 1
+  AND (NEW.type != 'asset' OR NEW.is_system = 1 OR NEW.is_placeholder = 1)
+BEGIN
+  SELECT RAISE(ABORT, 'overdraft_invalid_account');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_account_overdraft_update_shape
+BEFORE UPDATE OF type, is_system, is_placeholder, is_overdraft ON accounts
+WHEN NEW.is_overdraft = 1
+BEGIN
+  SELECT CASE
+    WHEN OLD.is_overdraft = 1 AND NEW.is_placeholder = 1
+      THEN RAISE(ABORT, 'overdraft_cannot_be_group')
+    WHEN NEW.type != 'asset' OR NEW.is_system = 1 OR NEW.is_placeholder = 1
+      THEN RAISE(ABORT, 'overdraft_invalid_account')
+    WHEN EXISTS (SELECT 1 FROM accounts c WHERE c.parent_id = NEW.id)
+      THEN RAISE(ABORT, 'overdraft_requires_leaf')
+  END;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_account_overdraft_child_insert
+BEFORE INSERT ON accounts
+WHEN NEW.parent_id IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM accounts p
+    WHERE p.id = NEW.parent_id AND p.is_overdraft = 1
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'overdraft_parent_forbids_children');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_account_overdraft_child_reparent
+BEFORE UPDATE OF parent_id ON accounts
+WHEN NEW.parent_id IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM accounts p
+    WHERE p.id = NEW.parent_id AND p.is_overdraft = 1
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'overdraft_parent_forbids_children');
+END;
+"""
+
+
+def _next_sibling_position(
+    conn: sqlite3.Connection,
+    account_type: str,
+    parent_id: int | None,
+) -> int:
+    """같은 유형·부모 범위의 마지막 영속 위치 다음 값을 반환한다."""
+    row = conn.execute(
+        "SELECT COALESCE(MAX(position), 0) + 1 AS next_position "
+        "FROM accounts INDEXED BY idx_accounts_sibling_position "
+        "WHERE type=? AND COALESCE(parent_id, -1)=COALESCE(?, -1)",
+        (account_type, parent_id),
+    ).fetchone()
+    return int(row["next_position"])
+
+
+def _migrate_account_position_version(conn: sqlite3.Connection) -> None:
+    """position/version 도입을 하나의 SQLite 트랜잭션으로 완료한다.
+
+    기존 행은 형제 범위 `(type, parent_id)`마다 id 순서로 1..N을 받는다.
+    스키마 변경, backfill, 제약 설치, 사후 검증 중 하나라도 실패하면 전체를
+    rollback해 애플리케이션이 반쯤 변환된 DB로 시작하지 않게 한다.
+    """
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)")}
+        position_added = "position" not in cols
+        if position_added:
+            conn.execute("ALTER TABLE accounts ADD COLUMN position INTEGER")
+        if "version" not in cols:
+            conn.execute(
+                "ALTER TABLE accounts ADD COLUMN version INTEGER NOT NULL DEFAULT 1 "
+                "CHECK(version > 0)"
+            )
+
+        if position_added:
+            rows = conn.execute(
+                "SELECT id, type, parent_id FROM accounts "
+                "ORDER BY type, COALESCE(parent_id, -1), id"
+            ).fetchall()
+            sibling_positions: dict[tuple[str, int | None], int] = {}
+            updates: list[tuple[int, int]] = []
+            for row in rows:
+                key = (row["type"], row["parent_id"])
+                position = sibling_positions.get(key, 0) + 1
+                sibling_positions[key] = position
+                updates.append((position, row["id"]))
+            if updates:
+                conn.executemany(
+                    "UPDATE accounts SET position=? WHERE id=?",
+                    updates,
+                )
+        conn.execute("UPDATE accounts SET version=1 WHERE version IS NULL OR version <= 0")
+
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_sibling_position "
+            "ON accounts(type, COALESCE(parent_id, -1), position)"
+        )
+        for statement in (
+            "CREATE TRIGGER IF NOT EXISTS trg_account_position_insert "
+            "BEFORE INSERT ON accounts WHEN NEW.position IS NULL OR NEW.position <= 0 "
+            "BEGIN SELECT RAISE(ABORT, 'account_position_invalid'); END",
+            "CREATE TRIGGER IF NOT EXISTS trg_account_position_update "
+            "BEFORE UPDATE OF position ON accounts WHEN NEW.position IS NULL OR NEW.position <= 0 "
+            "BEGIN SELECT RAISE(ABORT, 'account_position_invalid'); END",
+        ):
+            conn.execute(statement)
+
+        invalid = conn.execute(
+            "SELECT COUNT(*) AS n FROM accounts "
+            "WHERE position IS NULL OR position <= 0 OR version <= 0"
+        ).fetchone()["n"]
+        duplicates = conn.execute(
+            "SELECT COUNT(*) AS n FROM ("
+            "SELECT 1 FROM accounts GROUP BY type, COALESCE(parent_id, -1), position "
+            "HAVING COUNT(*) > 1)"
+        ).fetchone()["n"]
+        if invalid or duplicates:
+            raise sqlite3.IntegrityError("account_position_invariant")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def connect(path: str = ":memory:") -> sqlite3.Connection:
     # check_same_thread=False: FastAPI가 동기 핸들러를 스레드풀에서 돌리므로
     # 연결이 스레드를 넘나든다. CPython sqlite3는 serialized 모드라 안전하다
@@ -119,6 +256,7 @@ def connect(path: str = ":memory:") -> sqlite3.Connection:
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 5000")
     return conn
 
 
@@ -131,6 +269,16 @@ def init_db(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE accounts ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
     if "is_placeholder" not in cols:  # D24 그룹(대분류) 계정
         conn.execute("ALTER TABLE accounts ADD COLUMN is_placeholder INTEGER NOT NULL DEFAULT 0")
+    if "is_system" not in cols:  # 시스템 계정(개시잔액) 명시 플래그
+        conn.execute("ALTER TABLE accounts ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0")
+    if "is_overdraft" not in cols:
+        conn.execute(
+            "ALTER TABLE accounts ADD COLUMN is_overdraft INTEGER NOT NULL DEFAULT 0 "
+            "CHECK(is_overdraft IN (0,1))"
+        )
+    conn.commit()
+    _migrate_account_position_version(conn)
+    conn.executescript(OVERDRAFT_TRIGGERS)
     # actual 시나리오 (id=1) 시드
     conn.execute(
         "INSERT OR IGNORE INTO scenarios (id, name, base_scenario_id, fork_date) "
@@ -139,12 +287,22 @@ def init_db(conn: sqlite3.Connection) -> None:
     )
     # 개시잔액 equity 계정 시드 (D4)
     row = conn.execute(
-        "SELECT id FROM accounts WHERE name = ? AND type = 'equity'",
+        "SELECT id FROM accounts "
+        "WHERE name = ? AND type = 'equity' AND parent_id IS NULL "
+        "ORDER BY id LIMIT 1",
         (OPENING_BALANCE_ACCOUNT_NAME,),
     ).fetchone()
     if row is None:
+        position = _next_sibling_position(conn, "equity", None)
         conn.execute(
-            "INSERT INTO accounts (name, type) VALUES (?, 'equity')",
-            (OPENING_BALANCE_ACCOUNT_NAME,),
+            "INSERT INTO accounts (name, type, is_system, position) "
+            "VALUES (?, 'equity', 1, ?)",
+            (OPENING_BALANCE_ACCOUNT_NAME, position),
+        )
+    else:
+        conn.execute(
+            "UPDATE accounts SET is_system=1, version=version+1 "
+            "WHERE id=? AND is_system=0",
+            (row["id"],),
         )
     conn.commit()

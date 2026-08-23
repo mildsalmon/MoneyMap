@@ -8,19 +8,116 @@ from __future__ import annotations
 
 import datetime
 import sqlite3
+from contextlib import contextmanager
 
-from moneymap.domain.account import Account, AccountType
+from moneymap.adapters.sqlite.database import _next_sibling_position
+
+from moneymap.domain.account import (
+    OPENING_BALANCE_ACCOUNT_NAME,
+    Account,
+    AccountSettingsCommand,
+    AccountSettingsEffects,
+    AccountSettingsResult,
+    AccountType,
+)
+from moneymap.domain.errors import (
+    DomainConflictError,
+    DomainError,
+    DomainInvariantError,
+    DomainNotFoundError,
+    DomainUnavailableError,
+    DomainValidationError,
+)
 from moneymap.domain.money import Money
 from moneymap.domain.recurring_rule import RecurringRule
 from moneymap.domain.scenario import ACTUAL_SCENARIO_ID, Scenario
 from moneymap.domain.schedule import Schedule
+from moneymap.domain.standard_accounts import StandardAccount
 from moneymap.domain.transaction import Posting, Transaction
+from moneymap.domain.services import (
+    opening_balance_posting_amount,
+    validate_account_create,
+    validate_account_settings_transition,
+)
 
 _D = datetime.date.fromisoformat
 
 
 def _iso(d: datetime.date | None) -> str | None:
     return d.isoformat() if d is not None else None
+
+
+_SQLITE_DOMAIN_ERRORS: dict[str, tuple[type[DomainError], str]] = {
+    "overdraft_invalid_account": (
+        DomainValidationError,
+        "마이너스통장은 실제 자산 leaf 계정에만 설정할 수 있습니다",
+    ),
+    "overdraft_requires_leaf": (
+        DomainConflictError,
+        "하위 계정이 있는 계정은 마이너스통장으로 설정할 수 없습니다",
+    ),
+    "overdraft_parent_forbids_children": (
+        DomainConflictError,
+        "마이너스통장 계정 아래에는 하위 계정을 만들 수 없습니다",
+    ),
+    "overdraft_cannot_be_group": (
+        DomainConflictError,
+        "마이너스통장 설정을 해제한 뒤 그룹으로 변경하세요",
+    ),
+}
+
+
+def _translate_integrity_error(exc: sqlite3.IntegrityError) -> DomainError | None:
+    message = str(exc)
+    if "account_position_invalid" in message or "idx_accounts_sibling_position" in message:
+        return DomainInvariantError(
+            "계정 표시 순서를 저장하지 못했습니다",
+            code="account_position_invariant",
+        )
+    for code, (error_type, user_message) in _SQLITE_DOMAIN_ERRORS.items():
+        if code in message:
+            return error_type(user_message, code=code)
+    return None
+
+
+def _translate_operational_error(exc: sqlite3.OperationalError) -> DomainError | None:
+    if getattr(exc, "sqlite_errorcode", None) in {
+        sqlite3.SQLITE_BUSY,
+        sqlite3.SQLITE_LOCKED,
+    }:
+        return DomainUnavailableError(
+            "데이터베이스가 사용 중입니다. 잠시 후 다시 시도하세요",
+            code="database_busy",
+            context={"retryable": True},
+        )
+    return None
+
+
+@contextmanager
+def _account_write(conn: sqlite3.Connection):
+    """계정 쓰기의 BEGIN IMMEDIATE/commit/rollback/오류 번역 경계."""
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        yield
+        conn.commit()
+    except DomainError:
+        conn.rollback()
+        raise
+    except sqlite3.IntegrityError as exc:
+        conn.rollback()
+        translated = _translate_integrity_error(exc)
+        if translated is not None:
+            raise translated from exc
+        raise
+    except sqlite3.OperationalError as exc:
+        conn.rollback()
+        translated = _translate_operational_error(exc)
+        if translated is not None:
+            raise translated from exc
+        raise
+    except Exception:
+        conn.rollback()
+        raise
 
 
 class SystemClock:
@@ -32,24 +129,194 @@ class SqliteAccountRepository:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
-    def save(self, account: Account) -> Account:
-        if account.id is None:
+    def create(self, account: Account) -> Account:
+        with _account_write(self._conn):
+            desired = validate_account_create(account, self.find_all())
+            position = _next_sibling_position(
+                self._conn,
+                desired.type.value,
+                desired.parent_id,
+            )
             cur = self._conn.execute(
-                "INSERT INTO accounts (name, type, parent_id, currency, archived, is_placeholder) "
-                "VALUES (?,?,?,?,?,?)",
-                (account.name, account.type.value, account.parent_id, account.currency,
-                 int(account.archived), int(account.is_placeholder)),
+                "INSERT INTO accounts "
+                "(name, type, parent_id, currency, archived, is_placeholder, is_system, is_overdraft, position, version) "
+                "VALUES (?,?,?,?,?,?,?,?,?,1)",
+                (
+                    desired.name,
+                    desired.type.value,
+                    desired.parent_id,
+                    desired.currency,
+                    int(desired.archived),
+                    int(desired.is_placeholder),
+                    int(desired.is_system),
+                    int(desired.is_overdraft),
+                    position,
+                ),
             )
-            account = account.model_copy(update={"id": cur.lastrowid})
-        else:
+            return desired.model_copy(
+                update={"id": cur.lastrowid, "position": position, "version": 1}
+            )
+
+    def update_settings(
+        self,
+        command: AccountSettingsCommand,
+    ) -> AccountSettingsResult:
+        with _account_write(self._conn):
+            current = self.find_by_id(command.account_id)
+            if current is None:
+                raise DomainNotFoundError(
+                    "계정이 없습니다",
+                    code="account_not_found",
+                )
+            if command.version != current.version:
+                raise DomainConflictError(
+                    "다른 화면에서 계정이 변경되었습니다. 최신 상태를 다시 불러오세요",
+                    code="account_settings_stale",
+                    context={"current_version": current.version},
+                )
+
+            accounts = self.find_all()
+            desired = validate_account_settings_transition(current, command, accounts)
+            moved = desired.parent_id != current.parent_id
+            position = current.position
+            if moved:
+                position = _next_sibling_position(
+                    self._conn,
+                    desired.type.value,
+                    desired.parent_id,
+                )
+            next_version = current.version + 1
+            updated = self._conn.execute(
+                "UPDATE accounts SET name=?, parent_id=?, is_overdraft=?, position=?, "
+                "version=? WHERE id=? AND version=?",
+                (
+                    desired.name,
+                    desired.parent_id,
+                    int(desired.is_overdraft),
+                    position,
+                    next_version,
+                    current.id,
+                    current.version,
+                ),
+            )
+            if updated.rowcount != 1:
+                raise DomainConflictError(
+                    "다른 화면에서 계정이 변경되었습니다. 최신 상태를 다시 불러오세요",
+                    code="account_settings_stale",
+                )
+
+            source_parent_grouped = False
+            if moved and current.parent_id is not None:
+                previous_parent = self.find_by_id(current.parent_id)
+                if (
+                    previous_parent is not None
+                    and not previous_parent.is_system
+                    and not previous_parent.is_overdraft
+                ):
+                    grouped = self._conn.execute(
+                        "UPDATE accounts SET is_placeholder=1, version=version+1 "
+                        "WHERE id=? AND is_placeholder=0 "
+                        "AND NOT EXISTS (SELECT 1 FROM accounts WHERE parent_id=?)",
+                        (previous_parent.id, previous_parent.id),
+                    )
+                    source_parent_grouped = grouped.rowcount == 1
+
+            saved = self.find_by_id(command.account_id)
+            assert saved is not None
+            return AccountSettingsResult(
+                account=saved,
+                effects=AccountSettingsEffects(
+                    moved=moved,
+                    previous_parent_id=current.parent_id,
+                    source_parent_grouped=source_parent_grouped,
+                ),
+            )
+
+    def set_archived(self, account_id: int, archived: bool) -> Account:
+        with _account_write(self._conn):
+            current = self.find_by_id(account_id)
+            if current is None:
+                raise DomainNotFoundError("계정이 없습니다", code="account_not_found")
             self._conn.execute(
-                "UPDATE accounts SET name=?, type=?, parent_id=?, currency=?, archived=?, is_placeholder=? "
-                "WHERE id=?",
-                (account.name, account.type.value, account.parent_id, account.currency,
-                 int(account.archived), int(account.is_placeholder), account.id),
+                "UPDATE accounts SET archived=?, version=version+1 WHERE id=?",
+                (int(archived), account_id),
             )
-        self._conn.commit()
-        return account
+            saved = self.find_by_id(account_id)
+            assert saved is not None
+            return saved
+
+    def set_placeholder(self, account_id: int, is_placeholder: bool) -> Account:
+        with _account_write(self._conn):
+            current = self.find_by_id(account_id)
+            if current is None:
+                raise DomainNotFoundError("계정이 없습니다", code="account_not_found")
+            self._conn.execute(
+                "UPDATE accounts SET is_placeholder=?, version=version+1 WHERE id=?",
+                (int(is_placeholder), account_id),
+            )
+            saved = self.find_by_id(account_id)
+            assert saved is not None
+            return saved
+
+    def _find_id_by_path(
+        self,
+        path: tuple[str, ...],
+        account_type: AccountType,
+    ) -> int | None:
+        parent_id: int | None = None
+        found_id: int | None = None
+        for name in path:
+            row = self._conn.execute(
+                "SELECT id FROM accounts WHERE name=? AND type=? AND parent_id IS ? "
+                "ORDER BY id LIMIT 1",
+                (name, account_type.value, parent_id),
+            ).fetchone()
+            if row is None:
+                return None
+            found_id = row["id"]
+            parent_id = found_id
+        return found_id
+
+    def seed_standard(self, items: tuple[StandardAccount, ...]) -> tuple[int, int]:
+        created = 0
+        skipped = 0
+        with _account_write(self._conn):
+            roots = [item for item in items if len(item.path) == 1]
+            children = sorted(
+                [item for item in items if len(item.path) > 1],
+                key=lambda item: len(item.path),
+            )
+            for item in [*roots, *children]:
+                if self._find_id_by_path(item.path, item.type) is not None:
+                    skipped += 1
+                    continue
+                parent_id = None
+                if len(item.path) > 1:
+                    parent_id = self._find_id_by_path(item.path[:-1], item.type)
+                    if parent_id is None:
+                        raise DomainInvariantError(
+                            f"표준 계정 상위 경로가 없습니다: {'/'.join(item.path[:-1])}",
+                            code="standard_account_parent_missing",
+                        )
+                position = _next_sibling_position(
+                    self._conn,
+                    item.type.value,
+                    parent_id,
+                )
+                self._conn.execute(
+                    "INSERT INTO accounts "
+                    "(name, type, parent_id, is_placeholder, position, version) "
+                    "VALUES (?,?,?,?,?,1)",
+                    (
+                        item.path[-1],
+                        item.type.value,
+                        parent_id,
+                        int(item.is_group),
+                        position,
+                    ),
+                )
+                created += 1
+        return created, skipped
 
     def has_children(self, account_id: int) -> bool:
         return (
@@ -77,6 +344,10 @@ class SqliteAccountRepository:
             currency=row["currency"],
             archived=bool(row["archived"]),
             is_placeholder=bool(row["is_placeholder"]),
+            is_system=bool(row["is_system"]),
+            is_overdraft=bool(row["is_overdraft"]),
+            position=row["position"],
+            version=row["version"],
         )
 
     def find_by_id(self, account_id: int) -> Account | None:
@@ -92,9 +363,11 @@ class SqliteAccountRepository:
         return self._row_to_account(row) if row else None
 
     def find_all(self) -> list[Account]:
-        rows = self._conn.execute("SELECT * FROM accounts ORDER BY id").fetchall()
+        rows = self._conn.execute(
+            "SELECT * FROM accounts "
+            "ORDER BY type, COALESCE(parent_id, -1), position, id"
+        ).fetchall()
         return [self._row_to_account(r) for r in rows]
-
 
 def _insert_txn(conn: sqlite3.Connection, txn: Transaction) -> int:
     """커밋 없이 거래 + postings를 넣고 posted=1로 확정한다 (트리거 검산 시점).
@@ -135,6 +408,122 @@ class SqliteTransactionRepository:
             self._conn.rollback()
             raise
         return txn.model_copy(update={"id": txn_id})
+
+    def find_opening_balances(self, account_id: int | None = None) -> list[dict]:
+        """exact two-leg 개시잔액 구조를 한 번의 집계 SQL로 식별한다."""
+        sql = """
+        WITH candidate_postings AS (
+          SELECT
+            t.id AS transaction_id,
+            t.date AS date,
+            p.account_id AS account_id,
+            p.amount AS amount,
+            CASE
+              WHEN a.is_system=1 AND a.type='equity' AND a.name=? THEN 1
+              ELSE 0
+            END AS is_opening
+          FROM transactions t
+          JOIN postings p ON p.txn_id=t.id
+          JOIN accounts a ON a.id=p.account_id
+          WHERE t.scenario_id=? AND t.posted=1 AND t.source_rule_id IS NULL
+        ),
+        opening_matches AS (
+          SELECT
+            transaction_id,
+            date,
+            MAX(CASE WHEN is_opening=0 THEN account_id END) AS account_id,
+            MAX(CASE WHEN is_opening=0 THEN amount END) AS signed_amount
+          FROM candidate_postings
+          GROUP BY transaction_id, date
+          HAVING COUNT(*)=2
+             AND SUM(amount)=0
+             AND SUM(is_opening)=1
+             AND SUM(CASE WHEN is_opening=0 AND amount != 0 THEN 1 ELSE 0 END)=1
+        )
+        SELECT transaction_id, date, account_id, signed_amount
+        FROM opening_matches
+        """
+        params: list[object] = [OPENING_BALANCE_ACCOUNT_NAME, ACTUAL_SCENARIO_ID]
+        if account_id is not None:
+            sql += " WHERE account_id=?"
+            params.append(account_id)
+        sql += " ORDER BY transaction_id"
+        return [
+            {
+                "account_id": row["account_id"],
+                "transaction_id": row["transaction_id"],
+                "date": row["date"],
+                "state": "positive" if row["signed_amount"] > 0 else "negative",
+            }
+            for row in self._conn.execute(sql, params).fetchall()
+        ]
+
+    def create_opening_balance(
+        self,
+        account_id: int,
+        date: datetime.date,
+        amount: int,
+        state: str,
+    ) -> Transaction:
+        """개시잔액 중복 검사와 균형 거래 생성을 한 경계로 묶는다."""
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            accounts = SqliteAccountRepository(self._conn)
+            account = accounts.find_by_id(account_id)
+            if account is None:
+                raise DomainNotFoundError(
+                    "계정이 없습니다",
+                    code="account_not_found",
+                )
+            signed_amount = opening_balance_posting_amount(
+                account,
+                amount,
+                state,
+                has_children=accounts.has_children(account_id),
+            )
+            if self.find_opening_balances(account_id):
+                raise DomainConflictError(
+                    "이 계정에는 이미 개시잔액이 기록되어 있습니다",
+                    code="opening_already_recorded",
+                )
+            opening_row = self._conn.execute(
+                "SELECT * FROM accounts "
+                "WHERE name=? AND type='equity' AND is_system=1 "
+                "ORDER BY id LIMIT 1",
+                (OPENING_BALANCE_ACCOUNT_NAME,),
+            ).fetchone()
+            if opening_row is None:
+                raise DomainNotFoundError(
+                    "개시잔액 시스템 계정이 없습니다",
+                    code="opening_account_not_found",
+                )
+            txn = Transaction(
+                scenario_id=ACTUAL_SCENARIO_ID,
+                date=date,
+                description=f"개시잔액: {account.name}",
+                postings=[
+                    Posting(account_id=account_id, amount=Money(amount=signed_amount)),
+                    Posting(
+                        account_id=opening_row["id"],
+                        amount=Money(amount=-signed_amount),
+                    ),
+                ],
+            )
+            txn_id = _insert_txn(self._conn, txn)
+            self._conn.commit()
+            return txn.model_copy(update={"id": txn_id})
+        except DomainError:
+            self._conn.rollback()
+            raise
+        except sqlite3.IntegrityError as exc:
+            self._conn.rollback()
+            translated = _translate_integrity_error(exc)
+            if translated is not None:
+                raise translated from exc
+            raise
+        except Exception:
+            self._conn.rollback()
+            raise
 
     def delete(self, txn_id: int) -> bool:
         """거래 삭제. 확정 거래는 먼저 un-post해서 변조 차단 트리거를 통과시킨다.

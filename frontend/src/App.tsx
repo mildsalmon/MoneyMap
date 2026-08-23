@@ -27,11 +27,7 @@ export interface Toast {
 export function App() {
   const [view, setView] = useState<View>("dashboard");
   const [online, setOnline] = useState(true);
-  const [status, setStatus] = useState<{
-    trial_balance_ok: boolean;
-    last_entry: string | null;
-    last_backup: string | null;
-  } | null>(null);
+  const [status, setStatus] = useState<Awaited<ReturnType<typeof api.status>> | null>(null);
   const [banner, setBanner] = useState<{ id: number; date: string; description: string }[]>([]);
   const [toast, setToast] = useState<Toast | null>(null);
   const [gen, setGen] = useState(0); // 데이터 변경 세대 — 뷰 리프레시 트리거
@@ -39,10 +35,7 @@ export function App() {
   const refresh = useCallback(() => {
     setGen((g) => g + 1);
     api.health().then(() => setOnline(true)).catch(() => setOnline(false));
-    fetch("http://127.0.0.1:8765/api/status")
-      .then((r) => r.json())
-      .then(setStatus)
-      .catch(() => {});
+    api.status().then(setStatus).catch(() => {});
   }, []);
 
   const didInit = useRef(false);
@@ -78,7 +71,8 @@ export function App() {
         <div className="logo">MoneyMap</div>
         <nav>
           {NAV.map(({ id, label, icon: Icon }) => (
-            <button key={id} className={view === id ? "on" : ""} onClick={() => setView(id)}>
+            <button key={id} className={view === id ? "on" : ""}
+              aria-current={view === id ? "page" : undefined} onClick={() => setView(id)}>
               <Icon size={15} strokeWidth={1.8} /> {label}
             </button>
           ))}
