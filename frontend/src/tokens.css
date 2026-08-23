@@ -349,6 +349,19 @@ textarea:focus-visible,
   .strip .cell .hero { font-size: 26px; overflow-wrap: anywhere; }
   .filters { flex-wrap: wrap; }
   .filters > span:last-child { flex-basis: 100%; line-height: 1.5; }
+  .filters .seg button { min-width: 44px; min-height: 44px; }
+  .viewtoggle,
+  .tabs .tab,
+  .field input,
+  .field select,
+  .empty .btn,
+  .history-scroll .btn,
+  .txn-workspace .btn,
+  .accounts-toolbar > .btn,
+  .advanced-fields .btn {
+    min-height: 44px;
+  }
+  .history-scroll .btn { min-width: 44px; }
   .empty-wrap { min-height: calc(100vh - 180px); align-items: flex-start; padding-top: 28px; }
   .empty { width: 100%; }
   .panel { padding: 12px; }
