@@ -29,6 +29,7 @@ from moneymap.adapters.sqlite import (
 )
 from moneymap.adapters.sqlite.backup import run_daily_backup
 from moneymap.adapters.sqlite.repositories import apply_materialization
+from moneymap.adapters.sqlite.database import _next_sibling_position
 from moneymap.domain import (
     ACTUAL_SCENARIO_ID,
     Account,
@@ -186,9 +187,11 @@ def _insert_standard_account(conn, item: StandardAccount) -> bool:
         parent_id = _find_account_id_by_path(conn, item.path[:-1], item.type)
         if parent_id is None:
             raise RuntimeError(f"표준 계정 상위 경로가 없습니다: {'/'.join(item.path[:-1])}")
+    position = _next_sibling_position(conn, item.type.value, parent_id)
     conn.execute(
-        "INSERT INTO accounts (name, type, parent_id, is_placeholder) VALUES (?,?,?,?)",
-        (item.path[-1], item.type.value, parent_id, int(item.is_group)),
+        "INSERT INTO accounts (name, type, parent_id, is_placeholder, position) "
+        "VALUES (?,?,?,?,?)",
+        (item.path[-1], item.type.value, parent_id, int(item.is_group), position),
     )
     return True
 

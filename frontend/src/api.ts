@@ -14,6 +14,8 @@ export interface Account {
   is_placeholder: boolean;
   is_system: boolean;
   is_overdraft: boolean;
+  position: number;
+  version: number;
 }
 
 export interface Posting {
@@ -186,7 +188,7 @@ export const api = {
     req<{ series: Series[] }>(`/projection?months=${months}&scenario_ids=${scenarioIds.join(",")}`),
 };
 
-/** 계정 트리 정렬: 유형 순 → 루트 이름 순 → 자식은 부모 바로 아래 (depth 포함) */
+/** 계정 트리 정렬: 유형 순 → 영속 위치 순 → 자식은 부모 바로 아래 (depth 포함) */
 const TYPE_ORDER: AccountType[] = ["asset", "liability", "income", "expense", "equity"];
 
 export function accountTree(accounts: Account[]): { account: Account; depth: number }[] {
@@ -199,7 +201,7 @@ export function accountTree(accounts: Account[]): { account: Account; depth: num
   const walk = (parent: number | null, depth: number, type?: AccountType) => {
     const children = (byParent.get(parent) ?? [])
       .filter((a) => !type || a.type === type)
-      .sort((x, y) => x.name.localeCompare(y.name, "ko"));
+      .sort((x, y) => x.position - y.position || x.id - y.id);
     for (const a of children) {
       out.push({ account: a, depth });
       walk(a.id, depth + 1);

@@ -29,6 +29,7 @@ from moneymap.domain.services import (
     opening_balance_posting_amount,
     validate_overdraft_transition,
 )
+from moneymap.adapters.sqlite.database import _next_sibling_position
 
 _D = datetime.date.fromisoformat
 
@@ -77,10 +78,16 @@ class SqliteAccountRepository:
     def save(self, account: Account) -> Account:
         try:
             if account.id is None:
+                self._conn.execute("BEGIN IMMEDIATE")
+                position = account.position or _next_sibling_position(
+                    self._conn,
+                    account.type.value,
+                    account.parent_id,
+                )
                 cur = self._conn.execute(
                     "INSERT INTO accounts "
-                    "(name, type, parent_id, currency, archived, is_placeholder, is_system, is_overdraft) "
-                    "VALUES (?,?,?,?,?,?,?,?)",
+                    "(name, type, parent_id, currency, archived, is_placeholder, is_system, is_overdraft, position, version) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
                     (
                         account.name,
                         account.type.value,
@@ -90,13 +97,25 @@ class SqliteAccountRepository:
                         int(account.is_placeholder),
                         int(account.is_system),
                         int(account.is_overdraft),
+                        position,
+                        account.version,
                     ),
                 )
-                account = account.model_copy(update={"id": cur.lastrowid})
+                account = account.model_copy(
+                    update={"id": cur.lastrowid, "position": position}
+                )
             else:
+                self._conn.execute("BEGIN IMMEDIATE")
+                current = self.find_by_id(account.id)
+                if current is None:
+                    raise DomainNotFoundError(
+                        "계정이 없습니다",
+                        code="account_not_found",
+                    )
+                next_version = current.version + 1
                 self._conn.execute(
                     "UPDATE accounts SET name=?, type=?, parent_id=?, currency=?, archived=?, "
-                    "is_placeholder=?, is_system=?, is_overdraft=? WHERE id=?",
+                    "is_placeholder=?, is_system=?, is_overdraft=?, position=?, version=? WHERE id=?",
                     (
                         account.name,
                         account.type.value,
@@ -106,8 +125,16 @@ class SqliteAccountRepository:
                         int(account.is_placeholder),
                         int(account.is_system),
                         int(account.is_overdraft),
+                        account.position or current.position,
+                        next_version,
                         account.id,
                     ),
+                )
+                account = account.model_copy(
+                    update={
+                        "position": account.position or current.position,
+                        "version": next_version,
+                    }
                 )
             self._conn.commit()
             return account
@@ -116,6 +143,9 @@ class SqliteAccountRepository:
             translated = _translate_integrity_error(exc)
             if translated is not None:
                 raise translated from exc
+            raise
+        except Exception:
+            self._conn.rollback()
             raise
 
     def has_children(self, account_id: int) -> bool:
@@ -146,6 +176,8 @@ class SqliteAccountRepository:
             is_placeholder=bool(row["is_placeholder"]),
             is_system=bool(row["is_system"]),
             is_overdraft=bool(row["is_overdraft"]),
+            position=row["position"],
+            version=row["version"],
         )
 
     def find_by_id(self, account_id: int) -> Account | None:
@@ -161,7 +193,10 @@ class SqliteAccountRepository:
         return self._row_to_account(row) if row else None
 
     def find_all(self) -> list[Account]:
-        rows = self._conn.execute("SELECT * FROM accounts ORDER BY id").fetchall()
+        rows = self._conn.execute(
+            "SELECT * FROM accounts "
+            "ORDER BY type, COALESCE(parent_id, -1), position, id"
+        ).fetchall()
         return [self._row_to_account(r) for r in rows]
 
     def set_overdraft_enabled(self, account_id: int, enabled: bool) -> Account:

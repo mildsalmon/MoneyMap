@@ -60,6 +60,10 @@ class Account(BaseModel):
     # 마이너스통장: 저장 type은 asset으로 유지하고 음수 잔액만 보고 시점에
     # liability로 분류한다. 계정 id/부모/거래 참조는 바뀌지 않는다.
     is_overdraft: bool = False
+    # 형제 범위에서의 영속 표시 순서. 새 계정과 이동 계정은 항상 마지막에 붙는다.
+    position: int = Field(default=0, ge=0)
+    # 사용자 관찰 가능 설정의 낙관적 동시성 버전. DB에 저장된 값은 항상 양수다.
+    version: int = Field(default=1, ge=1)
 
     def display_multiplier(self) -> int:
         return SIGN_MULTIPLIER[self.type]

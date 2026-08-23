@@ -28,7 +28,9 @@ CREATE TABLE IF NOT EXISTS accounts (
   archived       INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0,1)),
   is_placeholder INTEGER NOT NULL DEFAULT 0 CHECK(is_placeholder IN (0,1)),
   is_system      INTEGER NOT NULL DEFAULT 0 CHECK(is_system IN (0,1)),
-  is_overdraft   INTEGER NOT NULL DEFAULT 0 CHECK(is_overdraft IN (0,1))
+  is_overdraft   INTEGER NOT NULL DEFAULT 0 CHECK(is_overdraft IN (0,1)),
+  position       INTEGER NOT NULL CHECK(position > 0),
+  version        INTEGER NOT NULL DEFAULT 1 CHECK(version > 0)
 );
 
 CREATE TABLE IF NOT EXISTS scenarios (
@@ -163,6 +165,90 @@ END;
 """
 
 
+def _next_sibling_position(
+    conn: sqlite3.Connection,
+    account_type: str,
+    parent_id: int | None,
+) -> int:
+    """같은 유형·부모 범위의 마지막 영속 위치 다음 값을 반환한다."""
+    row = conn.execute(
+        "SELECT COALESCE(MAX(position), 0) + 1 AS next_position "
+        "FROM accounts INDEXED BY idx_accounts_sibling_position "
+        "WHERE type=? AND COALESCE(parent_id, -1)=COALESCE(?, -1)",
+        (account_type, parent_id),
+    ).fetchone()
+    return int(row["next_position"])
+
+
+def _migrate_account_position_version(conn: sqlite3.Connection) -> None:
+    """position/version 도입을 하나의 SQLite 트랜잭션으로 완료한다.
+
+    기존 행은 형제 범위 `(type, parent_id)`마다 id 순서로 1..N을 받는다.
+    스키마 변경, backfill, 제약 설치, 사후 검증 중 하나라도 실패하면 전체를
+    rollback해 애플리케이션이 반쯤 변환된 DB로 시작하지 않게 한다.
+    """
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)")}
+        position_added = "position" not in cols
+        if position_added:
+            conn.execute("ALTER TABLE accounts ADD COLUMN position INTEGER")
+        if "version" not in cols:
+            conn.execute(
+                "ALTER TABLE accounts ADD COLUMN version INTEGER NOT NULL DEFAULT 1 "
+                "CHECK(version > 0)"
+            )
+
+        if position_added:
+            rows = conn.execute(
+                "SELECT id, type, parent_id FROM accounts "
+                "ORDER BY type, COALESCE(parent_id, -1), id"
+            ).fetchall()
+            sibling_positions: dict[tuple[str, int | None], int] = {}
+            updates: list[tuple[int, int]] = []
+            for row in rows:
+                key = (row["type"], row["parent_id"])
+                position = sibling_positions.get(key, 0) + 1
+                sibling_positions[key] = position
+                updates.append((position, row["id"]))
+            if updates:
+                conn.executemany(
+                    "UPDATE accounts SET position=? WHERE id=?",
+                    updates,
+                )
+        conn.execute("UPDATE accounts SET version=1 WHERE version IS NULL OR version <= 0")
+
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_sibling_position "
+            "ON accounts(type, COALESCE(parent_id, -1), position)"
+        )
+        for statement in (
+            "CREATE TRIGGER IF NOT EXISTS trg_account_position_insert "
+            "BEFORE INSERT ON accounts WHEN NEW.position IS NULL OR NEW.position <= 0 "
+            "BEGIN SELECT RAISE(ABORT, 'account_position_invalid'); END",
+            "CREATE TRIGGER IF NOT EXISTS trg_account_position_update "
+            "BEFORE UPDATE OF position ON accounts WHEN NEW.position IS NULL OR NEW.position <= 0 "
+            "BEGIN SELECT RAISE(ABORT, 'account_position_invalid'); END",
+        ):
+            conn.execute(statement)
+
+        invalid = conn.execute(
+            "SELECT COUNT(*) AS n FROM accounts "
+            "WHERE position IS NULL OR position <= 0 OR version <= 0"
+        ).fetchone()["n"]
+        duplicates = conn.execute(
+            "SELECT COUNT(*) AS n FROM ("
+            "SELECT 1 FROM accounts GROUP BY type, COALESCE(parent_id, -1), position "
+            "HAVING COUNT(*) > 1)"
+        ).fetchone()["n"]
+        if invalid or duplicates:
+            raise sqlite3.IntegrityError("account_position_invariant")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def connect(path: str = ":memory:") -> sqlite3.Connection:
     # check_same_thread=False: FastAPI가 동기 핸들러를 스레드풀에서 돌리므로
     # 연결이 스레드를 넘나든다. CPython sqlite3는 serialized 모드라 안전하다
@@ -189,6 +275,8 @@ def init_db(conn: sqlite3.Connection) -> None:
             "ALTER TABLE accounts ADD COLUMN is_overdraft INTEGER NOT NULL DEFAULT 0 "
             "CHECK(is_overdraft IN (0,1))"
         )
+    conn.commit()
+    _migrate_account_position_version(conn)
     conn.executescript(OVERDRAFT_TRIGGERS)
     # actual 시나리오 (id=1) 시드
     conn.execute(
@@ -204,10 +292,16 @@ def init_db(conn: sqlite3.Connection) -> None:
         (OPENING_BALANCE_ACCOUNT_NAME,),
     ).fetchone()
     if row is None:
+        position = _next_sibling_position(conn, "equity", None)
         conn.execute(
-            "INSERT INTO accounts (name, type, is_system) VALUES (?, 'equity', 1)",
-            (OPENING_BALANCE_ACCOUNT_NAME,),
+            "INSERT INTO accounts (name, type, is_system, position) "
+            "VALUES (?, 'equity', 1, ?)",
+            (OPENING_BALANCE_ACCOUNT_NAME, position),
         )
     else:
-        conn.execute("UPDATE accounts SET is_system=1 WHERE id=?", (row["id"],))
+        conn.execute(
+            "UPDATE accounts SET is_system=1, version=version+1 "
+            "WHERE id=? AND is_system=0",
+            (row["id"],),
+        )
     conn.commit()

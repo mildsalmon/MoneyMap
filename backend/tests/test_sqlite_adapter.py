@@ -80,6 +80,143 @@ def test_init_db_idempotent(conn):
     assert rows["n"] == 1
 
 
+def test_position_version_migration_is_deterministic_and_idempotent():
+    legacy = connect(":memory:")
+    legacy.execute("""
+        CREATE TABLE accounts (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          parent_id INTEGER,
+          currency TEXT NOT NULL DEFAULT 'KRW',
+          archived INTEGER NOT NULL DEFAULT 0,
+          is_placeholder INTEGER NOT NULL DEFAULT 0,
+          is_system INTEGER NOT NULL DEFAULT 0,
+          is_overdraft INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    first_root = legacy.execute(
+        "INSERT INTO accounts (name, type) VALUES ('먼저 만든 루트', 'asset')"
+    ).lastrowid
+    second_root = legacy.execute(
+        "INSERT INTO accounts (name, type, archived) VALUES ('나중 루트', 'asset', 1)"
+    ).lastrowid
+    first_child = legacy.execute(
+        "INSERT INTO accounts (name, type, parent_id) VALUES ('첫 자식', 'asset', ?)",
+        (first_root,),
+    ).lastrowid
+    second_child = legacy.execute(
+        "INSERT INTO accounts (name, type, parent_id) VALUES ('둘째 자식', 'asset', ?)",
+        (first_root,),
+    ).lastrowid
+    other_parent_child = legacy.execute(
+        "INSERT INTO accounts (name, type, parent_id) VALUES ('다른 범위', 'asset', ?)",
+        (second_root,),
+    ).lastrowid
+
+    init_db(legacy)
+
+    rows = {
+        row["id"]: (row["position"], row["version"])
+        for row in legacy.execute(
+            "SELECT id, position, version FROM accounts WHERE type='asset'"
+        )
+    }
+    assert rows[first_root] == (1, 1)
+    assert rows[second_root] == (2, 1)
+    assert rows[first_child] == (1, 1)
+    assert rows[second_child] == (2, 1)
+    assert rows[other_parent_child] == (1, 1)
+
+    legacy.execute(
+        "UPDATE accounts SET position=9 WHERE id=?",
+        (second_child,),
+    )
+    legacy.commit()
+    init_db(legacy)
+    assert legacy.execute(
+        "SELECT position FROM accounts WHERE id=?",
+        (second_child,),
+    ).fetchone()["position"] == 9
+
+
+def test_position_migration_rolls_back_schema_changes_on_failure():
+    legacy = connect(":memory:")
+    legacy.execute("""
+        CREATE TABLE accounts (
+          id INTEGER PRIMARY KEY,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          parent_id INTEGER,
+          currency TEXT NOT NULL DEFAULT 'KRW'
+        )
+    """)
+    legacy.execute("CREATE TABLE idx_accounts_sibling_position (id INTEGER)")
+    legacy.execute("INSERT INTO accounts (name, type) VALUES ('현금', 'asset')")
+    legacy.commit()
+
+    with pytest.raises(sqlite3.OperationalError, match="already a table"):
+        init_db(legacy)
+
+    columns = {row["name"] for row in legacy.execute("PRAGMA table_info(accounts)")}
+    assert "position" not in columns
+    assert "version" not in columns
+
+
+def test_account_positions_allocate_per_sibling_scope_and_updates_preserve_order(conn):
+    repo = SqliteAccountRepository(conn)
+    first = repo.save(Account(name="첫 루트", type=AccountType.ASSET))
+    second = repo.save(Account(name="둘째 루트", type=AccountType.ASSET))
+    child = repo.save(
+        Account(name="첫 자식", type=AccountType.ASSET, parent_id=first.id)
+    )
+
+    assert (first.position, second.position, child.position) == (1, 2, 1)
+    renamed = repo.save(second.model_copy(update={"name": "이름 변경"}))
+    archived = repo.save(renamed.model_copy(update={"archived": True}))
+    assert archived.position == 2
+    assert archived.version == 3
+
+    query_plan = " ".join(
+        row["detail"]
+        for row in conn.execute(
+            "EXPLAIN QUERY PLAN "
+            "SELECT COALESCE(MAX(position), 0) + 1 FROM accounts "
+            "INDEXED BY idx_accounts_sibling_position "
+            "WHERE type=? AND COALESCE(parent_id, -1)=COALESCE(?, -1)",
+            ("asset", None),
+        )
+    )
+    assert "idx_accounts_sibling_position" in query_plan
+
+
+def test_position_constraints_block_raw_invalid_or_duplicate_values(conn):
+    repo = SqliteAccountRepository(conn)
+    account = repo.save(Account(name="현금", type=AccountType.ASSET))
+
+    with pytest.raises(sqlite3.IntegrityError, match="account_position_invalid"):
+        conn.execute(
+            "INSERT INTO accounts (name, type, position) VALUES ('잘못된 위치', 'asset', 0)"
+        )
+    conn.rollback()
+
+    with pytest.raises(sqlite3.IntegrityError, match="UNIQUE constraint failed"):
+        conn.execute(
+            "INSERT INTO accounts (name, type, position) VALUES ('중복 위치', 'asset', ?)",
+            (account.position,),
+        )
+    conn.rollback()
+
+
+def test_system_account_version_changes_only_when_bootstrap_repairs_it(conn):
+    repo = SqliteAccountRepository(conn)
+    opening = repo.find_by_name(OPENING_BALANCE_ACCOUNT_NAME)
+    assert opening.version == 1
+
+    init_db(conn)
+    assert repo.find_by_id(opening.id).version == 1
+
+
 # ─── 계정 ───────────────────────────────────────────────
 
 def test_account_roundtrip(conn, accounts):
