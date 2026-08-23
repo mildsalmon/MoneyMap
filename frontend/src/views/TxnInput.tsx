@@ -193,7 +193,7 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
         ))}
       </div>
 
-      <div className="two txn-workspace" style={{ marginTop: 0, gridTemplateColumns: "1.2fr 1fr" }}>
+      <div className="two txn-workspace">
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {tab === "expense" && (<>
             <div style={{ display: "flex", gap: 10 }}>{dateField}{amountField}</div>

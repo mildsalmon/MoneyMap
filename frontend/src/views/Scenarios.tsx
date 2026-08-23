@@ -171,7 +171,7 @@ export function Scenarios({ gen, refresh, showToast }: ViewProps) {
 
       <div className="scenario-create">
         <div className="field"><label htmlFor="scenario-name">이름</label>
-          <input id="scenario-name" style={{ width: 240 }} value={name} onChange={(e) => setName(e.target.value)}
+          <input id="scenario-name" className="scenario-name" value={name} onChange={(e) => setName(e.target.value)}
             placeholder="예: 월 100만 더 저축하면?" onKeyDown={(e) => e.key === "Enter" && name.trim() && create()} /></div>
         <div className="field"><label htmlFor="scenario-fork-date">분기 시작일</label>
           <input id="scenario-fork-date" type="date" value={forkDate} onChange={(e) => setForkDate(e.target.value)} /></div>

@@ -458,7 +458,7 @@ Critical gaps: **0**. Every data-loss, silent-write, stale-write and partial-wri
 3. `feat(accounts): add unified settings panel`
    - flat settings panel, parent paths, combined save, archive rules, focus restoration and responsive layout
 4. `test(e2e): isolate ports and cover account settings`
-   - single-worker shared DB, configurable ports/API base and three integrated settings flows
+   - single-worker shared DB, configurable ports/API base, isolated local backups and three integrated settings flows
 5. `fix(accounts): guard grouping rule references`
    - group-transition rule guard found while closing the group-invariant TODO
 6. Release documentation
@@ -473,8 +473,8 @@ Critical gaps: **0**. Every data-loss, silent-write, stale-write and partial-wri
 | Frontend settings | `frontend/src/`, frontend build | Approved API contract |
 | Integrated verification/docs | `frontend/e2e/`, Playwright config, docs and TODOs | Backend settings + Frontend settings |
 
-Lane A: Foundation -> Backend settings (sequential, shared backend modules).  
-Lane B: Frontend settings (may run in parallel once the approved contract is fixed).  
+Lane A: Foundation -> Backend settings (sequential, shared backend modules).
+Lane B: Frontend settings (may run in parallel once the approved contract is fixed).
 Final lane: merge A + B -> integrated E2E and docs.
 
 There was no backend/frontend module conflict between lanes A and B. The implementation stayed on one branch and used smaller verified commits for the frontend, E2E environment and final invariant guard.

@@ -54,7 +54,7 @@ export function RuleForm({
   return (
     <div className="rule-form">
       <div className="field"><label htmlFor={`${idPrefix}-description`}>내역</label>
-        <input id={`${idPrefix}-description`} style={{ width: 140 }} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="예: 월급" /></div>
+        <input id={`${idPrefix}-description`} className="rule-description" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="예: 월급" /></div>
       <div className="field"><label htmlFor={`${idPrefix}-from`}>어디서 (from)</label>
         <select id={`${idPrefix}-from`} value={from} onChange={(e) => setFrom(Number(e.target.value))}>
           <option value="">선택</option>
@@ -66,7 +66,7 @@ export function RuleForm({
           {accounts.filter((a) => !a.is_system && isPostable(accounts, a)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select></div>
       <div className="field"><label htmlFor={`${idPrefix}-amount`}>금액/회</label>
-        <input id={`${idPrefix}-amount`} className="num" style={{ width: 120 }} value={amount} placeholder="0"
+        <input id={`${idPrefix}-amount`} className="num rule-amount" value={amount} placeholder="0"
           onChange={(e) => setAmount(commaInput(e.target.value).display)}
           onKeyDown={(e) => e.key === "Enter" && save()} /></div>
       <div className="field"><label htmlFor={`${idPrefix}-day`}>매월</label>

@@ -171,6 +171,7 @@ textarea:focus-visible,
 .legend .key { display: inline-block; width: 20px; border-top: 2.5px solid; margin-right: 5px; vertical-align: middle; }
 
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin-top: 20px; }
+.txn-workspace { margin-top: 0; grid-template-columns: 1.2fr 1fr; }
 .panel { border: 1px solid var(--line-strong); border-radius: 4px; padding: 14px; background: var(--surface); }
 .panel .panel-heading {
   font-size: 11px; color: var(--muted); font-weight: 600;
@@ -181,8 +182,11 @@ textarea:focus-visible,
   margin-bottom: 6px; letter-spacing: 0;
 }
 .rule-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.rule-description { width: 140px; }
+.rule-amount { width: 120px; }
 .rules-workspace { max-width: 860px; }
 .scenario-create { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 20px; }
+.scenario-name { width: 240px; }
 .scenario-preview {
   display: flex; gap: 28px; font-size: 14px;
   border-top: 1px solid var(--line); padding-top: 12px;
@@ -399,9 +403,9 @@ textarea:focus-visible,
   .panel { padding: 12px; }
   .rule-form, .scenario-create { flex-direction: column; align-items: stretch; }
   .rule-form .field, .scenario-create .field { width: 100%; }
-  .rule-form input, .rule-form select, .scenario-create input { width: 100% !important; }
+  .rule-form input, .rule-form select, .scenario-create input { width: 100%; }
   .rule-form .btn, .scenario-create .btn { min-height: 44px; align-self: stretch; }
-  .txn-workspace { grid-template-columns: 1fr !important; }
+  .txn-workspace { grid-template-columns: 1fr; }
   .table-scroll { -webkit-overflow-scrolling: touch; }
   .table-scroll > .ledger { min-width: 640px; max-width: none; }
   .scenario-editor-scroll > .ledger { min-width: 840px; }

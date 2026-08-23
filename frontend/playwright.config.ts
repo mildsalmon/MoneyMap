@@ -16,7 +16,9 @@ function shellQuote(value: string): string {
 const backendPort = portFromEnv("MONEYMAP_E2E_BACKEND_PORT", 8765);
 const frontendPort = portFromEnv("MONEYMAP_E2E_FRONTEND_PORT", 5173);
 const frontendBase = `http://127.0.0.1:${frontendPort}`;
-const apiBase = (process.env.MONEYMAP_E2E_API_BASE ?? `http://127.0.0.1:${backendPort}/api`).replace(/\/+$/, "");
+const localApiBase = `http://127.0.0.1:${backendPort}/api`;
+const externalApiBase = process.env.MONEYMAP_E2E_API_BASE?.replace(/\/+$/, "");
+const apiBase = externalApiBase ?? localApiBase;
 const testRoot = `/tmp/moneymap-e2e-${backendPort}`;
 
 /**
@@ -32,16 +34,17 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: [
-    {
+    ...(externalApiBase ? [] : [{
       command:
         `mkdir -p ${shellQuote(testRoot)} && rm -f ${shellQuote(`${testRoot}/moneymap.db`)} && `
+        + `rm -rf ${shellQuote(`${testRoot}/backups`)} && `
         + `cd ../backend && MONEYMAP_DB=${shellQuote(`${testRoot}/moneymap.db`)} `
         + `MONEYMAP_CORS_ORIGINS=${shellQuote(frontendBase)} `
         + `uv run uvicorn moneymap.api:app --port ${backendPort}`,
-      url: `${apiBase}/health`,
+      url: `${localApiBase}/health`,
       reuseExistingServer: false,
       timeout: 30_000,
-    },
+    }]),
     {
       command: `VITE_API_BASE=${shellQuote(apiBase)} npm run dev -- --host 127.0.0.1 --port ${frontendPort}`,
       url: frontendBase,

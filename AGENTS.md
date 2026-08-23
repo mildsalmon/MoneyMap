@@ -1,7 +1,12 @@
 <!-- hipocampus:protocol:start -->
 ## Hipocampus — Memory Protocol
 
-This project uses hipocampus 3-tier memory. Follow `.agents/skills/hipocampus-core/SKILL.md`.
+This project uses hipocampus 3-tier memory when the local Hipocampus workspace is installed.
+The protocol in this section applies only when `.agents/skills/hipocampus-core/SKILL.md`,
+`SCRATCHPAD.md`, `WORKING.md`, `TASK-QUEUE.md`, and `memory/ROOT.md` are all present.
+On a clean checkout where any of them is absent, skip this entire Hipocampus section,
+do not create placeholder memory files, and continue with the tracked project instructions below.
+When available, follow `.agents/skills/hipocampus-core/SKILL.md`.
 **All memory write operations MUST be dispatched to subagents** to keep the main session context clean.
 
 ### FIRST RESPONSE RULE — MANDATORY
