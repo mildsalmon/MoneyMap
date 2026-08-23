@@ -383,6 +383,40 @@ def test_account_settings_reparent_preserves_linked_accounting_data(client):
     assert client.get("/api/status").json()["trial_balance_ok"] is True
 
 
+def test_account_settings_moves_account_to_top_level_with_null_parent(client):
+    source = make_account(client, "저축 그룹", "asset")
+    existing_root = make_account(client, "기존 최상위", "asset")
+    moving = make_child_account(client, "옮길 계정", "asset", source)
+    current = account_by_name(client, "옮길 계정")
+    existing_root_position = next(
+        account["position"]
+        for account in client.get("/api/accounts").json()
+        if account["id"] == existing_root
+    )
+
+    moved = client.put(
+        f"/api/accounts/{moving}/settings",
+        json={
+            "name": current["name"],
+            "parent_id": None,
+            "is_overdraft": current["is_overdraft"],
+            "version": current["version"],
+        },
+    )
+
+    assert moved.status_code == 200, moved.text
+    payload = moved.json()
+    assert payload["account"]["id"] == moving
+    assert payload["account"]["parent_id"] is None
+    assert payload["account"]["position"] == existing_root_position + 1
+    assert payload["effects"] == {
+        "moved": True,
+        "previous_parent_id": source,
+        "source_parent_grouped": True,
+    }
+    assert account_by_name(client, "저축 그룹")["is_placeholder"] is True
+
+
 def test_account_settings_combines_fields_and_rejects_stale_version(client):
     account_id = make_account(client, "현금", "asset")
     original = account_by_name(client, "현금")

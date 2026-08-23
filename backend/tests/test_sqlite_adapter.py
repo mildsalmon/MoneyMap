@@ -2,6 +2,8 @@
 
 import datetime
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 
@@ -388,6 +390,70 @@ def test_atomic_settings_move_allocates_last_position_and_groups_empty_source(co
     repaired_source = repo.find_by_id(source.id)
     assert repaired_source.is_placeholder is True
     assert repaired_source.version == source.version + 1
+
+
+def test_concurrent_settings_move_and_create_serialize_sibling_positions(tmp_path):
+    db_path = tmp_path / "concurrent-account-writes.db"
+    setup_conn = connect(str(db_path))
+    init_db(setup_conn)
+    setup_repo = SqliteAccountRepository(setup_conn)
+    source = setup_repo.create(Account(name="원본 그룹", type=AccountType.ASSET))
+    target = setup_repo.create(
+        Account(name="대상 그룹", type=AccountType.ASSET, is_placeholder=True)
+    )
+    existing = setup_repo.create(
+        Account(name="기존 계정", type=AccountType.ASSET, parent_id=target.id)
+    )
+    moving = setup_repo.create(
+        Account(name="이동 계정", type=AccountType.ASSET, parent_id=source.id)
+    )
+    start = Barrier(2)
+
+    def move_account() -> Account:
+        worker_conn = connect(str(db_path))
+        try:
+            start.wait()
+            return SqliteAccountRepository(worker_conn).update_settings(
+                settings_command(moving, parent_id=target.id)
+            ).account
+        finally:
+            worker_conn.close()
+
+    def create_account() -> Account:
+        worker_conn = connect(str(db_path))
+        try:
+            start.wait()
+            return SqliteAccountRepository(worker_conn).create(
+                Account(
+                    name="동시 생성 계정",
+                    type=AccountType.ASSET,
+                    parent_id=target.id,
+                )
+            )
+        finally:
+            worker_conn.close()
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            moved_future = executor.submit(move_account)
+            created_future = executor.submit(create_account)
+            moved = moved_future.result(timeout=5)
+            created = created_future.result(timeout=5)
+
+        children = [
+            account
+            for account in setup_repo.find_all()
+            if account.parent_id == target.id
+        ]
+        assert {account.id for account in children} == {
+            existing.id,
+            moving.id,
+            created.id,
+        }
+        assert sorted(account.position for account in children) == [1, 2, 3]
+        assert moved.version == moving.version + 1
+    finally:
+        setup_conn.close()
 
 
 def test_atomic_settings_stale_version_writes_nothing(conn):
