@@ -2,8 +2,12 @@
 
 복식부기 개인 가계부 + What-if 미래 자산 시뮬레이터. 로컬 단일 사용자, FastAPI+SQLite+Pydantic 백엔드(`backend/`, 헥사고날) + React+TypeScript 프론트(`frontend/`).
 
-- 프로젝트 지침·테스트: `AGENTS.md`
-- 설계서(source of truth): `DESIGN.md`
+- 프로젝트 지침·테스트: [AGENTS.md](AGENTS.md)
+- 설계서(source of truth): [DESIGN.md](DESIGN.md)
+- 릴리스 변경: [CHANGELOG.md](CHANGELOG.md), 후속 작업: [TODOS.md](TODOS.md)
+- 계정 설정·이동 설계: [account-reparenting.md](docs/designs/account-reparenting.md)
+- 시나리오 승인 설계(PR 1~4): [scenario-lifecycle.md](docs/designs/scenario-lifecycle.md)
+- v0.2.0.0 구현 범위·검증·저장소 운영 계약: [scenario-foundation.md](docs/verification/scenario-foundation.md). 현재 구현은 PR 1(T1~T4)이며 수명주기·새 전망·현금성 기능은 후속 PR 범위다.
 - 진행 상태: 로컬 `WORKING.md`가 있을 때 참고
 
 ## Design System
