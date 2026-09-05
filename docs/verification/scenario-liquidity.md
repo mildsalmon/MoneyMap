@@ -1,6 +1,6 @@
 # Scenario liquidity — PR4 검증
 
-2026-09-05, 승인 설계 `docs/designs/scenario-lifecycle.md`의 T10~T12 구현. 기준은 PR3가 병합된 `origin/main` (`6c78892`), 작업 브랜치는 `codex/scenario-liquidity`다.
+2026-09-05, 승인 설계 `docs/designs/scenario-lifecycle.md`의 T10~T12 구현. 기준은 PR3가 병합된 `origin/main` (`6c78892`), 작업 브랜치는 `codex/scenario-liquidity`다. v0.5.0.0 릴리스 커밋 `4a3cbfd`를 원격 브랜치에 푸시했다. PR 게시와 최종 원격 CI 확인은 후속 ship 단계에서 진행한다.
 
 ## 구현 계약
 
