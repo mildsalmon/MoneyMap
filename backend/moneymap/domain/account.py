@@ -58,6 +58,7 @@ class Account(BaseModel):
     is_system: bool = False
     # 마이너스통장: 저장 type은 asset으로 유지하고 음수 잔액만 보고 시점에
     # liability로 분류한다. 계정 id/부모/거래 참조는 바뀌지 않는다.
+    include_in_cash: bool = False
     is_overdraft: bool = False
     # 형제 범위에서의 영속 표시 순서. 새 계정과 이동 계정은 항상 마지막에 붙는다.
     position: int = Field(default=0, ge=0)
@@ -73,6 +74,7 @@ class AccountSettingsCommand(BaseModel):
     name: str
     parent_id: int | None
     is_overdraft: bool
+    include_in_cash: bool | None = None
     version: int = Field(ge=1)
 
 

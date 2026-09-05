@@ -4,6 +4,18 @@ All notable changes to MoneyMap are documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0.0] - 2026-09-05
+
+### Added
+- Choose which asset accounts count as immediately available cash from account settings.
+- Switch scenario overviews between net worth and cash balance over 3, 6, or 12 months.
+- Compare the first cash shortage, its duration and contributing items, and the largest shortfall for the baseline and scenario.
+
+### Changed
+- Keep existing and seeded accounts out of cash calculations until explicitly selected; show a settings link when no cash accounts are configured.
+- Require deselecting a cash account before archiving it or turning it into a group, including by adding children.
+- Back up existing ledgers before adding cash settings, and preserve cash selections during account renaming and moves.
+
 ## [0.4.0.0] - 2026-09-05
 
 ### Added

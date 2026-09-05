@@ -30,10 +30,11 @@ class ProjectionInputReader:
         revisions = self.conn.execute(
             "SELECT * FROM calculation_revisions WHERE id=1"
         ).fetchone()
-        account_types = tuple(
-            (r["id"], r["type"])
-            for r in self.conn.execute("SELECT id,type FROM accounts")
-        )
+        accounts = self.conn.execute(
+            "SELECT id,type,include_in_cash FROM accounts"
+        ).fetchall()
+        account_types = tuple((r["id"], r["type"]) for r in accounts)
+        cash_ids = tuple(r["id"] for r in accounts if r["include_in_cash"])
         balances = tuple(
             (r["account_id"], r["balance"])
             for r in self.conn.execute(
@@ -72,6 +73,8 @@ class ProjectionInputReader:
             actual,
             owned,
             tuple(planned),
+            cash_ids,
+            revisions["cash_config_revision"],
         )
 
     def _legacy_transactions(self, sid: int, *, start=None, end=None):

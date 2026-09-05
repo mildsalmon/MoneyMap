@@ -44,11 +44,13 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved }: P
     name: account.name,
     parentId: account.parent_id,
     isOverdraft: account.is_overdraft,
+    includeInCash: account.include_in_cash,
     version: account.version,
   }));
   const [name, setName] = useState(account.name);
   const [parentId, setParentId] = useState<number | "">(account.parent_id ?? "");
   const [isOverdraft, setIsOverdraft] = useState(account.is_overdraft);
+  const [includeInCash, setIncludeInCash] = useState(account.include_in_cash);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const nameRef = useRef<HTMLInputElement>(null);
@@ -94,7 +96,8 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved }: P
   const normalizedParent = parentId === "" ? null : parentId;
   const dirty = normalizedName !== baseline.name
     || normalizedParent !== baseline.parentId
-    || isOverdraft !== baseline.isOverdraft;
+    || isOverdraft !== baseline.isOverdraft
+    || includeInCash !== baseline.includeInCash;
 
   const submit = async () => {
     if (!normalizedName || !dirty || pending) return;
@@ -105,6 +108,7 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved }: P
         name: normalizedName,
         parent_id: normalizedParent,
         is_overdraft: isOverdraft,
+        include_in_cash: includeInCash,
         version: baseline.version,
       });
       await onSaved(result);
@@ -196,6 +200,13 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved }: P
             </span>
           </label>
 
+          {account.type === "asset" && !isGroup(accounts, account) && !account.archived && !account.is_system && (
+            <label className="settings-overdraft settings-cash">
+              <input type="checkbox" checked={includeInCash} disabled={pending}
+                onChange={(event) => { setIncludeInCash(event.target.checked); setError(""); }} />
+              <span>현금 부족 계산에 포함<small>이 계정의 잔액을 즉시 사용할 수 있는 자금으로 계산합니다.</small></span>
+            </label>
+          )}
           <div className="settings-actions">
             <button className="btn sm primary settings-save" type="submit" disabled={!normalizedName || !dirty || pending}>
               <Check size={13} aria-hidden="true" />

@@ -26,6 +26,18 @@ def _iso(d: datetime.date | None) -> str | None:
 
 
 _SQLITE_DOMAIN_ERRORS: dict[str, tuple[type[DomainError], str]] = {
+    "cash_account_parent_forbidden": (
+        DomainConflictError,
+        "현금 부족 계산에서 제외한 뒤 하위 계정을 추가하세요",
+    ),
+    "cash_account_must_be_leaf": (
+        DomainConflictError,
+        "현금 부족 계산에는 활성 자산 말단 계정만 포함할 수 있습니다",
+    ),
+    "cash_account_selected": (
+        DomainConflictError,
+        "현금 부족 계산에서 제외한 뒤 보관하세요",
+    ),
     "overdraft_invalid_account": (
         DomainValidationError,
         "마이너스통장은 실제 자산 leaf 계정에만 설정할 수 있습니다",

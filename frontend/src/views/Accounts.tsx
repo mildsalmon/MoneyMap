@@ -542,6 +542,9 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     const hasVisibleChildren = visible.some((child) => child.parent_id === account.id);
     const group = isGroup(accountList, account);
     const rollupIds = hasVisibleChildren ? withDescendants(visible, account.id) : [account.id];
+    const cashLeaves = withDescendants(accountList, account.id).slice(1)
+      .map((id) => accountList.find((item) => item.id === id)!)
+      .filter((item) => item.type === "asset" && !item.archived && !item.is_system && !isGroup(accountList, item));
     const editing = settingsAccountId === account.id;
     const pending = rowTasks[account.id];
 
@@ -558,6 +561,8 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
           <td>
             <span className="badge">{TYPE_LABEL[account.type]}</span>
             {account.is_overdraft && <span className="badge account-state-badge">마이너스통장</span>}
+            {account.include_in_cash && <span className="badge account-state-badge">현금성</span>}
+            {group && account.type === "asset" && <span className="badge account-state-badge">하위 {cashLeaves.length}개 중 {cashLeaves.filter((item) => item.include_in_cash).length}개 포함</span>}
           </td>
           <td className="num balance-cell">{renderBalanceCell(account, rollupIds)}</td>
           <td className="opening-cell">

@@ -319,7 +319,40 @@ def _execute_script(conn: sqlite3.Connection, script: str) -> None:
         raise ValueError("Incomplete migration SQL")
 
 
-MIGRATIONS = (_foundation_schema, migrate_lifecycle)
+def _cash_configuration(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "ALTER TABLE accounts ADD COLUMN include_in_cash INTEGER NOT NULL DEFAULT 0 CHECK(include_in_cash IN (0,1))"
+    )
+    conn.execute(
+        "ALTER TABLE calculation_revisions ADD COLUMN cash_config_revision INTEGER NOT NULL DEFAULT 1"
+    )
+    for action in ("INSERT", "UPDATE"):
+        conn.execute(f"""CREATE TRIGGER cash_account_valid_{action.lower()}
+        BEFORE {action} ON accounts BEGIN
+          SELECT CASE WHEN NEW.include_in_cash=1 AND NEW.archived=1
+            THEN RAISE(ABORT, 'cash_account_selected') END;
+          SELECT CASE WHEN NEW.include_in_cash=1 AND
+            (NEW.type!='asset' OR NEW.is_system=1 OR NEW.is_placeholder=1
+             OR EXISTS(SELECT 1 FROM accounts WHERE parent_id=NEW.id))
+            THEN RAISE(ABORT, 'cash_account_must_be_leaf') END;
+          SELECT CASE WHEN EXISTS(SELECT 1 FROM accounts WHERE id=NEW.parent_id AND include_in_cash=1)
+            THEN RAISE(ABORT, 'cash_account_parent_forbidden') END;
+        END""")
+    conn.execute("""CREATE TRIGGER cash_config_changed AFTER UPDATE OF include_in_cash ON accounts
+        WHEN OLD.include_in_cash != NEW.include_in_cash BEGIN
+        UPDATE calculation_revisions SET cash_config_revision=cash_config_revision+1 WHERE id=1;
+        END""")
+    conn.execute("""CREATE TRIGGER cash_config_inserted AFTER INSERT ON accounts
+        WHEN NEW.include_in_cash=1 BEGIN
+        UPDATE calculation_revisions SET cash_config_revision=cash_config_revision+1 WHERE id=1;
+        END""")
+    conn.execute("""CREATE TRIGGER cash_config_deleted AFTER DELETE ON accounts
+        WHEN OLD.include_in_cash=1 BEGIN
+        UPDATE calculation_revisions SET cash_config_revision=cash_config_revision+1 WHERE id=1;
+        END""")
+
+
+MIGRATIONS = (_foundation_schema, migrate_lifecycle, _cash_configuration)
 
 
 def init_db(conn: sqlite3.Connection) -> None:

@@ -10,6 +10,7 @@ export interface Account {
   is_placeholder: boolean;
   is_system: boolean;
   is_overdraft: boolean;
+  include_in_cash: boolean;
   position: number;
   version: number;
 }
@@ -110,9 +111,16 @@ export interface RuleBody {
 
 
 export interface EffectiveRule { rule: Rule; origin: "actual" | "scenario"; editable: boolean }
+export interface CashShortage {
+  first_shortage: { start: string; end: string | null; days: number; through_horizon: boolean;
+    reason?: "negative_start_balance"; triggering_items: { kind: string; id: number; label: string }[] };
+  maximum_shortage: { date: string; balance: number };
+}
+export interface CashCurve { points: { date: string; balance: number }[]; shortage: CashShortage | null }
 export interface Projection {
+  cash?: { available: false; reason: "cash_accounts_not_configured" } | { available: true; baseline: CashCurve; scenario: CashCurve };
   fork_date: string; projection_start: string; projection_end: string; months: number;
-  basis: { scenario_version: number; actual_ledger_revision: number; actual_rule_revision: number };
+  basis: { scenario_version: number; actual_ledger_revision: number; actual_rule_revision: number; cash_config_revision?: number };
   capabilities?: { scenario_liquidity?: unknown };
   net_worth: Record<"baseline" | "scenario", { points: { date: string; balance: number }[] }>;
   monthly_income_expense: { month: string; baseline: { income: number; expense: number }; scenario: { income: number; expense: number } }[];

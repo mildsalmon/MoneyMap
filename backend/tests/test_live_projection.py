@@ -116,8 +116,9 @@ def test_hand_calculated_golden(golden, months, end, baseline, scenario):
         "baseline": {"income": 1000, "expense": 300},
         "scenario": {"income": 1200, "expense": 350},
     }
-    assert data["capabilities"] == {"scenario_liquidity": False}
-    assert "cash" not in data and "cash_config_revision" not in data["basis"]
+    assert data["capabilities"] == {"scenario_liquidity": True}
+    assert data["cash"] == {"available": False, "reason": "cash_accounts_not_configured"}
+    assert data["basis"]["cash_config_revision"] == 1
     for curve in data["net_worth"].values():
         dates = [p["date"] for p in curve["points"]]
         assert dates == sorted(set(dates)) and len(dates) <= 367
@@ -169,7 +170,7 @@ def test_query_contract_and_sql_budget(golden):
     inputs = ProjectionInputReader(conn).read(sid)
     fold_projection(inputs, 12)
     conn.rollback()
-    assert len(sql) <= 15, sql
+    assert len(sql) <= 18, sql
     assert len(inputs.planned) == 2
     conn.close()
 

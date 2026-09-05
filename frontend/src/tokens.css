@@ -462,3 +462,12 @@ textarea:focus-visible,
 @media (max-width: 480px) {
   .planned-form .planned-posting { grid-template-columns: 1fr; }
 }
+
+.settings-cash { grid-column: 1 / -1; order: 1; }
+.settings-cash small { max-width: none; }
+.settings-error { order: 2; }
+.scenario-shortages { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 16px; }
+.scenario-shortages section { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 6px; overflow-wrap: anywhere; }
+
+.shortage-maximum { display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; }
+.shortage-maximum .num { margin-left: auto; }

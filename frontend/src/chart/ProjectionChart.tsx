@@ -68,10 +68,12 @@ export function ProjectionChart({
   series,
   today,
   anchorLabel = "오늘",
+  metricLabel = "순자산",
 }: {
   series: Series[];
   today: string;
   anchorLabel?: string;
+  metricLabel?: string;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [hoverX, setHoverX] = useState<number | null>(null); // 스냅된 날짜(ms)
@@ -176,7 +178,7 @@ export function ProjectionChart({
         className="chart-wrap"
         tabIndex={0}
         role="img"
-        aria-label="순자산 프로젝션 차트. 화살표 키로 날짜를 탐색하세요."
+        aria-label={`${metricLabel} 프로젝션 차트. 화살표 키로 날짜를 탐색하세요.`}
         onPointerMove={(e) => snap(e.clientX)}
         onPointerLeave={() => setHoverX(null)}
         onKeyDown={(e) => {

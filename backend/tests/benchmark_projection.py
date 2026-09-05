@@ -77,6 +77,10 @@ def fixture(path):
                 for i in range(300)
             ],
         )
+        if "include_in_cash" in {
+            row["name"] for row in conn.execute("PRAGMA table_info(accounts)")
+        }:
+            conn.execute("UPDATE accounts SET include_in_cash=1 WHERE id=2")
     return conn
 
 
@@ -150,7 +154,8 @@ def main():
             url = f"/api/projection?scenario_ids=2&months={args.months}"
         statements = []
         conn.set_trace_callback(statements.append)
-        service()
+        measured_payload = service()
+        liquidity = bool(measured_payload.get("cash", {}).get("available"))
         conn.set_trace_callback(None)
         service_result = measure(service, args.warmups, args.samples)
         with TestClient(create_app(str(path))) as client:
@@ -175,7 +180,9 @@ def main():
             api_result = measure(api, args.warmups, args.samples)
         conn.close()
     result = {
-        "contract": "PR2 net-worth + monthly"
+        "contract": "PR4 net-worth + cash + shortages + monthly"
+        if modern and liquidity
+        else "PR2 net-worth + monthly"
         if modern
         else "PR1 historical + baseline + snapshot",
         "warmups": args.warmups,
@@ -202,7 +209,7 @@ def main():
     print(encoded)
     if args.output:
         args.output.write_text(encoded + "\n")
-    if modern and max(len(statements), len(api_statements)) > 15:
+    if modern and max(len(statements), len(api_statements)) > (18 if liquidity else 15):
         raise SystemExit("SQL statement budget exceeded")
     if (
         modern

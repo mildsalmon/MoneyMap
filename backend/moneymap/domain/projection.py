@@ -68,6 +68,8 @@ class ProjectionInputs:
     actual_rules: tuple[RecurringRule, ...]
     owned_rules: tuple[RecurringRule, ...]
     planned: tuple[ProjectionEvent, ...]
+    cash_account_ids: tuple[int, ...] = ()
+    cash_config_revision: int = 1
 
     def __post_init__(self):
         # Copy model values so mutation of a caller's entities cannot alter this snapshot.
@@ -113,7 +115,41 @@ def expand_events(
                     )
                 )
     events.extend(event for event in inputs.planned if start <= event.date <= end)
-    return tuple(sorted(events, key=lambda event: (event.date, event.kind, event.id)))
+    return tuple(
+        sorted(
+            events,
+            key=lambda event: (event.date, 0 if event.kind == "rule" else 1, event.id),
+        )
+    )
+
+
+def cash_shortage(points: list[dict], triggers: dict[str, list[dict]]) -> dict | None:
+    """Diagnose daily closes; equal minima retain the earliest date."""
+    first = next((i for i, point in enumerate(points) if point["balance"] < 0), None)
+    if first is None:
+        return None
+    opening = points[first]
+    start = dt.date.fromisoformat(opening["date"])
+    recovery = next(
+        (point for point in points[first + 1 :] if point["balance"] >= 0), None
+    )
+    end = (
+        dt.date.fromisoformat(recovery["date"]) - dt.timedelta(days=1)
+        if recovery
+        else None
+    )
+    horizon = dt.date.fromisoformat(points[-1]["date"])
+    interval = {
+        "start": start.isoformat(),
+        "end": end.isoformat() if end else None,
+        "days": ((end or horizon) - start).days + 1,
+        "through_horizon": recovery is None,
+        "triggering_items": triggers.get(opening["date"], []) if first else [],
+    }
+    if first == 0:
+        interval["reason"] = "negative_start_balance"
+    minimum = min(points, key=lambda point: point["balance"])
+    return {"first_shortage": interval, "maximum_shortage": dict(minimum)}
 
 
 def fold_projection(inputs: ProjectionInputs, months: int) -> dict:
@@ -132,6 +168,15 @@ def fold_projection(inputs: ProjectionInputs, months: int) -> dict:
     opening = net(inputs.start_balances)
     balances = {"baseline": opening, "scenario": opening}
     curves = {key: [{"date": fork.isoformat(), "balance": opening}] for key in balances}
+    cash_ids = set(inputs.cash_account_ids)
+    cash_opening = sum(
+        amount for account, amount in inputs.start_balances if account in cash_ids
+    )
+    cash_balances = {key: cash_opening for key in balances}
+    cash_curves = {
+        key: [{"date": fork.isoformat(), "balance": cash_opening}] for key in balances
+    }
+    cash_triggers = {key: {} for key in balances}
     monthly = {}
     month = fork.replace(day=1)
     while month <= end:
@@ -147,12 +192,20 @@ def fold_projection(inputs: ProjectionInputs, months: int) -> dict:
     scenario_rules = {item["rule"].id for item in effective}
     for day, items in groupby(events, key=lambda event: event.date):
         delta = {"baseline": 0, "scenario": 0}
+        cash_delta = {key: 0 for key in balances}
+        day_triggers = {key: [] for key in balances}
         for event in items:
             targets = ["baseline"] if event.origin == "actual" else []
             if event.kind == "planned_transaction" or event.id in scenario_rules:
                 targets.append("scenario")
             for target in targets:
                 delta[target] += net(event.postings)
+                cash_delta[target] += sum(
+                    amount for account, amount in event.postings if account in cash_ids
+                )
+                day_triggers[target].append(
+                    {"kind": event.kind, "id": event.id, "label": event.label}
+                )
                 for account, amount in event.postings:
                     kind = types[account]
                     if kind in {"income", "expense"}:
@@ -160,12 +213,22 @@ def fold_projection(inputs: ProjectionInputs, months: int) -> dict:
                             -amount if kind == "income" else amount
                         )
         for target in balances:
+            if cash_delta[target]:
+                cash_balances[target] += cash_delta[target]
+                cash_curves[target].append(
+                    {"date": day.isoformat(), "balance": cash_balances[target]}
+                )
+                cash_triggers[target][day.isoformat()] = day_triggers[target]
             if delta[target]:
                 balances[target] += delta[target]
                 curves[target].append(
                     {"date": day.isoformat(), "balance": balances[target]}
                 )
     for target in balances:
+        if cash_curves[target][-1]["date"] != end.isoformat():
+            cash_curves[target].append(
+                {"date": end.isoformat(), "balance": cash_balances[target]}
+            )
         if curves[target][-1]["date"] != end.isoformat():
             curves[target].append(
                 {"date": end.isoformat(), "balance": balances[target]}
@@ -179,8 +242,21 @@ def fold_projection(inputs: ProjectionInputs, months: int) -> dict:
             "scenario_version": inputs.scenario.version,
             "actual_ledger_revision": inputs.actual_ledger_revision,
             "actual_rule_revision": inputs.actual_rule_revision,
+            "cash_config_revision": inputs.cash_config_revision,
         },
-        "capabilities": {"scenario_liquidity": False},
+        "capabilities": {"scenario_liquidity": True},
+        "cash": {
+            "available": True,
+            **{
+                key: {
+                    "points": points,
+                    "shortage": cash_shortage(points, cash_triggers[key]),
+                }
+                for key, points in cash_curves.items()
+            },
+        }
+        if cash_ids
+        else {"available": False, "reason": "cash_accounts_not_configured"},
         "net_worth": {key: {"points": points} for key, points in curves.items()},
         "monthly_income_expense": [
             {"month": month, **values} for month, values in monthly.items()
