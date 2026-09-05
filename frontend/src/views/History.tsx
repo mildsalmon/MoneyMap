@@ -55,7 +55,8 @@ export function History({ gen, refresh, showToast, go }: ViewProps) {
             {txns.map((t) => (
               <tr key={t.id}>
                 <td style={{ width: 100, color: "var(--muted)" }}>{t.date}</td>
-                <td>{t.description || "—"} {t.source_rule_id && <span className="badge auto">자동</span>}</td>
+                <td>{t.description || "—"} {t.source_rule_id && <span className="badge auto">자동</span>}
+                  {t.memo && <details className="transaction-memo"><summary>메모 보기</summary><p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{t.memo}</p></details>}</td>
                 <td style={{ color: "var(--muted)", fontSize: 12.5 }}>{flow(t)}</td>
                 <td className="num">
                   {fmtWon(t.postings.filter((p) => p.amount.amount > 0).reduce((s, p) => s + p.amount.amount, 0))}

@@ -6,6 +6,10 @@ import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from moneymap.adapters.sqlite.transaction_input import SqliteTransactionInputQueries
+from moneymap.app_services.transaction_input import last_pair, recent_inputs
+from moneymap.domain.transaction_input import LastPair, RecentInput
+
 from moneymap.dependencies import repos, request_connection
 from moneymap.domain import (
     ACTUAL_SCENARIO_ID,
@@ -26,6 +30,7 @@ class TransactionIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     date: datetime.date
     description: str = ""
+    memo: str = ""
     postings: list[PostingIn]
 
 
@@ -50,6 +55,7 @@ def create_transaction(body: TransactionIn, request: Request):
             scenario_id=ACTUAL_SCENARIO_ID,
             date=body.date,
             description=body.description,
+            memo=body.memo,
             postings=[
                 Posting(account_id=p.account_id, amount=Money(amount=p.amount))
                 for p in body.postings
@@ -70,3 +76,13 @@ def delete_transaction(txn_id: int, request: Request):
             detail={"code": "transaction_not_found", "message": "거래가 없습니다"},
         )
     return {"deleted": txn_id}
+
+
+@router.get("/api/transaction-input/last-pair", response_model=LastPair)
+def input_last_pair(request: Request, item: str = Query(...)):
+    return last_pair(SqliteTransactionInputQueries(request.state.conn), item)
+
+
+@router.get("/api/transaction-input/recent", response_model=list[RecentInput])
+def input_recent(request: Request, limit: int = Query(5, ge=1, le=20)):
+    return recent_inputs(SqliteTransactionInputQueries(request.state.conn), limit)

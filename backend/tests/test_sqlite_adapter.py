@@ -623,10 +623,17 @@ def test_opening_matcher_uses_structure_not_description(conn):
 def test_opening_matcher_excludes_three_leg_transaction(conn):
     account_repo = SqliteAccountRepository(conn)
     txn_repo = SqliteTransactionRepository(conn)
+    # Historical shapes remain readable even though ordinary input now rejects
+    # system-account postings outside the exact opening-balance compatibility path.
+    def save_historical(txn):
+        from moneymap.adapters.sqlite.transactions import _insert_txn
+        with conn:
+            tid = _insert_txn(conn, txn)
+        return txn.model_copy(update={"id": tid})
     cash = account_repo.create(Account(name="현금", type=AccountType.ASSET))
     other = account_repo.create(Account(name="예금", type=AccountType.ASSET))
     opening = account_repo.find_by_name(OPENING_BALANCE_ACCOUNT_NAME)
-    txn_repo.save(
+    save_historical(
         Transaction(
             scenario_id=ACTUAL_SCENARIO_ID,
             date=D(2026, 8, 2),
@@ -643,6 +650,13 @@ def test_opening_matcher_excludes_three_leg_transaction(conn):
 def test_opening_matcher_excludes_wrong_scenario_source_zero_and_equity(conn):
     account_repo = SqliteAccountRepository(conn)
     txn_repo = SqliteTransactionRepository(conn)
+    # Historical shapes remain readable even though ordinary input now rejects
+    # system-account postings outside the exact opening-balance compatibility path.
+    def save_historical(txn):
+        from moneymap.adapters.sqlite.transactions import _insert_txn
+        with conn:
+            tid = _insert_txn(conn, txn)
+        return txn.model_copy(update={"id": tid})
     cash = account_repo.create(Account(name="현금", type=AccountType.ASSET))
     food = account_repo.create(Account(name="식비", type=AccountType.EXPENSE))
     ordinary_equity = account_repo.create(
@@ -663,7 +677,7 @@ def test_opening_matcher_excludes_wrong_scenario_source_zero_and_equity(conn):
             start_date=D(2026, 8, 1),
         )
     )
-    txn_repo.save(
+    save_historical(
         Transaction(
             scenario_id=ACTUAL_SCENARIO_ID,
             source_rule_id=rule.id,
@@ -680,7 +694,7 @@ def test_opening_matcher_excludes_wrong_scenario_source_zero_and_equity(conn):
             name="가설", base_scenario_id=ACTUAL_SCENARIO_ID, fork_date=D(2026, 8, 1)
         )
     )
-    txn_repo.save(
+    save_historical(
         Transaction(
             scenario_id=scenario.id,
             date=D(2026, 8, 1),
@@ -691,7 +705,7 @@ def test_opening_matcher_excludes_wrong_scenario_source_zero_and_equity(conn):
         )
     )
 
-    txn_repo.save(
+    save_historical(
         Transaction(
             scenario_id=ACTUAL_SCENARIO_ID,
             date=D(2026, 8, 2),
@@ -701,7 +715,7 @@ def test_opening_matcher_excludes_wrong_scenario_source_zero_and_equity(conn):
             ],
         )
     )
-    txn_repo.save(
+    save_historical(
         Transaction(
             scenario_id=ACTUAL_SCENARIO_ID,
             date=D(2026, 8, 2),

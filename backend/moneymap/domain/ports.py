@@ -9,6 +9,8 @@ from __future__ import annotations
 import datetime
 from typing import Protocol
 
+from moneymap.domain.transaction_input import PairCandidate, RecentInput
+
 from moneymap.domain.account import (
     Account,
     AccountSettingsCommand,
@@ -103,3 +105,8 @@ class ScenarioUnitOfWork(Protocol):
 
     def __enter__(self) -> "ScenarioUnitOfWork": ...
     def __exit__(self, exc_type, exc, traceback) -> bool | None: ...
+
+
+class TransactionInputQueries(Protocol):
+    def last_candidate(self, item_key: str) -> "PairCandidate | None": ...
+    def recent(self, limit: int) -> "list[RecentInput]": ...

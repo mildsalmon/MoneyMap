@@ -38,6 +38,7 @@ class Transaction(BaseModel):
     scenario_id: int
     date: datetime.date
     description: str = ""
+    memo: str = ""
     postings: list[Posting] = Field(min_length=2)
     # 반복 규칙이 자동 생성한 거래는 출처를 추적한다 (UI badge용, D10).
     # 생성 후 규칙과 독립 — 규칙 수정은 이 거래를 건드리지 않는다 (D9).

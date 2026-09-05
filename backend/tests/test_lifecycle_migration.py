@@ -53,7 +53,7 @@ def add_transaction(conn, day, source=None):
 def data(conn):
     return {
         table: [
-            tuple(row) for row in conn.execute(f"SELECT * FROM {table} ORDER BY id")
+            tuple(row) for row in conn.execute(("SELECT id,scenario_id,date,description,source_rule_id,posted FROM transactions ORDER BY id" if table == "transactions" else f"SELECT * FROM {table} ORDER BY id"))
         ]
         for table in (
             "accounts",
@@ -95,7 +95,7 @@ def test_migration_two_failure_restores_pr1_schema_data_and_version_then_retries
 
     pr1.execute("DROP TRIGGER injected_migration_failure")
     init_db(pr1)
-    assert pr1.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert pr1.execute("PRAGMA user_version").fetchone()[0] == len(database.MIGRATIONS)
     assert (
         pr1.execute("SELECT rule_mode FROM scenarios WHERE id=2").fetchone()[0]
         == "live_additive"
@@ -123,7 +123,7 @@ def test_manual_date_conflict_preserves_legacy_even_without_clone_ambiguity(
     before = data(pr1)
     init_db(pr1)
     after = data(pr1)
-    assert pr1.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert pr1.execute("PRAGMA user_version").fetchone()[0] == len(database.MIGRATIONS)
     assert (
         pr1.execute("SELECT rule_mode FROM scenarios WHERE id=2").fetchone()[0]
         == "legacy_snapshot"

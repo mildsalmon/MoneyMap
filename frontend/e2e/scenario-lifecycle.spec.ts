@@ -676,14 +676,14 @@ test("늦은 시나리오 생성 응답은 거래 입력의 URL과 초안을 유
     await waiting;
     await page.locator(".side nav").getByRole("button", { name: "거래 입력", exact: true }).click();
     await page.getByLabel("금액", { exact: true }).fill("9876");
-    await page.getByLabel("내역 (선택)", { exact: true }).fill("잃으면 안 되는 거래 초안");
+    await page.getByLabel("아이템 (선택)", { exact: true }).fill("잃으면 안 되는 거래 초안");
     const completed = page.waitForEvent("requestfinished", { predicate: pending => pending.url() === `${API}/scenarios` && pending.method() === "POST" });
     release();
     await completed;
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     await expect(page).toHaveURL(/\/transactions\/new$/);
     await expect(page.getByLabel("금액", { exact: true })).toHaveValue("9,876");
-    await expect(page.getByLabel("내역 (선택)", { exact: true })).toHaveValue("잃으면 안 되는 거래 초안");
+    await expect(page.getByLabel("아이템 (선택)", { exact: true })).toHaveValue("잃으면 안 되는 거래 초안");
     expect((await request.get(`${API}/scenarios/${sid}`)).status()).toBe(200);
   } finally { release(); }
 });

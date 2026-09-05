@@ -41,7 +41,7 @@ def legacy_db(path, mode="both", generated=False):
 
 def rows(conn):
     return {
-        table: [tuple(r) for r in conn.execute(f"SELECT * FROM {table} ORDER BY id")]
+        table: [tuple(r) for r in conn.execute(("SELECT id,scenario_id,date,description,source_rule_id,posted FROM transactions ORDER BY id" if table == "transactions" else f"SELECT * FROM {table} ORDER BY id"))]
         for table in ("scenarios", "recurring_rules", "transactions", "postings")
     }
 

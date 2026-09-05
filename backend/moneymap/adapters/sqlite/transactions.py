@@ -17,6 +17,7 @@ from moneymap.domain.errors import (
     DomainConflictError,
     DomainError,
     DomainNotFoundError,
+    DomainValidationError,
 )
 from moneymap.domain.money import Money
 from moneymap.domain.scenario import ACTUAL_SCENARIO_ID
@@ -26,8 +27,24 @@ from moneymap.domain.services import (
 )
 from moneymap.domain.transaction import Posting, Transaction
 
+from moneymap.domain.transaction_input import normalize_item_key
+from .opening_balances import OPENING_BALANCES_SQL
+
 from .accounts import SqliteAccountRepository
 from .common import _D, _iso, _translate_integrity_error
+
+
+def _entry_origin(conn: sqlite3.Connection, txn: Transaction) -> str:
+    if txn.source_rule_id is not None:
+        return "rule"
+    if txn.scenario_id == ACTUAL_SCENARIO_ID and len(txn.postings) == 2:
+        opening_ids = {r[0] for r in conn.execute(
+            "SELECT id FROM accounts WHERE name=? AND type='equity' AND is_system=1",
+            (OPENING_BALANCE_ACCOUNT_NAME,),
+        )}
+        if sum(p.account_id in opening_ids for p in txn.postings) == 1:
+            return "system"
+    return "user"
 
 
 def _insert_txn(conn: sqlite3.Connection, txn: Transaction) -> int:
@@ -37,9 +54,10 @@ def _insert_txn(conn: sqlite3.Connection, txn: Transaction) -> int:
     apply_materialization()은 계획 전체를 하나의 경계로 묶는다.
     """
     cur = conn.execute(
-        "INSERT INTO transactions (scenario_id, date, description, source_rule_id, posted) "
-        "VALUES (?,?,?,?,0)",
-        (txn.scenario_id, _iso(txn.date), txn.description, txn.source_rule_id),
+        "INSERT INTO transactions (scenario_id,date,description,source_rule_id,item_key,entry_origin,memo,posted) "
+        "VALUES (?,?,?,?,?,?,?,0)",
+        (txn.scenario_id, _iso(txn.date), txn.description, txn.source_rule_id,
+         normalize_item_key(txn.description), _entry_origin(conn, txn), txn.memo),
     )
     txn_id = cur.lastrowid
     assert txn_id is not None
@@ -64,10 +82,22 @@ class SqliteTransactionRepository:
             raise NotImplementedError("v1: 거래 수정은 삭제 후 재입력으로 처리")
         try:
             self._conn.execute("BEGIN IMMEDIATE")
+            accounts = SqliteAccountRepository(self._conn).find_all()
             validate_postable_accounts(
-                SqliteAccountRepository(self._conn).find_all(),
+                accounts,
                 [p.account_id for p in txn.postings],
             )
+            if txn.scenario_id == ACTUAL_SCENARIO_ID and txn.source_rule_id is None:
+                targets = {p.account_id for p in txn.postings}
+                opening = _entry_origin(self._conn, txn) == "system"
+                for account in accounts:
+                    if account.id not in targets:
+                        continue
+                    if account.archived or (account.is_system and not opening):
+                        raise DomainValidationError(
+                            f"'{account.name}' 계정을 지금 사용할 수 없습니다. 다른 계정을 선택하세요",
+                            code="account_unavailable", context={"account_id": account.id},
+                        )
             txn_id = _insert_txn(self._conn, txn)
             self._conn.commit()
         except Exception:
@@ -77,38 +107,7 @@ class SqliteTransactionRepository:
 
     def find_opening_balances(self, account_id: int | None = None) -> list[dict]:
         """exact two-leg 개시잔액 구조를 한 번의 집계 SQL로 식별한다."""
-        sql = """
-        WITH candidate_postings AS (
-          SELECT
-            t.id AS transaction_id,
-            t.date AS date,
-            p.account_id AS account_id,
-            p.amount AS amount,
-            CASE
-              WHEN a.is_system=1 AND a.type='equity' AND a.name=? THEN 1
-              ELSE 0
-            END AS is_opening
-          FROM transactions t
-          JOIN postings p ON p.txn_id=t.id
-          JOIN accounts a ON a.id=p.account_id
-          WHERE t.scenario_id=? AND t.posted=1 AND t.source_rule_id IS NULL
-        ),
-        opening_matches AS (
-          SELECT
-            transaction_id,
-            date,
-            MAX(CASE WHEN is_opening=0 THEN account_id END) AS account_id,
-            MAX(CASE WHEN is_opening=0 THEN amount END) AS signed_amount
-          FROM candidate_postings
-          GROUP BY transaction_id, date
-          HAVING COUNT(*)=2
-             AND SUM(amount)=0
-             AND SUM(is_opening)=1
-             AND SUM(CASE WHEN is_opening=0 AND amount != 0 THEN 1 ELSE 0 END)=1
-        )
-        SELECT transaction_id, date, account_id, signed_amount
-        FROM opening_matches
-        """
+        sql = OPENING_BALANCES_SQL
         params: list[object] = [OPENING_BALANCE_ACCOUNT_NAME, ACTUAL_SCENARIO_ID]
         if account_id is not None:
             sql += " WHERE account_id=?"
@@ -247,6 +246,7 @@ class SqliteTransactionRepository:
                     scenario_id=row["scenario_id"],
                     date=_D(row["date"]),
                     description=row["description"],
+                    memo=row["memo"],
                     source_rule_id=row["source_rule_id"],
                     postings=postings,
                 )

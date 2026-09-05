@@ -14,5 +14,5 @@ test("빈 거래 내역에서 거래 입력으로 바로 이동할 수 있다", 
   const emptyAction = page.getByRole("button", { name: "거래 입력", exact: true }).last();
   await expect(emptyAction).toBeVisible();
   await emptyAction.click();
-  await expect(page.getByRole("button", { name: "지출", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "왼쪽 · 차변", exact: true })).toBeVisible();
 });
