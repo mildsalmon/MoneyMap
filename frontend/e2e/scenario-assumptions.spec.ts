@@ -262,6 +262,10 @@ for (const action of ["create", "update", "duplicate"] as const) {
     await page
       .getByRole("link", { name: "시나리오 목록", exact: true })
       .click();
+    // Router transitions may update history before the destination commits.
+    // Keep the response held until the source editor has actually unmounted.
+    await expect(page.getByRole("heading", { name: "시나리오", exact: true })).toBeFocused();
+    await expect(page.getByLabel(action === "duplicate" ? "복제 이름" : "예정 거래 내역", { exact: true })).toHaveCount(0);
     const completed = page.waitForEvent("requestfinished", {
       predicate: pending => pending.url() === endpoint && pending.method() !== "GET",
     });
