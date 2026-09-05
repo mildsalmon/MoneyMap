@@ -17,6 +17,7 @@ from moneymap.domain.account import (
 )
 from moneymap.domain.ports import (
     AccountRepository,
+    ScenarioUnitOfWork,
     RecurringRuleRepository,
     ScenarioRepository,
     TransactionRepository,
@@ -60,26 +61,26 @@ def create_opening_balance(
 def fork_scenario(
     name: str,
     fork_date: datetime.date,
-    scenario_repo: ScenarioRepository,
-    rule_repo: RecurringRuleRepository,
+    uow: ScenarioUnitOfWork,
 ) -> tuple[Scenario, int]:
     """시나리오 생성 = scenarios 행 + actual 규칙 복사 (copy-on-fork, D5).
 
     복사본은 스냅샷 — 이후 actual 규칙 변경은 이 시나리오에 반영되지 않는다.
     반환: (저장된 시나리오, 복사된 규칙 수)
     """
-    saved = scenario_repo.save(
-        Scenario(name=name, base_scenario_id=ACTUAL_SCENARIO_ID, fork_date=fork_date)
-    )
-    assert saved.id is not None
-    actual_rules = rule_repo.find_by_scenario(ACTUAL_SCENARIO_ID)
-    for rule in actual_rules:
-        rule_repo.save(
-            rule.model_copy(
-                update={"id": None, "scenario_id": saved.id, "last_materialized": None}
-            )
+    with uow:
+        saved = uow.scenarios.save(
+            Scenario(name=name, base_scenario_id=ACTUAL_SCENARIO_ID, fork_date=fork_date)
         )
-    return saved, len(actual_rules)
+        assert saved.id is not None
+        actual_rules = uow.rules.find_by_scenario(ACTUAL_SCENARIO_ID)
+        for rule in actual_rules:
+            uow.rules.save(
+                rule.model_copy(
+                    update={"id": None, "scenario_id": saved.id, "last_materialized": None}
+                )
+            )
+        return saved, len(actual_rules)
 
 
 def actual_net_worth_history(

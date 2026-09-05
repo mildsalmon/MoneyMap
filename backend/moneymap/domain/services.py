@@ -246,3 +246,25 @@ def opening_balance_posting_amount(
         "이 계정 유형에는 개시잔액을 기록할 수 없습니다",
         code="opening_invalid_account",
     )
+
+
+def validate_postable_accounts(accounts: list[Account], account_ids: list[int], *, for_rule: bool = False) -> None:
+    """Stable validation order: all targets exist before account command rules."""
+    from moneymap.domain.errors import DomainNotFoundError, DomainValidationError
+
+    by_id = {a.id: a for a in accounts}
+    ordered = sorted(set(account_ids))
+    for aid in ordered:
+        if aid not in by_id:
+            raise DomainNotFoundError("계정이 없습니다", code="account_not_found", context={"account_id": aid})
+    for aid in ordered:
+        account = by_id[aid]
+        if is_account_group(account, accounts):
+            raise DomainValidationError(
+                f"'{account.name}'은 그룹(대분류) 계정이라 직접 기장할 수 없습니다 — 하위 계정을 선택하세요",
+                code="account_not_postable", context={"account_id": aid},
+            )
+    if for_rule:
+        for aid in ordered:
+            if by_id[aid].is_system:
+                raise DomainValidationError("시스템 계정은 반복 규칙에 사용할 수 없습니다", code="system_account_rule_forbidden", context={"account_id": aid})
