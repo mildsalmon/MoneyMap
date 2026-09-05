@@ -2,7 +2,7 @@
 
 - 기준 설계: [scenario-lifecycle.md](../designs/scenario-lifecycle.md), 승인·engineering review 2026-09-05
 - 선행 구현: [scenario-foundation.md](scenario-foundation.md), PR1/T1~T4
-- 검증 대상: `codex/scenario-lifecycle` 작업 트리, 기반 main `74ed9b2` (PR1 머지). 기능 커밋 `518dd4c`, 성능 CI 커밋 `bc76daa`, legacy 성능 수정 `12e9cab`. 릴리스 버전은 v0.3.0.0이며 PR 게시를 준비 중이다.
+- 검증 대상: `codex/scenario-lifecycle` 브랜치, 기반 main `74ed9b2` (PR1 머지). 기능 커밋 `518dd4c`, 성능 CI 커밋 `bc76daa`, legacy 성능 수정 `12e9cab`, 화면 경쟁 조건 수정 `d90918c`. v0.3.0.0 릴리스 커밋 `24fb3e0`까지 원격 브랜치에 푸시했고 PR 게시를 준비 중이다.
 
 ## 구현 범위
 
@@ -45,7 +45,7 @@ PR3의 시나리오 복제·일회성 예정 거래 생성/수정/삭제 화면�
 | `cd frontend && MONEYMAP_E2E_BACKEND_PORT=8882 MONEYMAP_E2E_FRONTEND_PORT=5280 npm run e2e` | 39 passed (37.1s) |
 | `git diff --check` | 통과 |
 
-실제 사용자 DB와 기존 문서 작업은 변경하지 않았다. E2E는 포트 8882/5280과 `/tmp/moneymap-e2e-8882`의 격리 DB를 사용한다. 원격 CI는 PR 게시 후 별도 실행 대상이다.
+실제 사용자 DB와 기존 문서 작업은 변경하지 않았다. E2E는 포트 8882/5280과 `/tmp/moneymap-e2e-8882`의 격리 DB를 사용한다. 원격 CI는 브랜치 푸시로도 실행되며, 최종 결과는 로컬 검증과 별도로 확인한다.
 
 ## 성능 측정
 
@@ -82,8 +82,8 @@ PR3의 시나리오 복제·일회성 예정 거래 생성/수정/삭제 화면�
 - `frontend/src/views/scenarios/ScenarioRules.tsx`: 규칙 저장 중 입력·취소·다른 규칙 편집을 잠가 응답 대기 중 입력한 내용을 이전 요청이 지우는 문제를 방지한다.
 - `TODOS.md`: PR2에서 완료한 child mutation·legacy 변환·영구 삭제를 미래 계획으로 설명하던 문구를 정정했다. 공통 UoW 확대 재평가 항목은 열린 상태로 유지한다.
 
-새 화면 회귀 세 건은 수정 전 실패를 재현했고, 수정 후 재진입 사례까지 네 건이 통과했다. 최종 코드에서 전체 pytest 267개, E2E 39개, production build 및 변경 Python 파일 Ruff 검사가 통과했다. 리뷰는 Codex의 같은 모델 계열 에이전트로 수행했으며 외부 모델 교차 검증은 실행하지 않았다. adversarial pass에서 테스트·fixture는 요약으로만 읽었고, 테스트 전문 검토와 실제 실행은 별도로 수행했다. 이후 ship에서 리뷰 수정은 기능별 커밋으로 정리했다. 최신 main 병합 확인 후 전체 검증을 다시 통과했으며, v0.3.0.0 버전을 확정했으며 푸시·PR 생성을 준비한다.
+새 화면 회귀 세 건은 수정 전 실패를 재현했고, 수정 후 재진입 사례까지 네 건이 통과했다. 최종 코드에서 전체 pytest 267개, E2E 39개, production build 및 변경 Python 파일 Ruff 검사가 통과했다. 리뷰는 Codex의 같은 모델 계열 에이전트로 수행했으며 외부 모델 교차 검증은 실행하지 않았다. adversarial pass에서 테스트·fixture는 요약으로만 읽었고, 테스트 전문 검토와 실제 실행은 별도로 수행했다. 이후 ship에서 리뷰 수정은 기능별 커밋으로 정리했다. 최신 main 병합 확인 후 전체 검증을 다시 통과했으며, v0.3.0.0 버전을 확정하고 릴리스 커밋을 푸시했다.
 
 ## 다음 배포 단계
 
-`gstack-ship`에서 커밋·PR 생성 후 원격 CI 결과를 확인한다. 이 문서는 원격 CI 통과나 PR2 머지를 주장하지 않는다.
+`gstack-ship`에서 문서 동기화를 마친 뒤 PR을 생성하고 최종 원격 CI 결과를 확인한다. 이 문서는 원격 CI 통과나 PR2 머지를 주장하지 않는다.
