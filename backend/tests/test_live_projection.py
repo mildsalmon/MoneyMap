@@ -270,3 +270,79 @@ def test_unconverted_dashboard_preserves_snapshot_rules(golden, monkeypatch):
     }
     assert client.put(f"/api/rules/{salary['id']}", json=body).status_code == 200
     assert next(s for s in client.get(path).json()["series"] if s["id"] == sid) == curve
+
+
+@pytest.mark.parametrize("selected_count", [1, 3])
+def test_legacy_dashboard_batches_transactions_and_shares_actual_basis(
+    client, monkeypatch, selected_count
+):
+    from moneymap.app_services import projection
+    from moneymap.app_services.projection import build_dashboard_projection
+    from moneymap.adapters.sqlite.scenarios import ScenarioWriter
+    from moneymap.domain import simulation
+
+    monkeypatch.setattr(
+        projection, "now", lambda: dt.datetime(2026, 2, 1, tzinfo=dt.timezone.utc)
+    )
+    bank = account(client, "legacy cash", "asset")
+    expense = account(client, "legacy expense", "expense")
+    sids = [create(client, f"legacy {index}")["id"] for index in range(selected_count)]
+    conn = connect(client.app.state.db_path)
+    original = simulation.variable_monthly_spend
+    folds = []
+
+    def count_fold(*args, **kwargs):
+        folds.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(simulation, "variable_monthly_spend", count_fold)
+    try:
+        with conn:
+            for sid in sids:
+                conn.execute(
+                    "UPDATE scenarios SET rule_mode='legacy_snapshot' WHERE id=?",
+                    (sid,),
+                )
+        sql_counts = []
+        for added, total in ((1, 1), (100, 101)):
+            with conn:
+                for sid in [1, *sids]:
+                    for _ in range(added):
+                        tid = conn.execute(
+                            "INSERT INTO transactions(scenario_id,date) VALUES(?,?)",
+                            (sid, "2026-01-31" if sid == 1 else "2026-02-01"),
+                        ).lastrowid
+                        conn.executemany(
+                            "INSERT INTO postings(txn_id,account_id,amount) VALUES(?,?,?)",
+                            [(tid, bank, -100), (tid, expense, 100)],
+                        )
+                        conn.execute(
+                            "UPDATE transactions SET posted=1 WHERE id=?", (tid,)
+                        )
+            statements = []
+            folds.clear()
+            conn.set_trace_callback(statements.append)
+            conn.execute("BEGIN")
+            try:
+                result = build_dashboard_projection(
+                    ProjectionInputReader(conn), ScenarioWriter(conn), sids, 3
+                )
+            finally:
+                conn.rollback()
+                conn.set_trace_callback(None)
+            assert len(folds) == 1  # Shared actual-ledger averaging per request.
+            sql_counts.append(len(statements))
+            assert len(statements) <= 30, statements
+            curves = [
+                series["points"]
+                for series in result["series"]
+                if series["kind"] == "scenario"
+            ]
+            assert len(curves) == selected_count
+            assert all(curve == curves[0] for curve in curves)
+            # Per pair: -100 opening, -100 owned, -100 on each Jan–Apr month end.
+            assert curves[0][-1]["net_worth"] == -600 * total
+        # Both actual and owned transaction volumes grew 101-fold.
+        assert sql_counts[0] == sql_counts[1]
+    finally:
+        conn.close()

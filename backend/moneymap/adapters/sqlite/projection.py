@@ -6,6 +6,8 @@ from itertools import groupby
 from moneymap.app_services.scenarios import get_scenario, now
 from moneymap.domain.errors import DomainConflictError
 from moneymap.domain.projection import ProjectionEvent, ProjectionInputs
+from moneymap.domain.money import Money
+from moneymap.domain.transaction import Posting, Transaction
 from .scenarios import ScenarioWriter
 from .rules import ScenarioRuleWriter
 
@@ -72,26 +74,65 @@ class ProjectionInputReader:
             tuple(planned),
         )
 
-    def legacy_inputs(self, sid: int, today: dt.date):
-        """Only the compatibility dashboard uses the historical fork boundary."""
-        from .transactions import SqliteTransactionRepository
+    def _legacy_transactions(self, sid: int, *, start=None, end=None):
+        """Hydrate legacy transactions and their ordered postings in one query."""
+        clauses = ["t.scenario_id=?", "t.posted=1"]
+        params = [sid]
+        if start is not None:
+            clauses.append("t.date>=?")
+            params.append(start.isoformat())
+        if end is not None:
+            clauses.append("t.date<=?")
+            params.append(end.isoformat())
+        rows = self.conn.execute(
+            "SELECT t.id,t.scenario_id,t.date,t.description,t.source_rule_id,"
+            "p.account_id,p.amount,p.currency FROM transactions t "
+            "JOIN postings p ON p.txn_id=t.id WHERE "
+            + " AND ".join(clauses)
+            + " ORDER BY t.date,t.id,p.id",
+            params,
+        )
+        transactions = []
+        for tid, items in groupby(rows, key=lambda row: row["id"]):
+            items = list(items)
+            row = items[0]
+            transactions.append(
+                Transaction(
+                    id=tid,
+                    scenario_id=row["scenario_id"],
+                    date=dt.date.fromisoformat(row["date"]),
+                    description=row["description"],
+                    source_rule_id=row["source_rule_id"],
+                    postings=[
+                        Posting(
+                            account_id=p["account_id"],
+                            amount=Money(amount=p["amount"], currency=p["currency"]),
+                        )
+                        for p in items
+                    ],
+                )
+            )
+        return transactions
 
-        scenario = get_scenario(ScenarioWriter(self.conn), sid)
+    def legacy_actual_inputs(self, today: dt.date):
+        """The dashboard shares this actual-ledger input across legacy scenarios."""
         account_types = {
             r["id"]: r["type"]
             for r in self.conn.execute("SELECT id,type FROM accounts")
         }
+        return account_types, self._legacy_transactions(1, end=today)
+
+    def legacy_inputs(self, sid: int):
+        """Only the compatibility dashboard uses the historical fork boundary."""
+        scenario = get_scenario(ScenarioWriter(self.conn), sid)
         opening = self.conn.execute(
             "SELECT coalesce(sum(p.amount),0) FROM transactions t JOIN postings p ON p.txn_id=t.id JOIN accounts a ON a.id=p.account_id WHERE t.scenario_id=1 AND t.posted=1 AND a.type IN ('asset','liability') AND (t.date<? OR (t.date=? AND t.source_rule_id IS NULL))",
             (scenario.fork_date.isoformat(), scenario.fork_date.isoformat()),
         ).fetchone()[0]
-        txns = SqliteTransactionRepository(self.conn)
         return (
             scenario,
-            account_types,
             opening,
-            txns.find_by_scenario(1, end=today),
-            txns.find_by_scenario(sid, start=scenario.fork_date),
+            self._legacy_transactions(sid, start=scenario.fork_date),
             ScenarioRuleWriter(self.conn).find_by_scenario(sid),
         )
 

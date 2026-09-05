@@ -9,23 +9,22 @@ def build_projection(reader, scenario_id: int, months: int):
     return {"as_of": now().isoformat(), **fold_projection(inputs, months)}
 
 
-def legacy_projection(reader, sid: int, months: int):
+def legacy_projection(
+    reader, sid: int, months: int, *, today, account_types, monthly_variable_spend
+):
     """Preserve unconverted snapshots on the existing dashboard only."""
-    from moneymap.domain.account import AccountType
     from moneymap.domain.projection import add_months, EffectiveRuleResolver
-    from moneymap.domain.simulation import project_net_worth, variable_monthly_spend
+    from moneymap.domain.simulation import project_net_worth
 
-    today = now().date()
-    scenario, types, opening, actual, owned, rules = reader.legacy_inputs(sid, today)
-    types = {key: AccountType(value) for key, value in types.items()}
+    scenario, opening, owned, rules = reader.legacy_inputs(sid)
     effective = EffectiveRuleResolver.resolve(scenario, [], rules)
     points = project_net_worth(
         start_net_worth=opening,
         start=scenario.fork_date,
         end=add_months(today, months),
         rules=[item["rule"] for item in effective],
-        account_types=types,
-        monthly_variable_spend=variable_monthly_spend(actual, types, window_end=today),
+        account_types=account_types,
+        monthly_variable_spend=monthly_variable_spend,
         transactions=[txn for txn in owned if txn.source_rule_id is None],
     )
     return {
@@ -39,7 +38,11 @@ def legacy_projection(reader, sid: int, months: int):
 
 
 def build_dashboard_projection(reader, scenarios, ids: list[int], months: int):
+    from moneymap.domain.account import AccountType
+    from moneymap.domain.simulation import variable_monthly_spend
+
     baseline = build_projection(reader, 1, months)
+    legacy_basis = None
 
     def points(curve):
         return [{"date": p["date"], "net_worth": p["balance"]} for p in curve["points"]]
@@ -62,7 +65,18 @@ def build_dashboard_projection(reader, scenarios, ids: list[int], months: int):
         scenario = scenarios.find_by_id(sid)
         if scenario and not scenario.is_actual and scenario.status == "active":
             if scenario.rule_mode == "legacy_snapshot":
-                series.append(legacy_projection(reader, sid, months))
+                if legacy_basis is None:
+                    today = now().date()
+                    types, actual = reader.legacy_actual_inputs(today)
+                    types = {key: AccountType(value) for key, value in types.items()}
+                    legacy_basis = {
+                        "today": today,
+                        "account_types": types,
+                        "monthly_variable_spend": variable_monthly_spend(
+                            actual, types, window_end=today
+                        ),
+                    }
+                series.append(legacy_projection(reader, sid, months, **legacy_basis))
             else:
                 result = build_projection(reader, sid, months)
                 series.append(
