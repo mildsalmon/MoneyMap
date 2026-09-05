@@ -1,8 +1,8 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test";
 
 // Regression: ISSUE-001 — the fixed mobile save bar hid confirmation and undo.
 // Found by /qa on 2026-09-05
-// Report: .gstack/qa-reports/qa-report-transaction-input-2026-09-05.md
+// Report: docs/verification/transaction-input-qa.md
 for (const mode of ["basic", "split"] as const) {
   for (const [label, item] of [
     ["ordinary item", "회사 근처 점심 식사와 카페 이용 내역"],

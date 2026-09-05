@@ -10,6 +10,11 @@ import "./transaction-input.css";
 
 type Lookup = { token: LookupToken; phase: "loading" | "ready" | "error" | "confirmed"; pair?: LastPair };
 const SOURCE = { empty: "선택 전", auto: "자동 선택", manual: "직접 선택", retained: "이전 입력 유지" };
+const MAX_DESCRIPTION_LENGTH = 2_000;
+const MAX_MEMO_LENGTH = 10_000;
+const MAX_POSTINGS = 100;
+const netWorthDelta = (postings: readonly { account_id: number; amount: number }[], accounts: ReadonlyMap<number, Account>) =>
+  postings.reduce((sum, posting) => sum + (["asset", "liability"].includes(accounts.get(posting.account_id)?.type ?? "") ? posting.amount : 0), 0);
 
 export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
   const accountQuery = useQuery(`input-accounts:${gen}`, signal => api.accounts(signal));
@@ -97,7 +102,7 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
     try {
       const txn = await api.createTransaction({ date: submitted.date, description: submitted.item, memo: submitted.memo, postings: checked.postings });
       refresh();
-      const delta = checked.postings.reduce((sum, p) => sum + (["asset", "liability"].includes(model.byId.get(p.account_id)?.type ?? "") ? p.amount : 0), 0);
+      const delta = netWorthDelta(checked.postings, model.byId);
       showToast(`${submitted.item || "거래"} · ${fmtWon(checked.debit)} 저장됨${delta ? ` · 순자산 ${fmtDelta(delta)} 반영` : ""}`, async () => {
         try { await api.deleteTransaction(txn.id); refresh(); if (alive.current) change(d => ({ ...d, epoch: d.epoch + 1 })); }
         catch { showToast("삭제하지 못했습니다. 거래 내역을 확인해 주세요."); }
@@ -142,7 +147,7 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
       ? `${automatic[0] === "debit" ? "차변" : "대변"}만 자동 선택했습니다. 직접 선택한 계정은 유지합니다.` : "직접 선택한 계정을 유지합니다.";
   };
   const composition = { onCompositionStart: () => { composingRef.current = true; setComposing(true); }, onCompositionEnd: () => { composingRef.current = false; setComposing(false); } };
-  const nwDelta = validation.postings.reduce((sum, p) => sum + (["asset", "liability"].includes(model.byId.get(p.account_id)?.type ?? "") ? p.amount : 0), 0);
+  const nwDelta = netWorthDelta(validation.postings, model.byId);
 
   return <div ref={pageRef} className={`txn-page${shortViewport ? " short-viewport" : ""}`}>
     <h1>거래 입력</h1><p className="txn-intro">아이템을 적고, 왼쪽과 오른쪽 계정을 선택하세요.</p>
@@ -154,8 +159,8 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
     }}>
       <div className="txn-fields">
         <div className="field txn-date"><label htmlFor="transaction-date">날짜</label><input id="transaction-date" type="date" value={draft.date} onChange={e => field("date", e.target.value)} /></div>
-        <div className="field txn-item"><label htmlFor="transaction-item">아이템 <span>(선택)</span></label><input id="transaction-item" placeholder="예: 점심, 월급" value={draft.item} onChange={e => field("item", e.target.value)} {...composition} /></div>
-        <div className="field txn-memo"><label htmlFor="transaction-memo">메모 <span>(선택)</span></label><textarea id="transaction-memo" rows={2} placeholder="이번 거래에 남길 내용" value={draft.memo} onChange={e => field("memo", e.target.value)} {...composition} /></div>
+        <div className="field txn-item"><label htmlFor="transaction-item">아이템 <span>(선택)</span></label><input id="transaction-item" maxLength={MAX_DESCRIPTION_LENGTH} placeholder="예: 점심, 월급" value={draft.item} onChange={e => field("item", e.target.value)} {...composition} /></div>
+        <div className="field txn-memo"><label htmlFor="transaction-memo">메모 <span>(선택)</span></label><textarea id="transaction-memo" maxLength={MAX_MEMO_LENGTH} rows={2} placeholder="이번 거래에 남길 내용" value={draft.memo} onChange={e => field("memo", e.target.value)} {...composition} /></div>
         {draft.mode === "basic" && <div className="field txn-amount"><label htmlFor="transaction-amount">금액</label><input ref={amountRef} id="transaction-amount" className="num" inputMode="numeric" placeholder="0" value={draft.amount} onChange={e => field("amount", amountInput(e.target.value))} {...composition} /></div>}
       </div>
       <div className="txn-recall" role="status">{recallText()}
@@ -186,7 +191,7 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
           {validation.errors[row.id] && <p className="txn-error" id={`split-error-${row.id}`}>{validation.errors[row.id]}</p>}
           {activeRow === row.id && <div className="split-picker" id={`split-picker-${row.id}`}><TransactionAccountPicker model={model} label={`${index + 1}행 계정`} value={row.account} onSelect={id => { editRow(row.id, { account: id }); closePicker(row.id); }} /><button type="button" className="btn secondary" onClick={() => closePicker(row.id)}>계정 선택 닫기</button></div>}
         </div>)}
-        <button id="split-add" type="button" className="btn secondary" onClick={() => change(d => ({ ...d, revision: d.revision + 1, rows: [...d.rows, { id: Math.max(0, ...d.rows.map(r => r.id)) + 1, account: null, amount: "", debit: true }] }))}>+ 행 추가</button>
+        <button id="split-add" type="button" className="btn secondary" disabled={draft.rows.length >= MAX_POSTINGS} onClick={() => change(d => d.rows.length >= MAX_POSTINGS ? d : ({ ...d, revision: d.revision + 1, rows: [...d.rows, { id: Math.max(0, ...d.rows.map(r => r.id)) + 1, account: null, amount: "", debit: true }] }))}>+ 행 추가</button>
       </section>}
       <section className="txn-preview" aria-label="복식부기 미리보기"><h2>검산</h2><table className="ledger"><thead><tr><th>계정</th><th className="num">차변</th><th className="num">대변</th></tr></thead><tbody>
         {validation.postings.map((p, i) => <tr key={i}><td>{name(p.account_id)}</td><td className="num">{p.amount > 0 ? fmtWon(p.amount) : "—"}</td><td className="num">{p.amount < 0 ? fmtWon(-p.amount) : "—"}</td></tr>)}

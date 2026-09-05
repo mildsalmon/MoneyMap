@@ -91,7 +91,7 @@ Supersedes: 2026-07-05 UI spec D22의 거래 유형별 메인 입력 탭 및 내
 
 현재 정상 저장 경로는 SQLite가 부여하는 정수 transaction id를 쓰고 수정은 삭제 후 재입력이다. 따라서 남아 있는 거래의 `id DESC`를 저장 순서로 사용한다. 벽시계나 거래일을 쓰지 않는다. 향후 기존 행을 제자리 수정하는 기능을 추가하면 별도 저장 순번 정책을 함께 개정한다.
 
-거래에는 서버가 관리하는 `item_key`와 `entry_origin` 메타데이터를 추가한다. 값은 `user / rule / system / legacy_unknown`이다. 일반 거래 저장은 user, materialize는 rule, 개시잔액은 system이며 시나리오는 scenario_id로 별도 제외한다. API 요청자가 이 출처를 임의 지정하지 못한다. 거래 저장과 메타데이터 저장은 같은 트랜잭션이다. 반복 규칙을 지워도 entry_origin은 남는다. 호환용 일반 거래 API로 들어온 정확한 개시잔액 구조도 system으로 분류한다.
+거래에는 서버가 관리하는 `item_key`와 `entry_origin` 메타데이터를 추가한다. 값은 `user / rule / system / legacy_unknown`이다. 일반 거래 저장은 user, materialize는 rule, 전용 개시잔액 경로는 system이며 시나리오는 scenario_id로 별도 제외한다. API 요청자가 이 출처를 임의 지정하거나 일반 거래에 시스템 계정을 사용할 수 없다. 거래 저장과 메타데이터 저장은 같은 트랜잭션이다. 반복 규칙을 지워도 entry_origin은 남는다. 기존 원장의 정확한 개시잔액 구조는 마이그레이션과 조회에서 계속 system으로 분류한다.
 
 **기존 데이터의 관측된 한계:** `adapters/sqlite/rules.py`가 규칙 삭제 때 source_rule_id를 NULL로 바꾼다. NULL만 보고 기존 거래를 모두 user라고 역추정할 수 없다.
 

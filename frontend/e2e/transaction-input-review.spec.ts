@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 
 const accounts = [
   { id: 101, name: "식비", type: "expense", is_placeholder: true },

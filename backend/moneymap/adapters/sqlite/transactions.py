@@ -28,7 +28,7 @@ from moneymap.domain.services import (
 from moneymap.domain.transaction import Posting, Transaction
 
 from moneymap.domain.transaction_input import normalize_item_key
-from .opening_balances import OPENING_BALANCES_SQL
+from .opening_balances import V4_OPENING_BALANCES_SQL
 
 from .accounts import SqliteAccountRepository
 from .common import _D, _iso, _translate_integrity_error
@@ -87,17 +87,18 @@ class SqliteTransactionRepository:
                 accounts,
                 [p.account_id for p in txn.postings],
             )
-            if txn.scenario_id == ACTUAL_SCENARIO_ID and txn.source_rule_id is None:
-                targets = {p.account_id for p in txn.postings}
-                opening = _entry_origin(self._conn, txn) == "system"
-                for account in accounts:
-                    if account.id not in targets:
-                        continue
-                    if account.archived or (account.is_system and not opening):
-                        raise DomainValidationError(
-                            f"'{account.name}' 계정을 지금 사용할 수 없습니다. 다른 계정을 선택하세요",
-                            code="account_unavailable", context={"account_id": account.id},
-                        )
+            targets = {p.account_id for p in txn.postings}
+            for account in accounts:
+                if account.id not in targets:
+                    continue
+                # System accounts are a capability boundary. Only dedicated
+                # internal workflows such as create_opening_balance() may call
+                # _insert_txn() with one; transaction shape never grants access.
+                if account.archived or account.is_system:
+                    raise DomainValidationError(
+                        f"'{account.name}' 계정을 지금 사용할 수 없습니다. 다른 계정을 선택하세요",
+                        code="account_unavailable", context={"account_id": account.id},
+                    )
             txn_id = _insert_txn(self._conn, txn)
             self._conn.commit()
         except Exception:
@@ -107,7 +108,7 @@ class SqliteTransactionRepository:
 
     def find_opening_balances(self, account_id: int | None = None) -> list[dict]:
         """exact two-leg 개시잔액 구조를 한 번의 집계 SQL로 식별한다."""
-        sql = OPENING_BALANCES_SQL
+        sql = V4_OPENING_BALANCES_SQL
         params: list[object] = [OPENING_BALANCE_ACCOUNT_NAME, ACTUAL_SCENARIO_ID]
         if account_id is not None:
             sql += " WHERE account_id=?"

@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request, type Route } from "@playwright/test";
+import { expect, test, type Page, type Request, type Route } from "./test";
 
 async function waitForStartup(page: Page) {
   const materialized = page.waitForResponse(response => response.url().endsWith("/api/materialize") && response.ok());

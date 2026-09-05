@@ -602,22 +602,24 @@ def test_opening_balance_create_match_duplicate_delete_and_recreate(conn):
 
 
 def test_opening_matcher_uses_structure_not_description(conn):
+    from moneymap.adapters.sqlite.transactions import _insert_txn
+
     account_repo = SqliteAccountRepository(conn)
     txn_repo = SqliteTransactionRepository(conn)
     cash = account_repo.create(Account(name="현금", type=AccountType.ASSET))
     opening = account_repo.find_by_name(OPENING_BALANCE_ACCOUNT_NAME)
-    saved = txn_repo.save(
-        Transaction(
-            scenario_id=ACTUAL_SCENARIO_ID,
-            date=D(2026, 8, 2),
-            description="자유 문구",
-            postings=[
-                Posting(account_id=cash.id, amount=Money(amount=1000)),
-                Posting(account_id=opening.id, amount=Money(amount=-1000)),
-            ],
-        )
+    historical = Transaction(
+        scenario_id=ACTUAL_SCENARIO_ID,
+        date=D(2026, 8, 2),
+        description="자유 문구",
+        postings=[
+            Posting(account_id=cash.id, amount=Money(amount=1000)),
+            Posting(account_id=opening.id, amount=Money(amount=-1000)),
+        ],
     )
-    assert txn_repo.find_opening_balances(cash.id)[0]["transaction_id"] == saved.id
+    with conn:
+        transaction_id = _insert_txn(conn, historical)
+    assert txn_repo.find_opening_balances(cash.id)[0]["transaction_id"] == transaction_id
 
 
 def test_opening_matcher_excludes_three_leg_transaction(conn):

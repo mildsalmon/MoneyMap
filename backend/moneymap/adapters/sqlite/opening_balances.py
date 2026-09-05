@@ -1,6 +1,6 @@
 """The existing exact opening-balance query, shared by history and migration."""
 
-OPENING_BALANCES_SQL = """
+V4_OPENING_BALANCES_SQL = """
         WITH candidate_postings AS (
           SELECT
             t.id AS transaction_id,

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./test";
 import { newDraft, editField, chooseAccount, applyPair, lookupToken, switchMode, clearSavedDraft, validateDraft, amountInput, amountValue, itemKey } from "../src/views/transactionInputState";
 import type { LastPair } from "../src/api/types";
 const pair: LastPair = { item_key: "점심", status: "matched", source_transaction_id: 9, debit_account_id: 1, credit_account_id: 2, unavailable_reason: null };

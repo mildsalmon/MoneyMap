@@ -12,11 +12,15 @@ from pydantic import BaseModel
 
 # Explicit union of ECMAScript trim and Python whitespace. Keep the frontend
 # itemKey equivalent, including pasted BOM (FEFF), NEL and C0 separators.
-ITEM_WHITESPACE = "\t\n\v\f\r\x1c\x1d\x1e\x1f \x85\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+V4_ITEM_WHITESPACE = "\t\n\v\f\r\x1c\x1d\x1e\x1f \x85\xa0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
 
 
-def normalize_item_key(item: str) -> str:
-    return unicodedata.normalize("NFC", item).strip(ITEM_WHITESPACE)
+def normalize_item_key_v4(item: str) -> str:
+    """Frozen schema-v4 identity used by both migration replay and live writes."""
+    return unicodedata.normalize("NFC", item).strip(V4_ITEM_WHITESPACE)
+
+
+normalize_item_key = normalize_item_key_v4
 
 
 @dataclass(frozen=True)

@@ -57,8 +57,11 @@ def golden(client):
     savings = account(client, "savings", "asset")
     income = account(client, "income", "income")
     expense = account(client, "expense", "expense")
-    equity = next(a["id"] for a in client.get("/api/accounts").json() if a["is_system"])
-    post(client, 1, "2026-01-31", [(bank, 10_000), (equity, -10_000)])
+    opening = client.post(
+        f"/api/accounts/{bank}/opening-balance",
+        json={"date": "2026-01-31", "amount": 10_000, "state": "positive"},
+    )
+    assert opening.status_code == 201, opening.text
     post(client, 1, "2026-02-01", [(bank, 99_999), (income, -99_999)])
     scenario = create(client)
     sid = scenario["id"]

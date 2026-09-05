@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test";
 
 test("빈 거래 내역에서 거래 입력으로 바로 이동할 수 있다", async ({ page }) => {
   await page.route("**/api/transactions", (route) => {

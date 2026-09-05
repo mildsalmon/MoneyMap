@@ -1,23 +1,15 @@
 # 거래 입력 Pre-Landing Review — 2026-09-05
 
-**DONE_WITH_CONCERNS.** 기능·표시 문제 3건과 테스트 공백 2건을 보완했다. 확인한 미해결 코드 결함은 없다. 사용량 오류가 났던 Red Team 검토는 재시도에서 완료했고, 긴 아이템의 모바일 실행취소 문제를 추가로 찾아 수정했다. 당시 남았던 최신 main 통합은 아래 릴리스 검증에서 완료했다. 실기기 모바일 검증은 계속 남아 있다.
+**DONE_WITH_CONCERNS.** 기능·표시 문제 3건과 테스트 공백 2건을 보완했다. 확인한 미해결 코드 결함은 없다. 사용량 오류가 났던 Red Team 검토는 재시도에서 완료했고, 긴 아이템의 모바일 실행취소 문제를 추가로 찾아 수정했다. 실기기 모바일 검증은 남아 있다. 이후 최신 `main` 통합과 통합 트리 전체 검증을 완료했으며, 아래 시작 범위와 수치는 통합 전 리뷰 시점의 기록이다.
 
-## v0.6.0.0 릴리스 확인
-
-현재 릴리스는 `mildsalmon/transaction-input-release`의 `23bd404`이며, 기준 main `2c983a6`(v0.5.0.0)을 포함한다. 현금 설정 v3 뒤에 거래 입력 v4를 적용한다. 아래 발견 사항과 305/68/72 테스트 수는 이전 검토 당시의 기록이다. 당시 미커밋 수정은 기능 커밋 `476dc40`에 포함되었다.
-
-최종 별도 작업공간의 새 임시 DB에서 backend **373 passed**, E2E **89 passed**(재시도 없음), build·diff check 통과를 확인했다. 실행 명령·환경·로그와 한계는 [현재 구현 검증](transaction-input.md)에 있다. `transaction-input-ship.spec.ts`의 5개 테스트로 저장 후 대시보드 이동, 늦은 실패, 이탈·재진입 후 완료, 최근 조회 복구를 추가 검증했다.
-
-최종 계획 감사는 42개 중 DONE 38, CHANGED 2, PARTIAL 2(T5/F19: 실제 모바일 키보드·기기 safe-area·브라우저 자체 200% 확대)다. 30/30 경로 묶음의 테스트 연결 평가는 감사 상한 내 결과이며 줄 단위 커버리지가 아니다. 새 릴리스 작업공간의 독립 수동 브라우저 QA 패스를 실행했다는 의미는 아니다.
-
-## 최초 검토 범위
+## 범위
 
 - 브랜치: `mildsalmon/transaction-input`, 시작 HEAD `6543976`.
 - GitHub의 기본 브랜치 `main`을 fetch했다. PR은 아직 없다.
 - 비교 기준은 `origin/main`과 HEAD의 merge-base `d791f421891bb0d020a8b193794a95c1528cd6e5`다. 기준점 이후 main에 들어간 별도 변경은 이 기능 diff에 섞지 않았다.
 - 시작 diff: 44개 파일, +2,342 / −378줄. 전체 코드·테스트·문서 변경을 읽고 호출자와 기존 저장·조회·마이그레이션 경계를 확인했다.
 - Scope Check: CLEAN. 의도와 구현은 클릭 계정 선택, 마지막 저장 조합 하나, 메모, 초안 보존, 분할 입력, 제한 조회, 모바일 저장 접근성이다. 다른 시나리오 기능을 추가하지 않았다.
-- 최초 검토에서는 수정을 **미커밋 상태**로 남겼고 커밋·푸시·PR 작성을 하지 않았다. 현재 릴리스 포함 상태는 위 확인 기록을 따른다.
+- 이번 수정은 리뷰 당시 아래 파일에 **미커밋 상태**로 남겼다. 이후 WIP 체크포인트로 보존하고 최신 `main`을 통합했다.
 
 ## 발견 사항과 조치
 
@@ -76,7 +68,7 @@ Red Team 재시도에서 `frontend/src/views/TxnInput.tsx:101`이 저장 알림�
 
 모든 DB 테스트는 격리된 임시 DB를 사용했다. 이전 QA의 62개 통과 기록은 당시 결과이며, 이번 68개와 혼동하지 않는다.
 
-## 최초 Plan completion audit
+## Plan completion audit
 
 Plan: `docs/designs/transaction-input.md`, 검증 요구사항: `docs/designs/transaction-input-test-plan.md`.
 아래는 승인 문서의 구현 산출물을 묶어 추적한 결과다. 테스트 요구사항 37개 묶음의 각 세부 사례가 전부 실행됐다는 선언이나 줄 단위 커버리지 수치가 아니다.
@@ -114,6 +106,14 @@ Plan: `docs/designs/transaction-input.md`, 검증 요구사항: `docs/designs/tr
 - 추가 Red Team 첫 호출은 `You've hit your usage limit` 오류로 실패했다. 사용자의 재시도 요청 후 같은 에이전트가 정상 실행되어 현재 작업 트리와 미커밋 수정을 검토했다. 긴 아이템 알림 문제 1건을 재현했고 수정 확인까지 완료했다. 저장·실행취소 경쟁, 조회 응답 소유권, 분할 전환, 부채 채움, 출처와 오류 경계에서는 추가 결함을 확인하지 못했다. 이 경계 검토는 코드 분석이며 모든 경쟁 상황을 부하 테스트한 것은 아니다.
 - Codex 호스트 내부 실행이므로 스킬 지침에 따라 nested Codex CLI 패스를 생략했다. Claude 또는 외부 모델 검토는 수행하지 않았다.
 - `slop:diff`는 저장소에 스크립트가 없어 생략했다. PR이 없어 Greptile 댓글도 없다.
-- 최초 검토 당시 main VERSION은 **0.4.0.0**, 기능 브랜치는 **0.3.0.0**, 조회한 다음 patch 슬롯은 **0.4.1.0**이었다. 이는 당시 상태이며 현재 릴리스 버전 권고가 아니다. 이후 main v0.5.0.0 통합과 사용자 승인 v0.6.0.0 조정 및 최종 테스트를 완료했다.
+- 이 리뷰 뒤 `main`의 **0.5.0.0**까지 병합해 현금성 설정 마이그레이션을 v3, 거래 입력 마이그레이션을 v4로 순서화했다. 통합 트리에서 backend **373 passed**, frontend E2E **84 passed**, TypeScript·Vite build와 `git diff --check`를 통과했다. 최종 릴리스 버전은 ship 단계에서 조정한다.
+
+## Ship 최종화
+
+최종 ship 검토에서 일반 거래 payload 모양만으로 시스템 개시잔액 출처를 얻을 수 있던 우회, 라우트 재진입 중 동일 저장 요청의 중복 전송, 무제한 본문·필드·분개·금액을 추가로 발견해 수정했다. 일반 거래 repository는 시스템 계정을 항상 거부하고 개시잔액은 전용 경로만 사용한다. 동일한 처리 중 저장 Promise는 화면 생명주기 밖에서 공유하며, 통신 단절 뒤에는 승인 설계대로 자동 재제출 없이 거래 내역 확인을 안내한다.
+
+입력은 strict 정수와 안전 합계, 설명 2,000자, 메모 10,000자, 분개 100개, 본문 64KB로 제한한다. 본문 제한은 `Content-Length`를 속인 요청도 실제 바이트 수로 차단한다. E2E는 외부 폰트 CDN을 공통 fixture에서 대체하며 별도 서울 timezone context에도 같은 경계를 적용한다.
+
+수정 후 Red Team·적대적·testing 재검토에서 미해결 finding은 없다. 최종 결과는 backend **377 passed**, frontend E2E **90 passed**, TypeScript·Vite build와 `git diff --check` 통과다. 실제 iOS/Android 키보드·기기 safe-area·브라우저 자체 200% 확대는 기존과 같이 자동화 범위 밖이다.
 
 Prior learnings applied: `transaction-input-mobile-toast-layering`, `vite-api-route-mock-module-collision` (각 confidence 9/10, 2026-09-05). 이번에는 동명 계정 확인에 전체 경로가 필요한 이유를 `transaction-confirmation-needs-account-paths`로 기록했다.

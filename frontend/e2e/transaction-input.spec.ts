@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Route } from "@playwright/test";
+import { test, expect, type Page, type Route } from "./test";
 import AxeBuilder from "@axe-core/playwright";
 
 const accounts = [
@@ -163,7 +163,7 @@ test("failed refresh clears obsolete automatic pair and manual recovery stays sa
   await selectPair(page);await expect(save(page)).toBeEnabled();
 });
 
-test("responsive widths, long duplicate paths, reduced motion and split accessibility",async({page},testInfo)=>{
+test("responsive widths, long duplicate paths, reduced motion and split accessibility",async({page})=>{
   await start(page);
   const long="아주 긴 계정 이름이 같은 항목을 여러 그룹에서 사용하는 경우";
   const expanded=[...accounts,{...accounts[0],id:201,name:"회사 식비"},{...accounts[1],id:202,parent_id:201,name:long},{...accounts[1],id:203,name:long},{...accounts[2],id:204,name:"보관 자식이 있는 부모"},{...accounts[2],id:205,parent_id:204,archived:true,name:"숨은 자식"}];
@@ -178,7 +178,6 @@ test("responsive widths, long duplicate paths, reduced motion and split accessib
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`page ${width}`).toBe(true);
     expect(await page.locator("main").evaluate(e=>e.scrollWidth<=e.clientWidth),`main ${width}`).toBe(true);
     await expect(page.locator(".txn-selected").first()).toContainText(`회사 식비 > ${long}`);
-    if(width===1440||width===390) await page.screenshot({path:testInfo.outputPath(`input-${width}.png`)});
     if(width<=720) {
       await group(page).getByLabel("차변 계정 검색").focus();
       await group(page).getByLabel("차변 계정 검색").evaluate(e=>e.scrollIntoView({block:"center"}));

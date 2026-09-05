@@ -1,13 +1,13 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import { accountTree, type Account, type AccountType } from "../api";
+import { accountTree, postableAccountIds, type Account, type AccountType } from "../api";
 
 const TYPES: [AccountType, string][] = [["asset", "자산"], ["liability", "부채"], ["income", "수익"], ["expense", "비용"], ["equity", "자본"]];
 type Node = { key: string; name: string; account?: Account; children: Node[] };
 export function accountPickerModel(accounts: Account[]) {
   const ordered = accountTree(accounts);
   const byId = new Map(accounts.map(a => [a.id, a]));
-  const parents = new Set(accounts.map(a => a.parent_id));
-  const available = new Set(ordered.map(row => row.account).filter(a => !a.archived && !a.is_placeholder && !a.is_system && !parents.has(a.id)).map(a => a.id));
+  const postable = postableAccountIds(accounts);
+  const available = new Set(ordered.map(row => row.account).filter(a => !a.is_system && postable.has(a.id)).map(a => a.id));
   const roots: Node[] = TYPES.map(([key, name]) => ({ key, name, children: [] }));
   const nodes = new Map<string, Node>(roots.map(n => [n.key, n]));
   const paths = new Map<number, string>();

@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test, type APIRequestContext } from "./test";
 import AxeBuilder from "@axe-core/playwright";
 
 const API = (process.env.MONEYMAP_E2E_API_BASE ?? `http://127.0.0.1:${process.env.MONEYMAP_E2E_BACKEND_PORT ?? "8765"}/api`).replace(/\/+$/, "");
@@ -130,11 +130,9 @@ test("실제 API 예정 이체는 순자산을 유지하고 선택 계정의 현
   const deposit = await (await request.post(`${API}/accounts`, { data: { name: "현금골든 보증금", type: "asset" } })).json();
   const selected = await request.put(`${API}/accounts/${bank.id}/settings`, { data: { ...bank, include_in_cash: true } });
   expect(selected.ok()).toBeTruthy();
-  const all = await (await request.get(`${API}/accounts`)).json();
-  const equity = all.find((account: { is_system: boolean }) => account.is_system);
-  const opening = await request.post(`${API}/transactions`, { data: { date: "2026-01-31", description: "현금골든 시작", postings: [
-    { account_id: bank.id, amount: 100 }, { account_id: equity.id, amount: -100 },
-  ] } });
+  const opening = await request.post(`${API}/accounts/${bank.id}/opening-balance`, {
+    data: { date: "2026-01-31", amount: 100, state: "positive" },
+  });
   expect(opening.ok()).toBeTruthy();
   const openingId = (await opening.json()).id;
   try {

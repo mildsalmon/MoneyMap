@@ -2,7 +2,7 @@
  * What-if 핵심 flow E2E (D10) — 이 제품의 존재 이유를 브라우저로 왕복한다:
  * 온보딩 → 계정+개시잔액 → 반복 규칙 → 시나리오 fork·가설 편집 → 비교 차트.
  */
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 
 const API_BASE = (process.env.MONEYMAP_E2E_API_BASE
   ?? `http://127.0.0.1:${process.env.MONEYMAP_E2E_BACKEND_PORT ?? "8765"}/api`).replace(/\/+$/, "");

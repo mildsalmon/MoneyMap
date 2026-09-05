@@ -12,12 +12,14 @@ All notable changes to MoneyMap are documented in this file.
 ### Changed
 - Replace transaction type tabs and account dropdowns with fixed debit/credit columns; stack them on mobile with a sticky selection summary and bottom save action.
 - Migrate transaction provenance and normalized item keys with the existing backup/rollback workflow. Older ambiguous records require confirmation; rule-generated and opening-balance transactions are excluded from recall.
-- Keep new edits when a save finishes late, prevent duplicate pending submissions, and clear amount and memo only when the submitted draft is unchanged.
+- Keep new edits when a save finishes late, share an identical pending save across screen re-entry, and clear amount and memo only when the submitted draft is unchanged.
+- Create opening balances only through the dedicated account action while continuing to recognize existing opening-balance records.
 
 ### Fixed
 - Keep save confirmation and undo visible above the mobile save bar, including very long item names in basic and split entries.
 - Distinguish identically named accounts with their full paths in older-record confirmation and split entries, and keep memo text consistent with the rest of the form.
 - Preserve explicit account choices during delayed lookups, clear stale automatic choices after lookup failures, and retain actionable feedback when undo fails.
+- Reject system-account postings, boolean amounts, unsafe totals, excessive split rows, and oversized descriptions, memos, or transaction requests before they can reach the ledger.
 
 ## [0.5.0.0] - 2026-09-05
 

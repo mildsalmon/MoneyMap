@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "@playwright/test";
+import { expect, test, type Page, type Route } from "./test";
 
 const accounts = [
   { id: 101, name: "식비", type: "expense" },
@@ -82,6 +82,50 @@ test("an old save completing after remount refreshes recent inputs without repla
   await expect(memo(page)).toHaveValue("재진입 후 작성한 메모");
   await expect(memo(page)).toBeFocused();
   await expect(save(page)).toBeEnabled();
+});
+
+test("an identical save in flight is shared across route remounts and a later save remains intentional", async ({ page }) => {
+  let held: Route | undefined;
+  let posts = 0;
+  await page.route("**/api/transactions", route => {
+    if (route.request().method() !== "POST") return route.continue();
+    posts++;
+    if (posts === 1) held = route;
+    else return route.fulfill({ status: 201, json: { id: 701 } });
+  });
+  await fillDraft(page);
+  await dashboardSave(page).click();
+  await expect.poll(() => !!held).toBe(true);
+
+  await page.locator(".side nav").getByRole("button", { name: "거래 내역", exact: true }).click();
+  await page.locator(".side nav").getByRole("button", { name: "거래 입력", exact: true }).click();
+  await fillDraft(page);
+  const unexpectedDuplicate = page.waitForRequest(
+    request => request.method() === "POST" && new URL(request.url()).pathname === "/api/transactions",
+    { timeout: 750 },
+  ).then(() => true, () => false);
+  await save(page).click();
+  await expect(page.locator(".txn-savebar button[type=submit]")).toHaveText("저장 중…");
+  expect(await unexpectedDuplicate).toBe(false);
+  expect(posts).toBe(1);
+
+  await held!.fulfill({ status: 201, json: { id: 700 } });
+  await expect(page.locator(".toast")).toContainText("이전 거래 · ₩123 저장됨");
+  await expect(amount(page)).toHaveValue("");
+
+  await item(page).fill("새 의도");
+  await fillDraft(page);
+  const laterRequest = page.waitForRequest(
+    request => request.method() === "POST" && new URL(request.url()).pathname === "/api/transactions",
+  );
+  await save(page).click();
+  expect((await laterRequest).postDataJSON()).toMatchObject({
+    description: "이전 거래",
+    memo: "제출 메모",
+    postings: [{ account_id: 101, amount: 123 }, { account_id: 102, amount: -123 }],
+  });
+  await expect.poll(() => posts).toBe(2);
+  await expect(amount(page)).toHaveValue("");
 });
 
 test("a late failed save identifies the submission and preserves newer amount, memo, and focus", async ({ page }) => {

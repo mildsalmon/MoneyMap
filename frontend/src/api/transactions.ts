@@ -1,6 +1,38 @@
 import { req } from "./core";
 import type { Txn, OpeningBalanceRecord, LastPair, RecentInput } from "./types";
 
+type CreateTransactionBody = {
+  date: string;
+  description?: string;
+  memo?: string;
+  postings: { account_id: number; amount: number }[];
+};
+
+const pendingCreates = new Map<string, Promise<Txn>>();
+
+function createKey(body: CreateTransactionBody) {
+  return JSON.stringify([
+    body.date,
+    body.description ?? "",
+    body.memo ?? "",
+    body.postings.map(posting => [posting.account_id, posting.amount]),
+  ]);
+}
+
+function createTransaction(body: CreateTransactionBody) {
+  const key = createKey(body);
+  const existing = pendingCreates.get(key);
+  if (existing) return existing;
+  const pending = req<Txn>("/transactions", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }).finally(() => {
+    if (pendingCreates.get(key) === pending) pendingCreates.delete(key);
+  });
+  pendingCreates.set(key, pending);
+  return pending;
+}
+
 export const transactionsApi = {
   lastPair: (item: string, signal?: AbortSignal) => req<LastPair>(`/transaction-input/last-pair?item=${encodeURIComponent(item)}`, { signal }),
   recentInputs: (signal?: AbortSignal) => req<RecentInput[]>("/transaction-input/recent?limit=5", { signal }),
@@ -13,12 +45,7 @@ export const transactionsApi = {
     method: "POST",
     body: JSON.stringify(b),
   }),
-  createTransaction: (b: {
-    date: string;
-    description?: string;
-    memo?: string;
-    postings: { account_id: number; amount: number }[];
-  }) => req<Txn>("/transactions", { method: "POST", body: JSON.stringify(b) }),
+  createTransaction,
   deleteTransaction: (id: number) => req<{ deleted: number }>(`/transactions/${id}`, { method: "DELETE" }),
 
 };

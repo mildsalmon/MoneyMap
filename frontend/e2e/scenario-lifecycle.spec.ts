@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { blockExternalStyles, expect, test, type APIRequestContext } from "./test";
 import AxeBuilder from "@axe-core/playwright";
 
 const API = (
@@ -538,6 +538,7 @@ test("서울 날짜와 시작 기준일을 차트 표에서 그대로 표시한�
   const scenario = await create(request, "서울 날짜 경계");
   const context = await browser.newContext({ timezoneId: "Asia/Seoul" });
   const page = await context.newPage();
+  await blockExternalStyles(page);
   await page.goto(
     `http://127.0.0.1:${process.env.MONEYMAP_E2E_FRONTEND_PORT ?? "5173"}/scenarios/${scenario.id}`,
   );

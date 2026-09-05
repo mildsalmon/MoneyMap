@@ -1,4 +1,4 @@
-"""Upgrade a real v2 ledger, with fault injection at every new schema phase."""
+"""Upgrade a released v3 ledger to v4, with fault injection at every phase."""
 import sqlite3
 import unicodedata
 from pathlib import Path
@@ -49,7 +49,7 @@ def test_backfill_exact_key_origins_legacy_confirmation_and_blank_memo(v3):
     assert v3.execute('PRAGMA foreign_key_check').fetchall() == []
 
 
-@pytest.mark.parametrize('phase',['origin-column','memo-column','backfill','item-index','recent-index'])
+@pytest.mark.parametrize('phase',['item-column','origin-column','memo-column','backfill','item-index','recent-index'])
 def test_migration_four_failure_restores_schema_data_and_version_then_retries(v3, phase):
     before = snapshot(v3)
     # Authorizer cannot see ALTER's column, so fail by its ordered invocation.
@@ -58,7 +58,9 @@ def test_migration_four_failure_restores_schema_data_and_version_then_retries(v3
         nonlocal alter_count
         if action == sqlite3.SQLITE_ALTER_TABLE:
             alter_count += 1
-            if (phase=='origin-column' and alter_count==2) or (phase=='memo-column' and alter_count==3):
+            if ((phase=='item-column' and alter_count==1)
+                    or (phase=='origin-column' and alter_count==2)
+                    or (phase=='memo-column' and alter_count==3)):
                 return sqlite3.SQLITE_DENY
         if action == sqlite3.SQLITE_UPDATE and table=='transactions' and column=='entry_origin' and phase=='backfill':
             return sqlite3.SQLITE_DENY

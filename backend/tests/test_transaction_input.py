@@ -16,6 +16,7 @@ from moneymap.api import create_app
 from moneymap.domain import Account, AccountType, Money, Posting, Transaction
 from moneymap.domain.errors import DomainValidationError
 from moneymap.domain.transaction_input import normalize_item_key, CandidateLeg, PairCandidate, validate_latest_pair
+from moneymap.routers.transactions import MAX_DESCRIPTION_LENGTH, MAX_MEMO_LENGTH, MAX_TRANSACTION_TOTAL
 
 
 @pytest.fixture
@@ -145,6 +146,17 @@ def test_save_rechecks_current_accounts_without_partial_write(ledger, kind):
     assert not conn.in_transaction
 
 
+def test_general_save_cannot_infer_system_privilege_from_opening_shape(ledger):
+    conn, ids = ledger
+    opening = conn.execute("SELECT id FROM accounts WHERE is_system=1").fetchone()[0]
+    with pytest.raises(DomainValidationError) as error:
+        SqliteTransactionRepository(conn).save(transaction([ids[2], opening]))
+    assert error.value.code == "account_unavailable"
+    assert error.value.context == {"account_id": opening}
+    assert conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == 0
+    assert SqliteTransactionRepository(conn).find_opening_balances() == []
+
+
 @pytest.mark.parametrize("stage", ["transaction", "posting", "confirmation"])
 def test_failure_rolls_back_memo_and_metadata(ledger, stage):
     conn, ids = ledger
@@ -166,8 +178,7 @@ def test_origins_exclude_opening_rule_after_deletion_and_scenario(ledger):
     conn, ids = ledger
     repo = SqliteTransactionRepository(conn)
     saved = repo.save(transaction(ids))
-    opening = conn.execute("SELECT id FROM accounts WHERE is_system=1").fetchone()[0]
-    system = repo.save(transaction([ids[2], opening]))
+    system = repo.create_opening_balance(ids[2], dt.date(2026, 9, 5), 9000, "positive")
     with conn:
         rid = conn.execute("INSERT INTO recurring_rules(scenario_id,from_account_id,to_account_id,amount,schedule,start_date) VALUES(1,?,?,9000,'monthly:1','2026-09-01')", (ids[1], ids[0])).lastrowid
     generated = repo.save(transaction(ids, source_rule_id=rid))
@@ -255,6 +266,72 @@ def test_http_contract_origin_injection_and_memo(tmp_path):
         assert client.get("/api/transactions").json()[0]["memo"] == payload["memo"]
         assert client.get("/api/transaction-input/recent").json()[0]["id"] == response.json()["id"]
         assert client.post("/api/transactions", json={k: v for k, v in payload.items() if k != "memo"}).json()["memo"] == ""
+
+
+def test_http_rejects_system_account_even_when_payload_looks_like_opening_balance(tmp_path):
+    with TestClient(create_app(str(tmp_path / "system-api.db"))) as client:
+        asset = client.post("/api/accounts", json={"name": "현금", "type": "asset"}).json()["id"]
+        opening = next(account["id"] for account in client.get("/api/accounts").json() if account["is_system"])
+        response = client.post("/api/transactions", json={
+            "date": "2026-09-05",
+            "description": "개시잔액처럼 보이는 일반 거래",
+            "postings": [
+                {"account_id": asset, "amount": 1000},
+                {"account_id": opening, "amount": -1000},
+            ],
+        })
+        assert response.status_code == 400
+        assert response.json()["detail"]["code"] == "account_unavailable"
+        assert client.get("/api/transactions").json() == []
+        assert client.get("/api/opening-balances").json() == []
+
+
+def test_http_transaction_input_limits_bound_storage_and_totals(tmp_path):
+    with TestClient(create_app(str(tmp_path / "limits-api.db"))) as client:
+        ids = [client.post("/api/accounts", json={"name": name, "type": kind}).json()["id"]
+               for name, kind in [("비용", "expense"), ("현금", "asset")]]
+        base = {
+            "date": "2026-09-05",
+            "description": "경계",
+            "memo": "",
+            "postings": [
+                {"account_id": ids[0], "amount": 1},
+                {"account_id": ids[1], "amount": -1},
+            ],
+        }
+        assert client.post("/api/transactions", json={**base, "description": "가" * MAX_DESCRIPTION_LENGTH}).status_code == 201
+        assert client.post("/api/transactions", json={**base, "memo": "나" * MAX_MEMO_LENGTH}).status_code == 201
+        assert client.post("/api/transactions", json={**base, "description": "가" * (MAX_DESCRIPTION_LENGTH + 1)}).status_code == 422
+        assert client.post("/api/transactions", json={**base, "memo": "나" * (MAX_MEMO_LENGTH + 1)}).status_code == 422
+        assert client.post("/api/transactions", json={**base, "postings": base["postings"] * 51}).status_code == 422
+        assert client.post("/api/transactions", json={**base, "postings": [
+            {"account_id": ids[0], "amount": MAX_TRANSACTION_TOTAL + 1},
+            {"account_id": ids[1], "amount": -(MAX_TRANSACTION_TOTAL + 1)},
+        ]}).status_code == 422
+        assert client.post("/api/transactions", json={**base, "postings": [
+            {"account_id": ids[0], "amount": MAX_TRANSACTION_TOTAL},
+            {"account_id": ids[0], "amount": 1},
+            {"account_id": ids[1], "amount": -MAX_TRANSACTION_TOTAL},
+            {"account_id": ids[1], "amount": -1},
+        ]}).status_code == 422
+        boolean_payloads = [
+            [{"account_id": True, "amount": 1}, {"account_id": ids[1], "amount": -1}],
+            [{"account_id": ids[0], "amount": True}, {"account_id": ids[1], "amount": -1}],
+        ]
+        for postings in boolean_payloads:
+            assert client.post(
+                "/api/transactions", json={**base, "postings": postings}
+            ).status_code == 422
+        oversized = client.post("/api/transactions", json={**base, "memo": "x" * 70_000})
+        assert oversized.status_code == 413
+        assert oversized.json()["detail"]["code"] == "request_too_large"
+        raw = b'{"memo":"' + b"x" * 70_000 + b'"}'
+        streamed = client.post(
+            "/api/transactions",
+            content=raw,
+            headers={"content-type": "application/json", "content-length": "0"},
+        )
+        assert streamed.status_code == 413
 
 
 def test_large_excluded_history_uses_partial_indexes_and_bounded_queries(ledger):
