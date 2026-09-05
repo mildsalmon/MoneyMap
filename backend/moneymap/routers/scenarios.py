@@ -7,9 +7,11 @@ from fastapi import APIRouter, Depends, Header, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from moneymap.app_services import scenarios as service
+from moneymap.app_services import assumptions
+from moneymap.adapters.sqlite.transactions import ScenarioTransactionWriter
 from moneymap.adapters.sqlite.uow import SqliteUnitOfWork
 from moneymap.dependencies import repos, request_connection
-from moneymap.domain import Money, RecurringRule, Schedule
+from moneymap.domain import Money, RecurringRule, Schedule, Posting, Transaction
 from moneymap.domain.projection import EffectiveRuleResolver
 
 router = APIRouter(dependencies=[Depends(request_connection)])
@@ -47,6 +49,38 @@ class EditIn(VersionIn):
     name: str = Field(min_length=1)
     description: str = ""
     _nonblank = field_validator("name")(ScenarioIn.nonblank.__func__)
+
+
+class DuplicateIn(ScenarioIn, VersionIn):
+    pass
+
+
+class PlannedPostingIn(StrictBody):
+    account_id: int
+    amount: int = Field(strict=True)
+    currency: str = Field(default="KRW", min_length=3, max_length=3)
+
+
+class PlannedIn(StrictBody):
+    date: datetime.date
+    description: str = ""
+    postings: list[PlannedPostingIn] = Field(min_length=2)
+    scenario_version: int = Field(gt=0)
+
+    def transaction(self, sid, tid=None):
+        return Transaction(
+            id=tid,
+            scenario_id=sid,
+            date=self.date,
+            description=self.description,
+            postings=[
+                Posting(
+                    account_id=p.account_id,
+                    amount=Money(amount=p.amount, currency=p.currency),
+                )
+                for p in self.postings
+            ],
+        )
 
 
 class RuleIn(StrictBody):
@@ -185,3 +219,31 @@ def legacy(sid: int, request: Request):
 @router.post("/api/scenarios/{sid}/legacy-rule-resolution")
 def resolve(sid: int, body: ResolutionIn, request: Request):
     return service.resolve_legacy(sid, body, uow(request))
+
+
+@router.post("/api/scenarios/{sid}/duplicate", status_code=201)
+def duplicate(sid: int, body: DuplicateIn, request: Request):
+    return assumptions.duplicate_scenario(sid, body, uow(request))
+
+
+@router.get("/api/scenarios/{sid}/planned-transactions")
+def planned(sid: int, request: Request):
+    service.get_scenario(repos(request)["scenarios"], sid).protect_actual()
+    return ScenarioTransactionWriter(request.state.conn).list_owned(sid)
+
+
+@router.post("/api/scenarios/{sid}/planned-transactions", status_code=201)
+def add_planned(sid: int, body: PlannedIn, request: Request):
+    return assumptions.mutate_planned(sid, None, body, None, uow(request))
+
+
+@router.put("/api/scenarios/{sid}/planned-transactions/{tid}")
+def edit_planned(sid: int, tid: int, body: PlannedIn, request: Request):
+    return assumptions.mutate_planned(sid, tid, body, None, uow(request))
+
+
+@router.delete("/api/scenarios/{sid}/planned-transactions/{tid}")
+def delete_planned(
+    sid: int, tid: int, request: Request, if_match: str | None = Header(default=None)
+):
+    return assumptions.mutate_planned(sid, tid, None, if_match, uow(request))

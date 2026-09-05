@@ -130,3 +130,10 @@ export interface ResolutionBody {
   rule_decisions: { legacy_rule_id: number; action: "discard_snapshot" | "keep_as_scenario" }[];
   transaction_decisions: { transaction_id: number; action: "move" | "delete"; date?: string }[];
 }
+
+export type PlannedBody = {
+  date: string;
+  description: string;
+  postings: { account_id: number; amount: number; currency: string }[];
+  scenario_version: number;
+};

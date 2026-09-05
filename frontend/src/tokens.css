@@ -454,3 +454,11 @@ textarea:focus-visible,
 }
 
 .scenario-controls button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+.planned-form { width: 100%; }
+.planned-form fieldset { width: 100%; min-width: 0; }
+.planned-form .planned-posting { display: grid; grid-template-columns: minmax(160px, 1fr) minmax(120px, 2fr); gap: 8px 16px; align-items: center; border-top: 1px solid var(--line); padding-top: 16px; }
+.planned-posting .btn { grid-column: 1 / -1; justify-self: end; }
+@media (max-width: 480px) {
+  .planned-form .planned-posting { grid-template-columns: 1fr; }
+}
