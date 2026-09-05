@@ -48,7 +48,7 @@ test("생성부터 추가 가정·정보·보관·복원·삭제까지", async (
     page.getByRole("button", { name: "6개월", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: "현금성 잔액" })).toHaveCount(
-    0,
+    1,
   );
   await page.getByRole("tab", { name: "개요", exact: true }).focus();
   await page.keyboard.press("ArrowRight");

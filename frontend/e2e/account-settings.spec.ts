@@ -211,8 +211,8 @@ test("보관 계정은 복원만 제공하고 좁은 화면의 설정 패널은 
   expect(await panel.locator("input:not([type=checkbox]), select, button").evaluateAll(
     (elements) => elements.every((element) => element.getBoundingClientRect().height >= 44),
   )).toBe(true);
-  expect(await panel.locator(".settings-overdraft").evaluate(
-    (element) => element.getBoundingClientRect().height >= 44,
+  expect(await panel.locator(".settings-overdraft").evaluateAll(
+    (elements) => elements.every((element) => element.getBoundingClientRect().height >= 44),
   )).toBe(true);
 
   await page.getByLabel(`${child.name} 이름`).fill(duplicate.name);

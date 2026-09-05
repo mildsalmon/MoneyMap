@@ -15,6 +15,7 @@ export const accountsApi = {
     name: string;
     parent_id: number | null;
     is_overdraft: boolean;
+    include_in_cash: boolean;
     version: number;
   }) => req<AccountSettingsResult>(`/accounts/${id}/settings`, {
     method: "PUT",
