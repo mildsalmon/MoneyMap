@@ -604,3 +604,122 @@ for (const action of ["update", "archive", "restore"] as const) {
     }
   });
 }
+
+for (const mode of ["create", "edit"] as const) {
+  test(`규칙 ${mode} 저장 대기 중에는 입력과 편집 전환을 잠근다`, async ({ page, request }) => {
+    const scenario = await create(request, `저장 중 보호 ${mode}`);
+    const cash = await (await request.post(`${API}/accounts`, { data: { name: `저장보호-은행-${mode}`, type: "asset" } })).json();
+    const income = await (await request.post(`${API}/accounts`, { data: { name: `저장보호-수입-${mode}`, type: "income" } })).json();
+    const ruleBody = { description: "저장 대기 규칙", from_account_id: income.id, to_account_id: cash.id, amount: 1000, schedule: "monthly:25", start_date: "2026-02-01", scenario_version: 1 };
+    let rid: number | undefined;
+    if (mode === "edit") {
+      const result = await request.post(`${API}/scenarios/${scenario.id}/rules`, { data: ruleBody });
+      expect(result.ok()).toBeTruthy();
+      rid = (await result.json()).rule.id;
+    }
+    await page.goto(`/scenarios/${scenario.id}/assumptions`);
+    if (mode === "edit") await page.getByRole("row").filter({ hasText: ruleBody.description }).getByRole("button", { name: "수정", exact: true }).click();
+    const form = page.getByRole("form", { name: mode === "edit" ? `${ruleBody.description} 수정` : "시나리오 규칙 추가", exact: true });
+    await form.getByLabel("내역", { exact: true }).fill("저장할 규칙 값");
+    await form.getByLabel("어디서 (from)").selectOption(String(income.id));
+    await form.getByLabel("어디로 (to)").selectOption(String(cash.id));
+    await form.getByLabel("금액/회").fill("2300");
+    await form.getByLabel("규칙 시작일").fill("2026-02-01");
+    const url = `${API}/scenarios/${scenario.id}/rules${rid ? `/${rid}` : ""}`;
+    let release: () => void = () => {};
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let started: () => void = () => {};
+    const waiting = new Promise<void>(resolve => { started = resolve; });
+    await page.route(url, async route => {
+      const response = await route.fetch();
+      started();
+      await held;
+      await route.fulfill({ response });
+    });
+    try {
+      await form.getByRole("button", { name: mode === "edit" ? "규칙 저장" : "규칙 추가", exact: true }).click();
+      await waiting;
+      for (const control of await form.locator("input, select, button").all()) await expect(control).toBeDisabled();
+      if (mode === "edit") {
+        await expect(page.getByRole("row").filter({ hasText: ruleBody.description }).getByRole("button", { name: "수정", exact: true })).toBeDisabled();
+      }
+      release();
+      await expect(page.getByRole("row").filter({ hasText: "저장할 규칙 값" })).toContainText("₩2,300");
+      const next = page.getByRole("form", { name: "시나리오 규칙 추가", exact: true });
+      await expect(next.getByLabel("내역", { exact: true })).toBeEnabled();
+      await expect(next.getByLabel("내역", { exact: true })).toHaveValue("");
+      const effective = await (await request.get(`${API}/scenarios/${scenario.id}/effective-rules`)).json();
+      expect(effective.filter((entry: { origin: string }) => entry.origin === "scenario")).toHaveLength(1);
+      expect(effective.find((entry: { origin: string }) => entry.origin === "scenario").rule).toMatchObject({ description: "저장할 규칙 값", amount: { amount: 2300 } });
+    } finally { release(); }
+  });
+}
+
+test("늦은 시나리오 생성 응답은 거래 입력의 URL과 초안을 유지한다", async ({ page, request }) => {
+  await page.goto("/scenarios");
+  await page.getByLabel("이름", { exact: true }).fill("늦게 생성된 계획");
+  let release: () => void = () => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let started: () => void = () => {};
+  const waiting = new Promise<void>(resolve => { started = resolve; });
+  let sid = 0;
+  await page.route(`${API}/scenarios`, async route => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch();
+    sid = (await response.json()).scenario.id;
+    started();
+    await held;
+    await route.fulfill({ response });
+  });
+  try {
+    await page.getByRole("button", { name: "+ 새 시나리오" }).click();
+    await waiting;
+    await page.locator(".side nav").getByRole("button", { name: "거래 입력", exact: true }).click();
+    await page.getByLabel("금액", { exact: true }).fill("9876");
+    await page.getByLabel("내역 (선택)", { exact: true }).fill("잃으면 안 되는 거래 초안");
+    const completed = page.waitForEvent("requestfinished", { predicate: pending => pending.url() === `${API}/scenarios` && pending.method() === "POST" });
+    release();
+    await completed;
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(page).toHaveURL(/\/transactions\/new$/);
+    await expect(page.getByLabel("금액", { exact: true })).toHaveValue("9,876");
+    await expect(page.getByLabel("내역 (선택)", { exact: true })).toHaveValue("잃으면 안 되는 거래 초안");
+    expect((await request.get(`${API}/scenarios/${sid}`)).status()).toBe(200);
+  } finally { release(); }
+});
+
+test("생성 중 보관함을 거쳐 재방문하면 이전 응답이 새 목록 초안을 건드리지 않는다", async ({ page, request }) => {
+  await page.goto("/scenarios");
+  await page.getByLabel("이름", { exact: true }).fill("이전 목록에서 만든 계획");
+  let release: () => void = () => {};
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let started: () => void = () => {};
+  const waiting = new Promise<void>(resolve => { started = resolve; });
+  let sid = 0;
+  await page.route(`${API}/scenarios`, async route => {
+    if (route.request().method() !== "POST") return route.continue();
+    const response = await route.fetch();
+    sid = (await response.json()).scenario.id;
+    started();
+    await held;
+    await route.fulfill({ response });
+  });
+  try {
+    await page.getByRole("button", { name: "+ 새 시나리오" }).click();
+    await waiting;
+    for (const control of await page.locator(".scenario-create input").all()) await expect(control).toBeDisabled();
+    await page.getByRole("link", { name: "보관함", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "시나리오 보관함", exact: true })).toBeVisible();
+    await page.getByRole("link", { name: "활성 시나리오", exact: true }).click();
+    await page.getByLabel("이름", { exact: true }).fill("새 방문의 보존할 초안");
+    await expect(page.getByRole("button", { name: "+ 새 시나리오" })).toBeEnabled();
+    const completed = page.waitForEvent("requestfinished", { predicate: pending => pending.url() === `${API}/scenarios` && pending.method() === "POST" });
+    release();
+    await completed;
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(page).toHaveURL(/\/scenarios$/);
+    await expect(page.getByLabel("이름", { exact: true })).toHaveValue("새 방문의 보존할 초안");
+    await expect(page.getByRole("button", { name: "+ 새 시나리오" })).toBeEnabled();
+    expect((await request.get(`${API}/scenarios/${sid}`)).status()).toBe(200);
+  } finally { release(); }
+});

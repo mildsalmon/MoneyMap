@@ -18,6 +18,8 @@ function RuleEditor({
   onSaved,
   onRefresh,
   cancel,
+  busy,
+  setBusy,
 }: {
   scenario: Scenario;
   rule?: Rule;
@@ -25,6 +27,8 @@ function RuleEditor({
   onSaved: () => void;
   onRefresh: () => void;
   cancel?: () => void;
+  busy: boolean;
+  setBusy: (value: boolean) => void;
 }) {
   const [body, setBody] = useState<RuleBody>({
     description: rule?.description ?? "",
@@ -36,7 +40,6 @@ function RuleEditor({
     end_date: rule?.end_date ?? null,
   });
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
   const saveButton = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!busy && error) saveButton.current?.focus();
@@ -70,6 +73,7 @@ function RuleEditor({
       <div className="field">
         <label htmlFor={`${prefix}-description`}>내역</label>
         <input
+          disabled={busy}
           id={`${prefix}-description`}
           value={body.description}
           onChange={(e) => setBody({ ...body, description: e.target.value })}
@@ -81,6 +85,7 @@ function RuleEditor({
             {index === 0 ? "어디서 (from)" : "어디로 (to)"}
           </label>
           <select
+            disabled={busy}
             id={`${prefix}-${field}`}
             required
             value={body[field] || ""}
@@ -102,6 +107,7 @@ function RuleEditor({
       <div className="field">
         <label htmlFor={`${prefix}-amount`}>금액/회</label>
         <input
+          disabled={busy}
           id={`${prefix}-amount`}
           type="number"
           min={1}
@@ -113,6 +119,7 @@ function RuleEditor({
       <div className="field">
         <label htmlFor={`${prefix}-schedule`}>일정</label>
         <input
+          disabled={busy}
           id={`${prefix}-schedule`}
           required
           value={body.schedule}
@@ -124,6 +131,7 @@ function RuleEditor({
       <div className="field">
         <label htmlFor={`${prefix}-start`}>규칙 시작일</label>
         <input
+          disabled={busy}
           id={`${prefix}-start`}
           type="date"
           required
@@ -134,6 +142,7 @@ function RuleEditor({
       <div className="field">
         <label htmlFor={`${prefix}-end`}>규칙 종료일</label>
         <input
+          disabled={busy}
           id={`${prefix}-end`}
           type="date"
           value={body.end_date ?? ""}
@@ -146,7 +155,7 @@ function RuleEditor({
         {rule ? "규칙 저장" : "규칙 추가"}
       </button>
       {cancel && (
-        <button type="button" className="btn secondary" onClick={cancel}>
+        <button type="button" className="btn secondary" disabled={busy} onClick={cancel}>
           취소
         </button>
       )}
@@ -217,6 +226,7 @@ export function ScenarioRules({
                     <>
                       <button
                         className="btn secondary"
+                        disabled={busy}
                         onClick={() => setEditing(rule)}
                       >
                         수정
@@ -271,6 +281,8 @@ export function ScenarioRules({
         <RuleEditor
           key={editing?.id ?? "new"}
           scenario={scenario}
+          busy={busy}
+          setBusy={setBusy}
           rule={editing}
           accounts={accounts.data}
           onRefresh={onChanged}

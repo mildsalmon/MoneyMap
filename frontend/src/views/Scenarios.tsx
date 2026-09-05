@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, chartToggles } from "../api";
 import { todayIso } from "../format";
@@ -22,6 +22,13 @@ export function Scenarios({
   const [error, setError] = useState("");
   const [checked, setChecked] = useState<number[]>(chartToggles.get());
   const heading = useRef<HTMLHeadingElement>(null);
+  const visit = useMemo(() => ({ active: false }), [archived]);
+  useEffect(() => {
+    visit.active = true;
+    setBusy(false);
+    setError("");
+    return () => { visit.active = false; };
+  }, [visit]);
   useEffect(() => {
     heading.current?.focus();
   }, [archived]);
@@ -44,14 +51,15 @@ export function Scenarios({
         description,
         fork_date: forkDate,
       });
-      chartToggles.set([...checked, scenario.id]);
+      if (!visit.active) return;
+      chartToggles.set([...chartToggles.get(), scenario.id]);
       refresh();
       showToast("시나리오를 만들었습니다");
       navigate(`/scenarios/${scenario.id}`);
     } catch (e) {
-      setError((e as Error).message);
+      if (visit.active) setError((e as Error).message);
     } finally {
-      setBusy(false);
+      if (visit.active) setBusy(false);
     }
   };
   return (
@@ -75,6 +83,7 @@ export function Scenarios({
           <div className="field">
             <label htmlFor="scenario-name">이름</label>
             <input
+              disabled={busy}
               id="scenario-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -84,6 +93,7 @@ export function Scenarios({
           <div className="field">
             <label htmlFor="scenario-description">설명</label>
             <input
+              disabled={busy}
               id="scenario-description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -92,6 +102,7 @@ export function Scenarios({
           <div className="field">
             <label htmlFor="scenario-fork-date">시작 기준일</label>
             <input
+              disabled={busy}
               id="scenario-fork-date"
               type="date"
               max={todayIso()}
