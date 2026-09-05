@@ -1,9 +1,39 @@
 import { req, reqWithHeaders } from "./core";
-import type { Scenario, Rule, RuleBody, EffectiveRule, Projection, DeletionImpact, LegacyResolution, ResolutionBody } from "./types";
+import type { Scenario, Txn, PlannedBody, Rule, RuleBody, EffectiveRule, Projection, DeletionImpact, LegacyResolution, ResolutionBody } from "./types";
 
 const mutation = (method: string, body: unknown) => ({ method, body: JSON.stringify(body) });
 export const scenarioEtag = (id: number, version: number) => `"scenario-${id}-v${version}"`;
 export const scenariosApi = {
+  duplicateScenario: (
+    id: number,
+    body: {
+      name: string;
+      description: string;
+      fork_date: string;
+      version: number;
+    },
+  ) =>
+    req<{
+      scenario: Scenario;
+      copied: { rules: number; planned_transactions: number };
+    }>(`/scenarios/${id}/duplicate`, mutation("POST", body)),
+  plannedTransactions: (id: number, signal?: AbortSignal) =>
+    req<Txn[]>(`/scenarios/${id}/planned-transactions`, { signal }),
+  createPlanned: (id: number, body: PlannedBody) =>
+    req<{ transaction: Txn; scenario_version: number }>(
+      `/scenarios/${id}/planned-transactions`,
+      mutation("POST", body),
+    ),
+  updatePlanned: (id: number, tid: number, body: PlannedBody) =>
+    req<{ transaction: Txn; scenario_version: number }>(
+      `/scenarios/${id}/planned-transactions/${tid}`,
+      mutation("PUT", body),
+    ),
+  deletePlanned: (id: number, tid: number, version: number) =>
+    req<{ deleted: number; scenario_version: number }>(
+      `/scenarios/${id}/planned-transactions/${tid}`,
+      { method: "DELETE", headers: { "If-Match": scenarioEtag(id, version) } },
+    ),
   scenarios: (status: "active" | "archived" = "active", signal?: AbortSignal) => req<Scenario[]>(`/scenarios?status=${status}`, { signal }),
   scenario: (id: number, signal?: AbortSignal) => req<Scenario>(`/scenarios/${id}`, { signal }),
   createScenario: (body: { name: string; description: string; fork_date: string }) => req<{ scenario: Scenario; effective_actual_rules: number }>("/scenarios", mutation("POST", body)),

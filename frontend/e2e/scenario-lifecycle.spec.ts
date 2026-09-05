@@ -62,7 +62,7 @@ test("생성부터 추가 가정·정보·보관·복원·삭제까지", async (
   await form.getByLabel("금액/회").fill("1000");
   await form.getByLabel("규칙 시작일").fill("2026-02-01");
   await form.getByRole("button", { name: "규칙 추가", exact: true }).click();
-  await expect(page.locator("tbody")).toContainText("추가 월급");
+  await expect(page.getByRole("table").filter({ has: page.getByRole("columnheader", { name: "규칙", exact: true }) })).toContainText("추가 월급");
   await page.getByRole("tab", { name: "개요", exact: true }).click();
   await expect(page.locator(".scenario-summary")).toContainText("+₩6,000");
   await page.getByRole("button", { name: "3개월", exact: true }).click();

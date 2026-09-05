@@ -8,6 +8,8 @@ import { ScenarioRules } from "./ScenarioRules";
 import { LegacyResolution } from "./LegacyResolution";
 import { DeleteScenarioDialog } from "./DeleteScenarioDialog";
 
+import { DuplicateScenario, PlannedTransactions } from "./ScenarioAssumptions";
+
 const tabs = [
   { path: "", label: "개요" },
   { path: "assumptions", label: "가정" },
@@ -35,7 +37,9 @@ function Information({
   const mounted = useRef(false);
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; };
+    return () => {
+      mounted.current = false;
+    };
   }, []);
   useEffect(() => {
     if (!busy && error) saveButton.current?.focus();
@@ -94,7 +98,7 @@ function Information({
           <input
             id="detail-name"
             value={name}
-            disabled={readonly}
+            disabled={readonly || busy}
             onChange={(e) => setName(e.target.value)}
             required
           />
@@ -104,7 +108,7 @@ function Information({
           <textarea
             id="detail-description"
             value={description}
-            disabled={readonly}
+            disabled={readonly || busy}
             onChange={(e) => setDescription(e.target.value)}
           />
         </div>
@@ -138,6 +142,12 @@ function Information({
           </button>
         )}
       </div>
+      <DuplicateScenario
+        scenario={scenario}
+        onChanged={onChanged}
+        busy={busy}
+        setBusy={setBusy}
+      />
       {deleting && (
         <DeleteScenarioDialog
           scenario={scenario}
@@ -170,16 +180,13 @@ export function ScenarioDetail({ gen, refresh, showToast }: ViewProps) {
   const metadataRequest = useRef<AbortController | null>(null);
   // Each visit owns its callbacks, including A → B → A history navigation.
   const routeLifetime = useMemo(() => ({ active: false }), [sid]);
-  useEffect(
-    () => {
-      routeLifetime.active = true;
-      return () => {
-        routeLifetime.active = false;
-        metadataRequest.current?.abort();
-      };
-    },
-    [routeLifetime],
-  );
+  useEffect(() => {
+    routeLifetime.active = true;
+    return () => {
+      routeLifetime.active = false;
+      metadataRequest.current?.abort();
+    };
+  }, [routeLifetime]);
   useEffect(() => {
     setScenario(query.data);
   }, [query.data]);
@@ -196,10 +203,12 @@ export function ScenarioDetail({ gen, refresh, showToast }: ViewProps) {
     api
       .scenario(sid, controller.signal)
       .then((value) => {
-        if (!controller.signal.aborted && routeLifetime.active) setScenario(value);
+        if (!controller.signal.aborted && routeLifetime.active)
+          setScenario(value);
       })
       .catch((error: Error) => {
-        if (!controller.signal.aborted && routeLifetime.active) setLoadError(error.message);
+        if (!controller.signal.aborted && routeLifetime.active)
+          setLoadError(error.message);
       });
     refresh();
   };
@@ -298,7 +307,14 @@ export function ScenarioDetail({ gen, refresh, showToast }: ViewProps) {
         ) : scenario.rule_mode === "legacy_snapshot" ? (
           <LegacyResolution scenario={scenario} onChanged={changed} />
         ) : tab === "assumptions" ? (
-          <ScenarioRules scenario={scenario} onChanged={changed} />
+          <>
+            <ScenarioRules scenario={scenario} onChanged={changed} />
+            <PlannedTransactions
+              key={sid}
+              scenario={scenario}
+              onChanged={changed}
+            />
+          </>
         ) : (
           <ScenarioOverview scenario={scenario} gen={gen} />
         )}
