@@ -2,7 +2,7 @@
 
 - 기준 설계: [scenario-lifecycle.md](../designs/scenario-lifecycle.md)의 승인된 T8/T9.
 - 기반: PR2가 머지된 `origin/main`의 `d791f42`, 작업 브랜치 `codex/scenario-assumptions`.
-- 상태: 기능 커밋 `49d2f2b`(backend), `d1c9e36`(frontend). ship 검증과 v0.4.0.0 MINOR 승인을 완료했다. v0.4.0.0 릴리스 커밋 `e12ef68`까지 원격 브랜치에 푸시했으며, 문서 동기화 후 PR을 게시한다. 원격 CI 결과는 별도로 확인한다.
+- 상태: 기능 커밋 `49d2f2b`(backend), `d1c9e36`(frontend). ship 검증과 v0.4.0.0 MINOR 승인을 완료했다. v0.4.0.0 릴리스 커밋 `e12ef68`과 테스트 동기화 수정 `37321d9`를 푸시하고 [PR #5](https://github.com/mildsalmon/MoneyMap/pull/5)를 게시했다. 원격 CI 최종 결과는 별도로 확인한다.
 
 ## 구현
 
@@ -29,10 +29,10 @@
 
 | 명령 | 결과 |
 | --- | --- |
-| `cd backend && uv run pytest -q` | 304 passed (6.03s), 기존 Starlette deprecation warning 1개 |
+| `cd backend && uv run pytest -q` | 304 passed (10.48s), 기존 Starlette deprecation warning 1개 |
 | 변경 backend 파일 `uv run ruff check` | 통과 |
-| `cd frontend && npm run build` | 통과, Vite 6.4.3 (1.07s) |
-| `cd frontend && MONEYMAP_E2E_BACKEND_PORT=8882 MONEYMAP_E2E_FRONTEND_PORT=5280 npm run e2e` | 47 passed (46.0s) |
+| `cd frontend && npm run build` | 통과, Vite 6.4.3 (2.07s) |
+| `cd frontend && MONEYMAP_E2E_BACKEND_PORT=8882 MONEYMAP_E2E_FRONTEND_PORT=5280 npm run e2e` | 47 passed (52.5s) |
 | `git diff --check` | 통과 |
 
 `gstack-review`의 검토 항목을 슬롯 제약에 맞춰 두 에이전트에 묶어 배정하고 추가 adversarial 검토를 실행했다. 재사용한 같은 Codex 계열 컨텍스트이며 외부 모델 검증은 아니다. 통화 검증, 복제 pending 상태 공유, 숫자 정렬의 3건을 수정하고 재검토했다. 미해결 코드 finding은 없다. 승인 T8/T9 구현·검증 항목을 충족했으며 설계 원문은 보존했다.
@@ -41,7 +41,9 @@ E2E는 포트 8882/5280, `/tmp/moneymap-e2e-8882`의 임시 DB를 사용했다. 
 
 ## Ship 재검증
 
-- 최종 Backend: 304 passed (6.03s), frontend build: 통과 (1.07s).
-- E2E: 47 passed (46.0s). 지연 응답 검증은 고정 sleep 대신 requestfinished와 렌더 완료를 기다린다.
+- 최종 Backend: 304 passed (10.48s), frontend build: 통과 (2.07s).
+- E2E: 47 passed (52.5s). 지연 응답 검증은 고정 sleep 대신 requestfinished와 렌더 완료를 기다린다.
 - 승인 PR3 T8/T9 계획 완료 2/2, 새 production finding 없음. 테스트 동기화 finding 1건을 수정하고 재검토했다.
 - 별도 지속 실행 dev server는 발견되지 않아 ship의 qa-only 자동 실행은 건너뛰었다. 브라우저 검증은 위 격리 E2E에 기록했다.
+
+PR CI 실행 `33942396479`에서 지연 복제 테스트가 URL 변경만 확인한 뒤 응답을 해제해 실패했다. trace에서 목적지 화면의 React 반영 전임을 확인했고, 목적지 제목의 포커스와 원본 편집기 제거를 기다린 뒤 응답을 해제하도록 테스트를 수정했다(`37321d9`). production 코드는 변경하지 않았으며 위 결과는 수정 후 전체 로컬 재검증이다.
