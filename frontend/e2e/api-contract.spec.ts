@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./test";
 
 test("API client preserves structured context, native validation, and cancellation", async ({ page }) => {
   await page.goto("/");

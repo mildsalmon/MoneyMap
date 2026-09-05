@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request, type Route } from "@playwright/test";
+import { expect, test, type Page, type Request, type Route } from "./test";
 
 async function waitForStartup(page: Page) {
   const materialized = page.waitForResponse(response => response.url().endsWith("/api/materialize") && response.ok());
@@ -14,7 +14,7 @@ const screens = [
   { nav: "거래 내역", path: "/transactions", loading: "거래 내역 확인 중…", error: "거래 내역을 불러오지 못했습니다.", retry: "다시 불러오기" },
   { nav: "반복 규칙", path: "/rules", loading: "반복 규칙 확인 중…", error: "반복 규칙을 불러오지 못했습니다.", retry: "다시 불러오기" },
   { nav: "계정·개시잔액", path: "/accounts", loading: "계정 확인 중…", error: "계정을 불러오지 못했습니다.", retry: "다시 시도" },
-  { nav: "거래 입력", path: "/transactions/new", loading: "입력 정보 확인 중…", error: "입력 정보를 불러오지 못했습니다.", retry: "다시 불러오기" },
+  { nav: "거래 입력", path: "/transactions/new", loading: "계정 확인 중…", error: "계정을 불러오지 못했습니다.", retry: "계정 다시 불러오기" },
 ];
 
 for (const screen of screens) {

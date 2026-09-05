@@ -16,6 +16,7 @@ from __future__ import annotations
 import sqlite3
 
 from .lifecycle_migration import migrate_lifecycle
+from .transaction_input_migration import migrate_transaction_input
 
 from moneymap.domain.account import OPENING_BALANCE_ACCOUNT_NAME
 from moneymap.domain.scenario import ACTUAL_SCENARIO_ID
@@ -352,7 +353,12 @@ def _cash_configuration(conn: sqlite3.Connection) -> None:
         END""")
 
 
-MIGRATIONS = (_foundation_schema, migrate_lifecycle, _cash_configuration)
+MIGRATIONS = (
+    _foundation_schema,
+    migrate_lifecycle,
+    _cash_configuration,
+    migrate_transaction_input,
+)
 
 
 def init_db(conn: sqlite3.Connection) -> None:

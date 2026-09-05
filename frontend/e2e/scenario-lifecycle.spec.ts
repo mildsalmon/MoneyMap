@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { blockExternalStyles, expect, test, type APIRequestContext } from "./test";
 import AxeBuilder from "@axe-core/playwright";
 
 const API = (
@@ -538,6 +538,7 @@ test("서울 날짜와 시작 기준일을 차트 표에서 그대로 표시한�
   const scenario = await create(request, "서울 날짜 경계");
   const context = await browser.newContext({ timezoneId: "Asia/Seoul" });
   const page = await context.newPage();
+  await blockExternalStyles(page);
   await page.goto(
     `http://127.0.0.1:${process.env.MONEYMAP_E2E_FRONTEND_PORT ?? "5173"}/scenarios/${scenario.id}`,
   );
@@ -676,14 +677,14 @@ test("늦은 시나리오 생성 응답은 거래 입력의 URL과 초안을 유
     await waiting;
     await page.locator(".side nav").getByRole("button", { name: "거래 입력", exact: true }).click();
     await page.getByLabel("금액", { exact: true }).fill("9876");
-    await page.getByLabel("내역 (선택)", { exact: true }).fill("잃으면 안 되는 거래 초안");
+    await page.getByLabel("아이템 (선택)", { exact: true }).fill("잃으면 안 되는 거래 초안");
     const completed = page.waitForEvent("requestfinished", { predicate: pending => pending.url() === `${API}/scenarios` && pending.method() === "POST" });
     release();
     await completed;
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     await expect(page).toHaveURL(/\/transactions\/new$/);
     await expect(page.getByLabel("금액", { exact: true })).toHaveValue("9,876");
-    await expect(page.getByLabel("내역 (선택)", { exact: true })).toHaveValue("잃으면 안 되는 거래 초안");
+    await expect(page.getByLabel("아이템 (선택)", { exact: true })).toHaveValue("잃으면 안 되는 거래 초안");
     expect((await request.get(`${API}/scenarios/${sid}`)).status()).toBe(200);
   } finally { release(); }
 });

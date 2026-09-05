@@ -38,6 +38,15 @@ def opening_account_id(client) -> int:
     return next(a["id"] for a in accounts if a["type"] == "equity")
 
 
+def make_opening_balance(client, account_id: int, amount: int):
+    response = client.post(
+        f"/api/accounts/{account_id}/opening-balance",
+        json={"date": TODAY.isoformat(), "amount": amount, "state": "positive"},
+    )
+    assert response.status_code == 201, response.text
+    return response
+
+
 def account_by_name(client, name: str):
     return next(a for a in client.get("/api/accounts").json() if a["name"] == name)
 
@@ -66,21 +75,8 @@ def test_vertical_slice_onboarding_to_projection(client):
     toss = make_account(client, "Toss", "asset")
     salary = make_account(client, "월급", "income")
     saving = make_account(client, "적금", "asset")
-    opening = opening_account_id(client)
-
-    # 2. 개시잔액 = equity 상대 거래 (D4)
-    res = client.post(
-        "/api/transactions",
-        json={
-            "date": TODAY.isoformat(),
-            "description": "개시잔액",
-            "postings": [
-                {"account_id": toss, "amount": 10_000_000},
-                {"account_id": opening, "amount": -10_000_000},
-            ],
-        },
-    )
-    assert res.status_code == 201, res.text
+    # 2. 개시잔액 = 전용 경계가 만드는 equity 상대 거래 (D4)
+    make_opening_balance(client, toss, 10_000_000)
 
     # 3. 반복 규칙 (월급) + materialize
     res = client.post(
@@ -230,18 +226,7 @@ def test_seed_standard_accounts_recovers_from_partial_existing_tree(client):
 def test_account_rename_preserves_id_and_balances(client):
     toss = make_account(client, "Toss", "asset")
     salary = make_account(client, "월급", "income")
-    opening = opening_account_id(client)
-    res = client.post(
-        "/api/transactions",
-        json={
-            "date": TODAY.isoformat(),
-            "postings": [
-                {"account_id": toss, "amount": 1000},
-                {"account_id": opening, "amount": -1000},
-            ],
-        },
-    )
-    assert res.status_code == 201, res.text
+    make_opening_balance(client, toss, 1000)
     res = client.post(
         "/api/rules",
         json={
@@ -528,17 +513,7 @@ def test_materialize_idempotent_via_api(client):
 
 def test_delete_transaction(client):
     toss = make_account(client, "Toss", "asset")
-    opening = opening_account_id(client)
-    res = client.post(
-        "/api/transactions",
-        json={
-            "date": TODAY.isoformat(),
-            "postings": [
-                {"account_id": toss, "amount": 1_000_000},
-                {"account_id": opening, "amount": -1_000_000},
-            ],
-        },
-    )
+    res = make_opening_balance(client, toss, 1_000_000)
     txn_id = res.json()["id"]
     assert client.delete(f"/api/transactions/{txn_id}").status_code == 200
     assert client.get("/api/transactions").json() == []
@@ -744,17 +719,7 @@ def test_placeholder_account_blocks_posting(client):
     leaf = client.post(
         "/api/accounts", json={"name": "토스뱅크", "type": "asset", "parent_id": grp}
     ).json()["id"]
-    res = client.post(
-        "/api/transactions",
-        json={
-            "date": TODAY.isoformat(),
-            "postings": [
-                {"account_id": leaf, "amount": 1_000_000},
-                {"account_id": opening, "amount": -1_000_000},
-            ],
-        },
-    )
-    assert res.status_code == 201
+    make_opening_balance(client, leaf, 1_000_000)
 
 
 def test_account_with_children_auto_nonpostable(client):
@@ -962,16 +927,7 @@ def test_placeholder_toggle_guard(client):
     )
     # 해제 후 거래 기록
     client.post(f"/api/accounts/{toss}/placeholder", json={"is_placeholder": False})
-    client.post(
-        "/api/transactions",
-        json={
-            "date": TODAY.isoformat(),
-            "postings": [
-                {"account_id": toss, "amount": 1000},
-                {"account_id": opening, "amount": -1000},
-            ],
-        },
-    )
+    make_opening_balance(client, toss, 1000)
     # 거래가 있으면 그룹 전환 차단
     res = client.post(
         f"/api/accounts/{toss}/placeholder", json={"is_placeholder": True}

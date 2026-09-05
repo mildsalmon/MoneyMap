@@ -30,6 +30,7 @@ export interface Posting {
 }
 
 export interface Txn {
+  memo: string;
   id: number;
   scenario_id: number;
   date: string;
@@ -137,6 +138,20 @@ export interface ResolutionBody {
   version: number;
   rule_decisions: { legacy_rule_id: number; action: "discard_snapshot" | "keep_as_scenario" }[];
   transaction_decisions: { transaction_id: number; action: "move" | "delete"; date?: string }[];
+}
+
+export interface LastPair {
+  item_key: string;
+  status: "matched" | "none" | "unavailable" | "legacy_confirmation_required";
+  source_transaction_id: number | null;
+  debit_account_id: number | null;
+  credit_account_id: number | null;
+  unavailable_reason: "split" | "invalid_pair" | "account_unavailable" | null;
+}
+
+export interface RecentInput {
+  id: number; date: string; description: string; amount: number; posting_count: number;
+  debit_account_id: number | null; credit_account_id: number | null;
 }
 
 export type PlannedBody = {

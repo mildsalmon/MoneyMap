@@ -2,7 +2,7 @@
  * What-if 핵심 flow E2E (D10) — 이 제품의 존재 이유를 브라우저로 왕복한다:
  * 온보딩 → 계정+개시잔액 → 반복 규칙 → 시나리오 fork·가설 편집 → 비교 차트.
  */
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./test";
 
 const API_BASE = (process.env.MONEYMAP_E2E_API_BASE
   ?? `http://127.0.0.1:${process.env.MONEYMAP_E2E_BACKEND_PORT ?? "8765"}/api`).replace(/\/+$/, "");
@@ -77,11 +77,11 @@ test("그룹(대분류) 계정은 거래 입력에서 선택 불가 (D24)", asyn
   // 하위 실계정 생성
   await createChildCategory(page, "은행묶음", "카카오뱅크");
 
-  // 거래 입력의 결제 수단 셀렉트: 은행묶음은 disabled, 카카오뱅크는 선택 가능
+  // 그룹은 접기/펼치기만 가능하고 실제 하위 계정만 선택한다.
   await nav(page, "거래 입력").click();
-  const pay = field(page, "어디서 나갔나? (결제 수단)");
-  await expect(pay.locator("option", { hasText: "은행묶음" })).toBeDisabled();
-  await expect(pay.locator("option", { hasText: "카카오뱅크" })).toBeEnabled();
+  const pay = page.getByRole("group", { name: "대변 계정", exact: true });
+  await expect(pay.getByRole("radio", { name: / > 은행묶음$/ })).toHaveCount(0);
+  await expect(pay.getByRole("radio", { name: /카카오뱅크$/ })).toBeEnabled();
 });
 
 test("개시잔액 상태 조회가 실패해도 계정 계층과 재시도는 유지된다", async ({ page }) => {
@@ -112,8 +112,8 @@ test("표준 시드 후 그룹 아래 소분류를 추가하고 그 소분류로
 
   await nav(page, "거래 입력").click();
   await field(page, "금액").fill("12345");
-  await selectOptionContaining(field(page, "무엇에? (비용)"), "야식");
-  await selectOptionContaining(field(page, "어디서 나갔나? (결제 수단)"), "현금");
+  await page.getByRole("group", { name: "차변 계정", exact: true }).getByRole("radio", { name: /야식$/ }).check();
+  await page.getByRole("group", { name: "대변 계정", exact: true }).getByRole("radio", { name: /현금$/ }).check();
   await field(page, "금액").press("Enter");
   await expect(page.locator(".toast")).toContainText("순자산 −₩12,345 반영");
 
@@ -240,9 +240,9 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
   // ── 2.5 거래 입력 — 지출 템플릿 (D22): 복식 미리보기 검산 후 저장
   await nav(page, "거래 입력").click();
   await field(page, "금액").fill("52000");
-  await selectOptionContaining(field(page, "무엇에? (비용)"), "야식");
-  await selectOptionContaining(field(page, "어디서 나갔나? (결제 수단)"), "토스뱅크");
-  await expect(page.locator(".panel")).toContainText("검산 일치");
+  await page.getByRole("group", { name: "차변 계정", exact: true }).getByRole("radio", { name: /야식$/ }).check();
+  await page.getByRole("group", { name: "대변 계정", exact: true }).getByRole("radio", { name: /토스뱅크$/ }).check();
+  await expect(page.locator(".txn-preview")).toContainText("검산 일치");
   await field(page, "금액").press("Enter"); // 저장 후 계속 (D12)
   await expect(page.locator(".toast")).toContainText("순자산 −₩52,000 반영");
   await expect(field(page, "금액")).toHaveValue(""); // 금액 비움 + 계속 입력 준비

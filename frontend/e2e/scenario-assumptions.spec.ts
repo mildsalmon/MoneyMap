@@ -3,7 +3,7 @@ import {
   test,
   type APIRequestContext,
   type Page,
-} from "@playwright/test";
+} from "./test";
 import AxeBuilder from "@axe-core/playwright";
 const API = (
   process.env.MONEYMAP_E2E_API_BASE ??

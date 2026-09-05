@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "./test";
 
 const API_BASE = (process.env.MONEYMAP_E2E_API_BASE
   ?? `http://127.0.0.1:${process.env.MONEYMAP_E2E_BACKEND_PORT ?? "8765"}/api`).replace(/\/+$/, "");

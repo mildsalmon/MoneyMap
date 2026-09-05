@@ -34,13 +34,18 @@ export function withDescendants(accounts: Account[], id: number): number[] {
 }
 
 /** 기장 가능 계정 = 보관 안 됨 AND 그룹 아님(placeholder도, 자식도 없음) — D23·D24 */
-export function isPostable(accounts: Account[], a: Account): boolean {
-  if (a.archived || a.is_placeholder) return false;
-  return !accounts.some((c) => c.parent_id === a.id);
+export function postableAccountIds(accounts: Account[]): Set<number> {
+  const parents = new Set(accounts.map((account) => account.parent_id));
+  return new Set(accounts
+    .filter((account) => !account.archived && !account.is_placeholder && !parents.has(account.id))
+    .map((account) => account.id));
+}
+
+export function isPostable(accounts: Account[], account: Account): boolean {
+  return postableAccountIds(accounts).has(account.id);
 }
 
 /** 그룹(대분류) 여부 = placeholder이거나 자식이 있음 */
 export function isGroup(accounts: Account[], a: Account): boolean {
   return a.is_placeholder || accounts.some((c) => c.parent_id === a.id);
 }
-

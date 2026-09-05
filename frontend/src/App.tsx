@@ -146,12 +146,13 @@ export function App() {
 
       {toast && (
         <div className="toast">
-          {toast.msg}
+          <span className="toast-message">{toast.msg}</span>
           {toast.undo && (
             <button
               onClick={async () => {
                 await toast.undo!();
-                setToast(null);
+                // An undo failure may replace this toast with recovery guidance.
+                setToast(current => current === toast ? null : current);
               }}
             >
               실행취소
