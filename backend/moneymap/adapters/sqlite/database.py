@@ -187,72 +187,65 @@ def _migrate_account_position_version(conn: sqlite3.Connection) -> None:
     스키마 변경, backfill, 제약 설치, 사후 검증 중 하나라도 실패하면 전체를
     rollback해 애플리케이션이 반쯤 변환된 DB로 시작하지 않게 한다.
     """
-    try:
-        conn.execute("BEGIN IMMEDIATE")
-        cols = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)")}
-        position_added = "position" not in cols
-        if position_added:
-            conn.execute("ALTER TABLE accounts ADD COLUMN position INTEGER")
-        if "version" not in cols:
-            conn.execute(
-                "ALTER TABLE accounts ADD COLUMN version INTEGER NOT NULL DEFAULT 1 "
-                "CHECK(version > 0)"
-            )
-
-        if position_added:
-            rows = conn.execute(
-                "SELECT id, type, parent_id FROM accounts "
-                "ORDER BY type, COALESCE(parent_id, -1), id"
-            ).fetchall()
-            sibling_positions: dict[tuple[str, int | None], int] = {}
-            updates: list[tuple[int, int]] = []
-            for row in rows:
-                key = (row["type"], row["parent_id"])
-                position = sibling_positions.get(key, 0) + 1
-                sibling_positions[key] = position
-                updates.append((position, row["id"]))
-            if updates:
-                conn.executemany(
-                    "UPDATE accounts SET position=? WHERE id=?",
-                    updates,
-                )
-        conn.execute("UPDATE accounts SET version=1 WHERE version IS NULL OR version <= 0")
-
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)")}
+    position_added = "position" not in cols
+    if position_added:
+        conn.execute("ALTER TABLE accounts ADD COLUMN position INTEGER")
+    if "version" not in cols:
         conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_sibling_position "
-            "ON accounts(type, COALESCE(parent_id, -1), position)"
+            "ALTER TABLE accounts ADD COLUMN version INTEGER NOT NULL DEFAULT 1 "
+            "CHECK(version > 0)"
         )
-        for statement in (
-            "CREATE TRIGGER IF NOT EXISTS trg_account_position_insert "
-            "BEFORE INSERT ON accounts WHEN NEW.position IS NULL OR NEW.position <= 0 "
-            "BEGIN SELECT RAISE(ABORT, 'account_position_invalid'); END",
-            "CREATE TRIGGER IF NOT EXISTS trg_account_position_update "
-            "BEFORE UPDATE OF position ON accounts WHEN NEW.position IS NULL OR NEW.position <= 0 "
-            "BEGIN SELECT RAISE(ABORT, 'account_position_invalid'); END",
-        ):
-            conn.execute(statement)
 
-        invalid = conn.execute(
-            "SELECT COUNT(*) AS n FROM accounts "
-            "WHERE position IS NULL OR position <= 0 OR version <= 0"
-        ).fetchone()["n"]
-        duplicates = conn.execute(
-            "SELECT COUNT(*) AS n FROM ("
-            "SELECT 1 FROM accounts GROUP BY type, COALESCE(parent_id, -1), position "
-            "HAVING COUNT(*) > 1)"
-        ).fetchone()["n"]
-        if invalid or duplicates:
-            raise sqlite3.IntegrityError("account_position_invariant")
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
+    if position_added:
+        rows = conn.execute(
+            "SELECT id, type, parent_id FROM accounts "
+            "ORDER BY type, COALESCE(parent_id, -1), id"
+        ).fetchall()
+        sibling_positions: dict[tuple[str, int | None], int] = {}
+        updates: list[tuple[int, int]] = []
+        for row in rows:
+            key = (row["type"], row["parent_id"])
+            position = sibling_positions.get(key, 0) + 1
+            sibling_positions[key] = position
+            updates.append((position, row["id"]))
+        if updates:
+            conn.executemany(
+                "UPDATE accounts SET position=? WHERE id=?",
+                updates,
+            )
+    conn.execute("UPDATE accounts SET version=1 WHERE version IS NULL OR version <= 0")
+
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_sibling_position "
+        "ON accounts(type, COALESCE(parent_id, -1), position)"
+    )
+    for statement in (
+        "CREATE TRIGGER IF NOT EXISTS trg_account_position_insert "
+        "BEFORE INSERT ON accounts WHEN NEW.position IS NULL OR NEW.position <= 0 "
+        "BEGIN SELECT RAISE(ABORT, 'account_position_invalid'); END",
+        "CREATE TRIGGER IF NOT EXISTS trg_account_position_update "
+        "BEFORE UPDATE OF position ON accounts WHEN NEW.position IS NULL OR NEW.position <= 0 "
+        "BEGIN SELECT RAISE(ABORT, 'account_position_invalid'); END",
+    ):
+        conn.execute(statement)
+
+    invalid = conn.execute(
+        "SELECT COUNT(*) AS n FROM accounts "
+        "WHERE position IS NULL OR position <= 0 OR version <= 0"
+    ).fetchone()["n"]
+    duplicates = conn.execute(
+        "SELECT COUNT(*) AS n FROM ("
+        "SELECT 1 FROM accounts GROUP BY type, COALESCE(parent_id, -1), position "
+        "HAVING COUNT(*) > 1)"
+    ).fetchone()["n"]
+    if invalid or duplicates:
+        raise sqlite3.IntegrityError("account_position_invariant")
 
 
 def connect(path: str = ":memory:") -> sqlite3.Connection:
-    # check_same_thread=False: FastAPI가 동기 핸들러를 스레드풀에서 돌리므로
-    # 연결이 스레드를 넘나든다. CPython sqlite3는 serialized 모드라 안전하다
-    # (v1 = 단일 사용자 localhost 전제).
+    # The dependency and synchronous handler may use different worker threads.
+    # Each request exclusively owns this connection; it is never shared by requests.
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
@@ -260,25 +253,30 @@ def connect(path: str = ":memory:") -> sqlite3.Connection:
     return conn
 
 
-def init_db(conn: sqlite3.Connection) -> None:
+def _foundation_schema(conn: sqlite3.Connection) -> None:
     """스키마 생성 + 시드 (멱등). 기존 DB에는 가벼운 마이그레이션 적용."""
-    conn.executescript(SCHEMA)
+    _execute_script(conn, SCHEMA)
     # 마이그레이션 (기존 DB): 계정 컬럼 추가
     cols = [r["name"] for r in conn.execute("PRAGMA table_info(accounts)")]
     if "archived" not in cols:  # D23 소프트 삭제
-        conn.execute("ALTER TABLE accounts ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
+        conn.execute(
+            "ALTER TABLE accounts ADD COLUMN archived INTEGER NOT NULL DEFAULT 0"
+        )
     if "is_placeholder" not in cols:  # D24 그룹(대분류) 계정
-        conn.execute("ALTER TABLE accounts ADD COLUMN is_placeholder INTEGER NOT NULL DEFAULT 0")
+        conn.execute(
+            "ALTER TABLE accounts ADD COLUMN is_placeholder INTEGER NOT NULL DEFAULT 0"
+        )
     if "is_system" not in cols:  # 시스템 계정(개시잔액) 명시 플래그
-        conn.execute("ALTER TABLE accounts ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0")
+        conn.execute(
+            "ALTER TABLE accounts ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0"
+        )
     if "is_overdraft" not in cols:
         conn.execute(
             "ALTER TABLE accounts ADD COLUMN is_overdraft INTEGER NOT NULL DEFAULT 0 "
             "CHECK(is_overdraft IN (0,1))"
         )
-    conn.commit()
     _migrate_account_position_version(conn)
-    conn.executescript(OVERDRAFT_TRIGGERS)
+    _execute_script(conn, OVERDRAFT_TRIGGERS)
     # actual 시나리오 (id=1) 시드
     conn.execute(
         "INSERT OR IGNORE INTO scenarios (id, name, base_scenario_id, fork_date) "
@@ -305,4 +303,55 @@ def init_db(conn: sqlite3.Connection) -> None:
             "WHERE id=? AND is_system=0",
             (row["id"],),
         )
-    conn.commit()
+
+
+def _execute_script(conn: sqlite3.Connection, script: str) -> None:
+    """Unlike executescript, preserve the runner's transaction (including DDL)."""
+    statement = ""
+    for line in script.splitlines(keepends=True):
+        statement += line
+        if sqlite3.complete_statement(statement):
+            conn.execute(statement)
+            statement = ""
+    if statement.strip():
+        raise ValueError("Incomplete migration SQL")
+
+
+MIGRATIONS = (_foundation_schema,)
+
+
+def init_db(conn: sqlite3.Connection) -> None:
+    """Adopt legacy schemas, migrate atomically, then enable runtime WAL."""
+    from pathlib import Path
+
+    from .backup import run_migration_backup
+
+    current = conn.execute("PRAGMA user_version").fetchone()[0]
+    if current > len(MIGRATIONS):
+        raise RuntimeError("Database schema is newer than this application")
+    if conn.in_transaction:
+        raise RuntimeError("Migrations require an idle connection")
+    path = conn.execute("PRAGMA database_list").fetchone()[2]
+    existing = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1"
+    ).fetchone()
+    if current < len(MIGRATIONS) and existing and path:
+        run_migration_backup(
+            conn, Path(path).parent / "backups", current, len(MIGRATIONS)
+        )
+    for version, migrate in enumerate(MIGRATIONS, 1):
+        if version <= current:
+            continue
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            # Another startup may have migrated while we waited for the write lock.
+            if conn.execute("PRAGMA user_version").fetchone()[0] >= version:
+                conn.rollback()
+                continue
+            migrate(conn)
+            conn.execute(f"PRAGMA user_version = {version}")
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
+    conn.execute("PRAGMA journal_mode = WAL")

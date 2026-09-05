@@ -88,7 +88,13 @@ test("이름·상위 그룹·마이너스통장을 한 번에 저장하고 되�
   await page.getByLabel("설정-E2E-기업 이름").fill(child.name);
   await selectParent(page, "설정-E2E-기업", source.name);
   await page.getByLabel("설정-E2E-기업 마이너스통장").uncheck();
+  const restoredResponse = page.waitForResponse((response) =>
+    response.url() === `${API_BASE}/accounts/${child.id}/settings`
+    && response.request().method() === "PUT",
+  );
   await page.getByRole("form", { name: "설정-E2E-기업 계정 설정" }).getByRole("button", { name: "변경 저장" }).click();
+  expect((await restoredResponse).ok()).toBe(true);
+  await expect(accountRow(page, child.name).getByRole("button", { name: "설정" })).toBeFocused();
 
   snapshot = await accounts(request);
   expect(snapshot.find((account) => account.id === child.id)).toMatchObject({

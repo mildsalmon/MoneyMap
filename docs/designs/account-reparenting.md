@@ -8,6 +8,8 @@ Engineering review: COMPLETE (2026-08-23, no unresolved decisions)
 Mode: Builder
 Supersedes: mildsalmon-codex-standard-account-seed-design-20260706-174216.md
 
+이 문서는 v0.1.0.0 계정 설정 구현 당시의 설계 기록이다. v0.2.0.0에서는 아래의 process `request_lock`을 요청별 연결·WAL로 대체했고, migration transaction은 순서 있는 runner가 소유한다. 계정 writer의 `BEGIN IMMEDIATE` 원자성은 유지한다. 현재 구조와 검증은 [PR 1 검증 기록](../verification/scenario-foundation.md)을 참고한다.
+
 ## Problem Statement
 
 이미 존재하는 계정을 다른 계정과목 그룹 아래로 옮길 수 없다. 사용자가 잘못된 위치를 바로잡으려고 같은 이름으로 새 계정을 만들면 `같은 위치에 이미 '기업은행' 계정이 있습니다`라는 생성 중복 오류를 만난다. 현재 우회 방법은 잘못된 경로를 유지하거나 삭제·재생성을 시도하는 것뿐이며, 후자는 거래·반복 규칙·개시잔액과 연결된 안정된 `account_id`를 잃을 위험이 있다.

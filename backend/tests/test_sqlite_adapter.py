@@ -131,6 +131,7 @@ def test_position_version_migration_is_deterministic_and_idempotent():
         (second_root,),
     ).lastrowid
 
+    legacy.commit()
     init_db(legacy)
 
     rows = {
@@ -149,6 +150,7 @@ def test_position_version_migration_is_deterministic_and_idempotent():
         "UPDATE accounts SET position=9 WHERE id=?",
         (second_child,),
     )
+    legacy.commit()
     legacy.commit()
     init_db(legacy)
     assert legacy.execute(
@@ -279,7 +281,9 @@ def test_overdraft_migration_defaults_existing_rows_and_is_idempotent():
         "INSERT INTO accounts (name, type) VALUES ('현금', 'asset')"
     ).lastrowid
 
+    legacy.commit()
     init_db(legacy)
+    legacy.commit()
     init_db(legacy)
 
     row = legacy.execute(

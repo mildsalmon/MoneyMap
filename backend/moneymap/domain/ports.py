@@ -67,3 +67,17 @@ class LedgerQueries(Protocol):
 
 class Clock(Protocol):
     def today(self) -> datetime.date: ...
+
+
+class ScenarioTransactionWriter(Protocol):
+    def save(self, txn: Transaction) -> Transaction: ...
+
+
+class ScenarioUnitOfWork(Protocol):
+    """Application service owns one atomic scenario/children write."""
+    scenarios: ScenarioRepository
+    rules: RecurringRuleRepository
+    transactions: ScenarioTransactionWriter
+
+    def __enter__(self) -> "ScenarioUnitOfWork": ...
+    def __exit__(self, exc_type, exc, traceback) -> bool | None: ...

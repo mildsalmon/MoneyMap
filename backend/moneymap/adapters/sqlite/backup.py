@@ -45,3 +45,55 @@ def _rotate(backup_dir: Path, keep: int) -> None:
     backups = sorted(backup_dir.glob(f"{BACKUP_PREFIX}*.db"), reverse=True)
     for old in backups[keep:]:
         old.unlink()
+
+
+def run_migration_backup(
+    src: sqlite3.Connection,
+    backup_dir: Path,
+    from_version: int,
+    to_version: int,
+) -> Path:
+    """Publish only verified, durable backups; daily rotation never touches these."""
+    import hashlib
+    import json
+    import os
+    import uuid
+
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    name = f"migration-v{from_version}-to-v{to_version}-{uuid.uuid4().hex}.db"
+    final = backup_dir / name
+    partial = backup_dir / f"{name}.partial"
+    manifest = backup_dir / f"{name}.sha256.json"
+    manifest_partial = backup_dir / f"{name}.sha256.json.partial"
+    dest = sqlite3.connect(partial)
+    try:
+        src.backup(dest)
+        integrity = [row[0] for row in dest.execute("PRAGMA integrity_check")]
+        if integrity != ["ok"]:
+            raise sqlite3.DatabaseError("Migration backup integrity check failed")
+    finally:
+        dest.close()
+    with partial.open("rb") as backup:
+        checksum = hashlib.file_digest(backup, "sha256").hexdigest()
+        os.fsync(backup.fileno())
+    with manifest_partial.open("w") as output:
+        json.dump(
+            {
+                "file": name,
+                "sha256": checksum,
+                "from_version": from_version,
+                "to_version": to_version,
+            },
+            output,
+        )
+        output.flush()
+        os.fsync(output.fileno())
+    # Publish metadata first; a .partial database is never a recovery candidate.
+    os.replace(manifest_partial, manifest)
+    os.replace(partial, final)
+    directory = os.open(backup_dir, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+    return final

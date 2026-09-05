@@ -8,7 +8,7 @@
 
 **Why:** 가설을 조합할 때 기존 시나리오의 규칙을 다시 입력하지 않게 한다.
 
-**Context:** DB 스키마의 `scenarios.base_scenario_id`는 중첩을 표현할 수 있지만, v1 서비스는 base를 actual(id=1)로 제한한다. fold 체인 traversal, fork_date 클리핑, copy-on-fork 의미론을 함께 확정해야 한다.
+**Context:** DB 스키마의 `scenarios.base_scenario_id`는 중첩을 표현할 수 있지만, v1 서비스는 base를 actual(id=1)로 제한한다. live-additive에서 actual 규칙과 각 조상 시나리오의 추가 규칙을 어떤 순서로 조립할지, fork_date를 체인마다 어떻게 클리핑할지 먼저 확정해야 한다.
 
 **Effort:** L
 **Priority:** P3
@@ -79,6 +79,20 @@
 **Effort:** M
 **Priority:** P3
 **Depends on:** `/balances` 지연 또는 계정 수 증가가 실제로 관측됨
+
+## 아키텍처
+
+### 전 repository UoW 전환 재평가
+
+**What:** 시나리오 aggregate에만 적용한 명시적 Unit of Work를 다른 repository 경계까지 확장할 필요가 있는지 재평가한다.
+
+**Why:** 아직 필요하지 않은 공통 추상화를 강제하지 않으면서, 실제 cross-repository 원자성 요구가 생겼을 때 transaction 경계의 중복과 누락을 줄인다.
+
+**Context:** v0.2.0.0의 PR 1은 copy-on-fork 시나리오 생성에 `SqliteUnitOfWork`와 commit-free 내부 writer를 적용했다. 후속 PR의 복제·child mutation·legacy 변환·영구 삭제도 같은 시나리오 aggregate 경계로 계획한다. 계정 설정과 materialize의 기존 transaction 경계는 유지한다. 두 번째 독립적인 cross-repository 유스케이스가 생기거나 commit/rollback 조립이 반복된다는 증거가 확인될 때만 공통 UoW 범위를 넓힌다. `commit=True/False` flag로 임시 확장하지 않는다.
+
+**Effort:** L
+**Priority:** P3
+**Depends on:** 두 번째 cross-repository 원자성 유스케이스 또는 transaction 경계 중복의 관측
 
 ## Completed
 

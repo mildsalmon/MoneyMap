@@ -173,7 +173,7 @@ def test_account_parent_type_mismatch_returns_stable_conflict(client):
 def test_projection_rejects_more_than_3_scenarios(client):
     res = client.get("/api/projection", params={"scenario_ids": "2,3,4,5"})
     assert res.status_code == 400
-    assert "최대 3개" in res.json()["detail"]
+    assert "최대 3개" in res.json()["detail"]["message"]
 
 
 def test_seed_standard_accounts_builds_tree_and_is_idempotent(client):
@@ -470,6 +470,7 @@ def test_existing_opening_balance_account_migrates_to_system_flag():
         "INSERT INTO accounts (name, type) VALUES ('개시잔액', 'equity')"
     ).lastrowid
 
+    conn.commit()
     init_db(conn)
 
     rows = conn.execute(
@@ -583,7 +584,7 @@ def test_archive_blocked_by_children_and_rules(client):
         "start_date": TODAY.replace(day=1).isoformat(),
     }).json()
     res = client.post(f"/api/accounts/{toss}/archive")
-    assert res.status_code == 400 and "반복 규칙" in res.json()["detail"]
+    assert res.status_code == 400 and "반복 규칙" in res.json()["detail"]["message"]
     # 규칙 삭제 후에는 보관 가능
     assert client.delete(f"/api/rules/{rule['id']}").status_code == 200
     assert client.post(f"/api/accounts/{toss}/archive").status_code == 200
@@ -617,7 +618,7 @@ def test_system_accounts_cannot_be_used_by_recurring_rules(client):
         "start_date": TODAY.replace(day=1).isoformat(),
     })
     assert invalid.status_code == 400
-    assert "시스템" in invalid.json()["detail"]
+    assert "시스템" in invalid.json()["detail"]["message"]
 
     income = make_account(client, "급여", "income")
     valid = client.post("/api/rules", json={
@@ -635,13 +636,13 @@ def test_system_accounts_cannot_be_used_by_recurring_rules(client):
         "start_date": TODAY.replace(day=1).isoformat(),
     })
     assert update.status_code == 400
-    assert "시스템" in update.json()["detail"]
+    assert "시스템" in update.json()["detail"]["message"]
 
 
 def test_legacy_system_rule_cannot_turn_materialized_txn_into_opening(client):
     cash = make_account(client, "현금", "asset")
     opening = opening_account_id(client)
-    conn = client.app.state.conn
+    conn = connect(client.app.state.db_path)
     rule_id = conn.execute(
         "INSERT INTO recurring_rules "
         "(scenario_id, description, from_account_id, to_account_id, amount, schedule, start_date) "
@@ -654,6 +655,7 @@ def test_legacy_system_rule_cannot_turn_materialized_txn_into_opening(client):
         ),
     ).lastrowid
     conn.commit()
+    conn.close()
 
     materialized = client.post("/api/materialize").json()
     assert materialized["created"] == 1
@@ -678,7 +680,7 @@ def test_placeholder_account_blocks_posting(client):
         "date": TODAY.isoformat(),
         "postings": [{"account_id": grp, "amount": 1_000_000}, {"account_id": opening, "amount": -1_000_000}],
     })
-    assert res.status_code == 400 and "그룹" in res.json()["detail"]
+    assert res.status_code == 400 and "그룹" in res.json()["detail"]["message"]
 
     # 하위 리프를 만들면 거기엔 기장 가능
     leaf = client.post("/api/accounts", json={"name": "토스뱅크", "type": "asset", "parent_id": grp}).json()["id"]
@@ -698,7 +700,7 @@ def test_account_with_children_auto_nonpostable(client):
         "date": TODAY.isoformat(),
         "postings": [{"account_id": parent, "amount": 5000}, {"account_id": toss, "amount": -5000}],
     })
-    assert res.status_code == 400 and "그룹" in res.json()["detail"]
+    assert res.status_code == 400 and "그룹" in res.json()["detail"]["message"]
 
 
 def test_posted_leaf_can_gain_child_then_blocks_new_direct_postings(client):
@@ -721,7 +723,7 @@ def test_posted_leaf_can_gain_child_then_blocks_new_direct_postings(client):
         "description": "새 식비",
         "postings": [{"account_id": parent, "amount": 7000}, {"account_id": cash, "amount": -7000}],
     })
-    assert res.status_code == 400 and "그룹" in res.json()["detail"]
+    assert res.status_code == 400 and "그룹" in res.json()["detail"]["message"]
 
 
 def test_rule_reference_blocks_adding_child_until_rule_is_moved(client):
@@ -739,7 +741,7 @@ def test_rule_reference_blocks_adding_child_until_rule_is_moved(client):
         "name": "배달", "type": "expense", "parent_id": parent,
     })
     assert res.status_code == 400
-    assert "반복 규칙" in res.json()["detail"]
+    assert "반복 규칙" in res.json()["detail"]["message"]
 
     res = client.put(f"/api/rules/{rule['id']}", json={
         "from_account_id": cash, "to_account_id": other_expense,
@@ -800,10 +802,10 @@ def test_reclassify_direct_rejects_non_child_or_group_target(client):
     make_child_account(client, "점심", "expense", child_group)
 
     res = client.post(f"/api/accounts/{parent}/reclassify-direct", params={"to": other})
-    assert res.status_code == 400 and "직접 하위" in res.json()["detail"]
+    assert res.status_code == 400 and "직접 하위" in res.json()["detail"]["message"]
 
     res = client.post(f"/api/accounts/{parent}/reclassify-direct", params={"to": child_group})
-    assert res.status_code == 400 and "그룹" in res.json()["detail"]
+    assert res.status_code == 400 and "그룹" in res.json()["detail"]["message"]
 
 
 def test_placeholder_toggle_guard(client):
@@ -820,7 +822,7 @@ def test_placeholder_toggle_guard(client):
         f"/api/accounts/{toss}/placeholder", json={"is_placeholder": True}
     )
     assert blocked_by_rule.status_code == 400
-    assert "반복 규칙" in blocked_by_rule.json()["detail"]
+    assert "반복 규칙" in blocked_by_rule.json()["detail"]["message"]
     assert client.delete(f"/api/rules/{rule['id']}").status_code == 200
     # 그룹 전환 가능 (거래 없음)
     assert client.post(f"/api/accounts/{toss}/placeholder", json={"is_placeholder": True}).json()["is_placeholder"] is True
@@ -832,7 +834,7 @@ def test_placeholder_toggle_guard(client):
     })
     # 거래가 있으면 그룹 전환 차단
     res = client.post(f"/api/accounts/{toss}/placeholder", json={"is_placeholder": True})
-    assert res.status_code == 400 and "이미 거래" in res.json()["detail"]
+    assert res.status_code == 400 and "이미 거래" in res.json()["detail"]["message"]
 
 
 def test_overdraft_account_api_contract_and_reversible_setting(client):
@@ -1022,9 +1024,10 @@ def test_opening_balance_rejects_missing_group_and_system_accounts(client):
 
 def test_opening_balance_requires_seeded_system_equity(client):
     cash = make_account(client, "현금", "asset")
-    conn = client.app.state.conn
+    conn = connect(client.app.state.db_path)
     conn.execute("DELETE FROM accounts WHERE is_system=1 AND type='equity'")
     conn.commit()
+    conn.close()
 
     res = client.post(
         f"/api/accounts/{cash}/opening-balance",
