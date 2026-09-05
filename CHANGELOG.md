@@ -4,6 +4,23 @@ All notable changes to MoneyMap are documented in this file.
 
 ## [Unreleased]
 
+## [0.2.0.0] - 2026-09-05
+
+### Added
+- Create a verified recovery copy before upgrading an existing ledger, independently of daily backups. Upgrades stop before changing data when backup verification fails.
+- Verify ledger upgrades, rollback, concurrent requests, and existing browser workflows in automated CI.
+
+### Changed
+- Keep ledger reads responsive while another request writes, with each balance or projection response reading one consistent snapshot.
+- Return structured application errors with complete conflict and retry context while preserving standard request-validation responses.
+- Separate account, transaction, rule, scenario, and reporting interfaces without changing the existing screens or copy-on-fork calculations.
+
+### Fixed
+- Roll back the entire scenario creation when copying any of its rules fails.
+- Preserve automatic-generation progress when a recurring rule is edited concurrently, preventing duplicate generated transactions.
+- Lock rules before automatic transaction planning so concurrent edits cannot post a stale plan.
+- Roll back failed ledger schema changes together with their migration version, and apply each pending migration only once during simultaneous startup.
+
 ## [0.1.0.0] - 2026-08-23
 
 ### Added
