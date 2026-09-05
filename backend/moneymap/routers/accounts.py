@@ -26,6 +26,7 @@ class AccountIn(BaseModel):
 
 
 class AccountSettingsIn(BaseModel):
+    include_in_cash: bool | None = None
     name: str
     parent_id: int | None
     is_overdraft: bool
@@ -72,6 +73,7 @@ def update_account_settings(
             name=body.name,
             parent_id=body.parent_id,
             is_overdraft=body.is_overdraft,
+            include_in_cash=body.include_in_cash,
             version=body.version,
         ),
         repos(request)["accounts"],

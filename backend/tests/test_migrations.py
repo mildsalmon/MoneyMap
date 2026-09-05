@@ -240,7 +240,7 @@ def test_current_unversioned_schema_keeps_account_metadata(tmp_path):
     init_db(conn)
     assert [
         tuple(r) for r in conn.execute("SELECT * FROM accounts ORDER BY id")
-    ] == before
+    ] == [(*row, 0) for row in before]
     assert len(list((tmp_path / "backups").glob("migration-*.db"))) == 1
     conn.close()
 

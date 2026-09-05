@@ -134,6 +134,11 @@ def validate_parent_target(
         seen.add(cursor.id)
         cursor = by_id.get(cursor.parent_id)
 
+    if parent.include_in_cash:
+        raise DomainConflictError(
+            "현금 부족 계산에서 제외한 뒤 하위 계정을 추가하세요",
+            code="cash_account_parent_forbidden",
+        )
     if parent.is_overdraft:
         raise DomainConflictError(
             "마이너스통장 계정은 상위 그룹이 될 수 없습니다",
@@ -168,10 +173,25 @@ def validate_overdraft_eligibility(desired: Account, accounts: list[Account]) ->
         )
 
 
+def validate_cash_eligibility(desired: Account, accounts: list[Account]) -> None:
+    if desired.include_in_cash and (
+        desired.type != AccountType.ASSET
+        or desired.archived
+        or desired.is_system
+        or desired.is_placeholder
+        or (desired.id is not None and any(a.parent_id == desired.id for a in accounts))
+    ):
+        raise DomainConflictError(
+            "현금 부족 계산에는 활성 상태인 자산 말단 계정만 포함할 수 있습니다",
+            code="cash_account_must_be_leaf",
+        )
+
+
 def validate_account_create(account: Account, accounts: list[Account]) -> Account:
     desired = account.model_copy(update={"name": normalize_account_name(account.name)})
     validate_parent_target(None, desired, accounts, require_group=False)
     validate_name_available(desired, accounts)
+    validate_cash_eligibility(desired, accounts)
     validate_overdraft_eligibility(desired, accounts)
     return desired
 
@@ -196,11 +216,15 @@ def validate_account_settings_transition(
             "name": normalize_account_name(command.name),
             "parent_id": command.parent_id,
             "is_overdraft": command.is_overdraft,
+            "include_in_cash": current.include_in_cash
+            if command.include_in_cash is None
+            else command.include_in_cash,
         }
     )
     if desired.parent_id != current.parent_id:
         validate_parent_target(current, desired, accounts, require_group=True)
     validate_name_available(desired, accounts, exclude_id=current.id)
+    validate_cash_eligibility(desired, accounts)
     validate_overdraft_eligibility(desired, accounts)
     return desired
 

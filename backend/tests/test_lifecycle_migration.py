@@ -13,7 +13,8 @@ LEGACY_SCHEMA = Path(__file__).parent / "fixtures" / "legacy_schema.sql"
 
 
 @pytest.fixture
-def pr1(tmp_path):
+def pr1(tmp_path, monkeypatch):
+    monkeypatch.setattr(database, "MIGRATIONS", database.MIGRATIONS[:2])
     conn = connect(str(tmp_path / "pr1.db"))
     conn.executescript(LEGACY_SCHEMA.read_text())
     with conn:

@@ -48,8 +48,8 @@ class SqliteAccountRepository:
             )
             cur = self._conn.execute(
                 "INSERT INTO accounts "
-                "(name, type, parent_id, currency, archived, is_placeholder, is_system, is_overdraft, position, version) "
-                "VALUES (?,?,?,?,?,?,?,?,?,1)",
+                "(name, type, parent_id, currency, archived, is_placeholder, is_system, is_overdraft, include_in_cash, position, version) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,1)",
                 (
                     desired.name,
                     desired.type.value,
@@ -59,6 +59,7 @@ class SqliteAccountRepository:
                     int(desired.is_placeholder),
                     int(desired.is_system),
                     int(desired.is_overdraft),
+                    int(desired.include_in_cash),
                     position,
                 ),
             )
@@ -96,12 +97,13 @@ class SqliteAccountRepository:
                 )
             next_version = current.version + 1
             updated = self._conn.execute(
-                "UPDATE accounts SET name=?, parent_id=?, is_overdraft=?, position=?, "
+                "UPDATE accounts SET name=?, parent_id=?, is_overdraft=?, include_in_cash=?, position=?, "
                 "version=? WHERE id=? AND version=?",
                 (
                     desired.name,
                     desired.parent_id,
                     int(desired.is_overdraft),
+                    int(desired.include_in_cash),
                     position,
                     next_version,
                     current.id,
@@ -146,6 +148,18 @@ class SqliteAccountRepository:
             current = self.find_by_id(account_id)
             if current is None:
                 raise DomainNotFoundError("계정이 없습니다", code="account_not_found")
+            if archived and current.include_in_cash:
+                raise DomainConflictError(
+                    "현금 부족 계산에서 제외한 뒤 보관하세요",
+                    code="cash_account_selected",
+                )
+            if not archived and current.parent_id is not None:
+                parent = self.find_by_id(current.parent_id)
+                if parent and parent.include_in_cash:
+                    raise DomainConflictError(
+                        "현금 부족 계산에서 제외한 뒤 복원하세요",
+                        code="cash_account_parent_forbidden",
+                    )
             if archived:
                 children = self.active_child_count(account_id)
                 if children:
@@ -181,6 +195,11 @@ class SqliteAccountRepository:
             current = self.find_by_id(account_id)
             if current is None:
                 raise DomainNotFoundError("계정이 없습니다", code="account_not_found")
+            if is_placeholder and current.include_in_cash:
+                raise DomainConflictError(
+                    "현금 부족 계산에서 제외한 뒤 그룹으로 변경하세요",
+                    code="cash_account_must_be_leaf",
+                )
             if is_placeholder:
                 if current.is_overdraft:
                     raise DomainConflictError(
@@ -289,6 +308,7 @@ class SqliteAccountRepository:
             is_placeholder=bool(row["is_placeholder"]),
             is_system=bool(row["is_system"]),
             is_overdraft=bool(row["is_overdraft"]),
+            include_in_cash=bool(row["include_in_cash"]),
             position=row["position"],
             version=row["version"],
         )
