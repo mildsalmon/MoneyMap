@@ -88,7 +88,7 @@
 
 **Why:** 아직 필요하지 않은 공통 추상화를 강제하지 않으면서, 실제 cross-repository 원자성 요구가 생겼을 때 transaction 경계의 중복과 누락을 줄인다.
 
-**Context:** v0.2.0.0의 PR 1은 copy-on-fork 시나리오 생성에 `SqliteUnitOfWork`와 commit-free 내부 writer를 적용했다. 후속 PR의 복제·child mutation·legacy 변환·영구 삭제도 같은 시나리오 aggregate 경계로 계획한다. 계정 설정과 materialize의 기존 transaction 경계는 유지한다. 두 번째 독립적인 cross-repository 유스케이스가 생기거나 commit/rollback 조립이 반복된다는 증거가 확인될 때만 공통 UoW 범위를 넓힌다. `commit=True/False` flag로 임시 확장하지 않는다.
+**Context:** v0.2.0.0의 PR 1은 copy-on-fork 시나리오 생성에 `SqliteUnitOfWork`와 commit-free 내부 writer를 적용했다. PR 2는 child mutation·legacy 변환·영구 삭제에 같은 시나리오 aggregate 경계를 적용했고, PR 3의 복제에도 이를 사용할 계획이다. 계정 설정과 materialize의 기존 transaction 경계는 유지한다. 두 번째 독립적인 cross-repository 유스케이스가 생기거나 commit/rollback 조립이 반복된다는 증거가 확인될 때만 공통 UoW 범위를 넓힌다. `commit=True/False` flag로 임시 확장하지 않는다.
 
 **Effort:** L
 **Priority:** P3
