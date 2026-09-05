@@ -2,7 +2,22 @@
 
 All notable changes to MoneyMap are documented in this file.
 
-## [Unreleased]
+## [0.6.0.0] - 2026-09-05
+
+### Added
+- Select debit and credit accounts directly from searchable account trees. Recall only the last saved account pair for an item, preserving manual choices and leaving date, amount, and memo unchanged.
+- Add optional multiline transaction memos, with text-only viewing in transaction history.
+- Keep split entries in the same draft, block incomplete rows, and fill a debt repayment amount only on explicit request.
+
+### Changed
+- Replace transaction type tabs and account dropdowns with fixed debit/credit columns; stack them on mobile with a sticky selection summary and bottom save action.
+- Migrate transaction provenance and normalized item keys with the existing backup/rollback workflow. Older ambiguous records require confirmation; rule-generated and opening-balance transactions are excluded from recall.
+- Keep new edits when a save finishes late, prevent duplicate pending submissions, and clear amount and memo only when the submitted draft is unchanged.
+
+### Fixed
+- Keep save confirmation and undo visible above the mobile save bar, including very long item names in basic and split entries.
+- Distinguish identically named accounts with their full paths in older-record confirmation and split entries, and keep memo text consistent with the rest of the form.
+- Preserve explicit account choices during delayed lookups, clear stale automatic choices after lookup failures, and retain actionable feedback when undo fails.
 
 ## [0.5.0.0] - 2026-09-05
 
