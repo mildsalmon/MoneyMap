@@ -4,6 +4,21 @@ All notable changes to MoneyMap are documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0.0] - 2026-09-05
+
+### Added
+- Duplicate an active scenario with a new name, description, and start date, including its own recurring rules and planned transactions.
+- Create, edit, and delete one-time planned transactions from the assumptions tab, including transactions with multiple postings.
+
+### Changed
+- Show every conflicting transaction when a duplicate's start date would exclude planned activity, so users can choose another date without losing data.
+- Preserve planned transaction identities during edits and retain transactions outside the selected projection period.
+- Keep drafts after conflicts, require an explicit retry with the latest version, and lock information controls while duplication is pending.
+
+### Fixed
+- Reject foreign-currency planned transactions and non-KRW accounts instead of treating their amounts as won in projections.
+- Keep the current page when a planned transaction or duplication request finishes after navigation.
+
 ## [0.3.0.0] - 2026-09-05
 
 ### Added

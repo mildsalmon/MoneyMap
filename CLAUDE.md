@@ -7,7 +7,7 @@
 - 릴리스 변경: [CHANGELOG.md](CHANGELOG.md), 후속 작업: [TODOS.md](TODOS.md)
 - 계정 설정·이동 설계: [account-reparenting.md](docs/designs/account-reparenting.md)
 - 시나리오 승인 설계(PR 1~4): [scenario-lifecycle.md](docs/designs/scenario-lifecycle.md)
-- v0.2.0.0 구현 범위·검증·저장소 운영 계약: [scenario-foundation.md](docs/verification/scenario-foundation.md). PR1(T1~T4)은 릴리스되었다. PR2(T5~T7)의 live-additive 전망·수명주기·legacy 전환·라우팅 구현과 검증은 [scenario-lifecycle.md](docs/verification/scenario-lifecycle.md)를 참고한다. 복제·예정 거래 CRUD는 PR3, 현금성 기능은 PR4 범위다.
+- v0.2.0.0 구현 범위·검증·저장소 운영 계약: [scenario-foundation.md](docs/verification/scenario-foundation.md). PR1(T1~T4)은 릴리스되었다. PR2(T5~T7)의 live-additive 전망·수명주기·legacy 전환·라우팅 구현과 검증은 [scenario-lifecycle.md](docs/verification/scenario-lifecycle.md)를 참고한다. PR3(T8~T9)의 복제·예정 거래 CRUD 구현과 검증은 [scenario-assumptions.md](docs/verification/scenario-assumptions.md)를 참고한다. 현금성 기능은 PR4 범위다.
 - 진행 상태: 로컬 `WORKING.md`가 있을 때 참고
 
 ## Design System
