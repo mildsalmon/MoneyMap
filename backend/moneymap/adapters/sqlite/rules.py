@@ -46,10 +46,10 @@ class ScenarioRuleWriter:
             )
             rule = rule.model_copy(update={"id": cur.lastrowid})
         else:
-            self._conn.execute(
+            updated = self._conn.execute(
                 "UPDATE recurring_rules SET description=?, from_account_id=?, to_account_id=?,"
                 " amount=?, currency=?, schedule=?, start_date=?, end_date=?"
-                " WHERE id=?",
+                " WHERE id=? AND scenario_id=?",
                 (
                     rule.description,
                     rule.from_account_id,
@@ -60,8 +60,11 @@ class ScenarioRuleWriter:
                     _iso(rule.start_date),
                     _iso(rule.end_date),
                     rule.id,
+                    rule.scenario_id,
                 ),
             )
+            if updated.rowcount != 1:
+                raise DomainNotFoundError("규칙이 없습니다", code="rule_not_found")
             # Only materialization owns the watermark. An edit may have read the
             # rule before another request materialized it; never restore that old value.
             current = self._conn.execute(
@@ -69,11 +72,26 @@ class ScenarioRuleWriter:
             ).fetchone()
             if current is None:
                 raise DomainNotFoundError("규칙이 없습니다", code="rule_not_found")
-            rule = rule.model_copy(update={
-                "last_materialized": _D(current["last_materialized"])
-                if current["last_materialized"] else None,
-            })
+            rule = rule.model_copy(
+                update={
+                    "last_materialized": _D(current["last_materialized"])
+                    if current["last_materialized"]
+                    else None,
+                }
+            )
         return rule
+
+    def delete_owned(self, rule_id: int, scenario_id: int) -> None:
+        if not self._conn.in_transaction:
+            raise RuntimeError("Scenario writers require an active UnitOfWork")
+        self._conn.execute(
+            "UPDATE transactions SET source_rule_id=NULL WHERE source_rule_id=? AND scenario_id=?",
+            (rule_id, scenario_id),
+        )
+        self._conn.execute(
+            "DELETE FROM recurring_rules WHERE id=? AND scenario_id=?",
+            (rule_id, scenario_id),
+        )
 
     def find_by_scenario(self, scenario_id: int) -> list[RecurringRule]:
         rows = self._conn.execute(
@@ -109,7 +127,7 @@ class SqliteRecurringRuleRepository(ScenarioRuleWriter):
             )
             return super().save(rule)
 
-    def delete(self, rule_id: int) -> None:
+    def delete(self, rule_id: int, *, scenario_id: int | None = None) -> None:
         conn = self._conn
         with _account_write(conn):
             legacy = conn.execute(
@@ -120,8 +138,8 @@ class SqliteRecurringRuleRepository(ScenarioRuleWriter):
                 "  WHERE t.source_rule_id=r.id "
                 "    AND a.is_system=1 AND a.type='equity' AND a.name=?"
                 ") AS generated_opening "
-                "FROM recurring_rules r WHERE r.id=?",
-                (OPENING_BALANCE_ACCOUNT_NAME, rule_id),
+                "FROM recurring_rules r WHERE r.id=? AND (? IS NULL OR r.scenario_id=?)",
+                (OPENING_BALANCE_ACCOUNT_NAME, rule_id, scenario_id, scenario_id),
             ).fetchone()
             if legacy is None:
                 raise DomainNotFoundError("규칙이 없습니다", code="rule_not_found")

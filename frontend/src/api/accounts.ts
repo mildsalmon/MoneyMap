@@ -2,7 +2,7 @@ import { req } from "./core";
 import type { AccountType, Account, AccountSettingsResult } from "./types";
 
 export const accountsApi = {
-  accounts: () => req<Account[]>("/accounts"),
+  accounts: (signal?: AbortSignal) => req<Account[]>("/accounts", { signal }),
   createAccount: (b: {
     name: string;
     type: AccountType;

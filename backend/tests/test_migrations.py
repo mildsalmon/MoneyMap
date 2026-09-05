@@ -64,7 +64,19 @@ def test_legacy_matrix_backup_restore_and_idempotence(tmp_path, mode, generated)
         backup_dir = tmp_path / "backups"
         backup.run_daily_backup(conn, backup_dir, datetime.date.today())
         init_db(conn)
-        assert rows(conn) == before
+        migrated = rows(conn)
+        assert [row[:5] for row in migrated["scenarios"]] == before["scenarios"]
+        assert migrated["recurring_rules"] == before["recurring_rules"]
+        if generated and mode == "scenario":
+            assert migrated["transactions"] == migrated["postings"] == []
+        else:
+            assert migrated["transactions"] == before["transactions"]
+            assert migrated["postings"] == before["postings"]
+        expected_mode = "legacy_snapshot" if mode == "both" else "live_additive"
+        assert (
+            conn.execute("SELECT rule_mode FROM scenarios WHERE id=2").fetchone()[0]
+            == expected_mode
+        )
         assert conn.execute("PRAGMA user_version").fetchone()[0] == len(
             database.MIGRATIONS
         )
@@ -83,7 +95,7 @@ def test_legacy_matrix_backup_restore_and_idempotence(tmp_path, mode, generated)
             assert restored.execute("PRAGMA user_version").fetchone()[0] == 0
             assert rows(restored) == before
             init_db(restored)
-            assert rows(restored) == before
+            assert rows(restored) == migrated
         finally:
             restored.close()
         init_db(conn)
@@ -129,7 +141,10 @@ def test_each_migration_owns_its_version_transaction(tmp_path, monkeypatch):
     monkeypatch.setattr(database, "MIGRATIONS", (*database.MIGRATIONS, second))
     with pytest.raises(RuntimeError, match="injected"):
         init_db(conn)
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert (
+        conn.execute("PRAGMA user_version").fetchone()[0]
+        == len(database.MIGRATIONS) - 1
+    )
     assert (
         conn.execute(
             "SELECT name FROM sqlite_master WHERE name='second_step'"
@@ -213,8 +228,9 @@ def test_future_version_and_active_transaction_are_rejected(tmp_path):
 
 def test_current_unversioned_schema_keeps_account_metadata(tmp_path):
     conn = connect(str(tmp_path / "ledger.db"))
-    init_db(conn)
-    # Existing main has all account columns but has never set user_version.
+    with conn:
+        database.MIGRATIONS[0](conn)
+    # Historical foundation schema has account columns and no user_version.
     conn.execute(
         "INSERT INTO accounts(id,name,type,is_overdraft,position,version) VALUES(2,'overdraft','asset',1,7,9)"
     )
@@ -265,7 +281,7 @@ def test_simultaneous_startups_apply_pending_migration_once(tmp_path, monkeypatc
             task.result(timeout=10)
     conn = connect(str(path))
     assert conn.execute("SELECT COUNT(*) FROM applied_once").fetchone()[0] == 1
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 2
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == len(database.MIGRATIONS)
     conn.close()
 
 

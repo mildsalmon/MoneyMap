@@ -9,7 +9,11 @@ from __future__ import annotations
 import datetime
 from typing import Protocol
 
-from moneymap.domain.account import Account, AccountSettingsCommand, AccountSettingsResult
+from moneymap.domain.account import (
+    Account,
+    AccountSettingsCommand,
+    AccountSettingsResult,
+)
 from moneymap.domain.money import Money
 from moneymap.domain.recurring_rule import RecurringRule
 from moneymap.domain.scenario import Scenario
@@ -19,7 +23,9 @@ from moneymap.domain.transaction import Transaction
 
 class AccountRepository(Protocol):
     def create(self, account: Account) -> Account: ...
-    def update_settings(self, command: AccountSettingsCommand) -> AccountSettingsResult: ...
+    def update_settings(
+        self, command: AccountSettingsCommand
+    ) -> AccountSettingsResult: ...
     def set_archived(self, account_id: int, archived: bool) -> Account: ...
     def set_placeholder(self, account_id: int, is_placeholder: bool) -> Account: ...
     def seed_standard(self, items: tuple[StandardAccount, ...]) -> tuple[int, int]: ...
@@ -49,7 +55,7 @@ class TransactionRepository(Protocol):
 class ScenarioRepository(Protocol):
     def save(self, scenario: Scenario) -> Scenario: ...
     def find_by_id(self, scenario_id: int) -> Scenario | None: ...
-    def list_all(self) -> list[Scenario]: ...
+    def list_all(self, status: str | None = None) -> list[Scenario]: ...
 
 
 class RecurringRuleRepository(Protocol):
@@ -73,10 +79,24 @@ class ScenarioTransactionWriter(Protocol):
     def save(self, txn: Transaction) -> Transaction: ...
 
 
+class ScenarioAggregateWriter(ScenarioRepository, Protocol):
+    def impact(self, scenario: Scenario) -> dict: ...
+    def transaction_summaries(self, sid: int) -> list[dict]: ...
+    def remove_transactions(self, sid: int, ids: list[int] | None = None) -> None: ...
+    def move_transaction(self, sid: int, tid: int, date: datetime.date) -> None: ...
+    def delete(self, sid: int) -> None: ...
+
+
+class ScenarioRuleWriter(RecurringRuleRepository, Protocol):
+    def delete_owned(self, rule_id: int, sid: int) -> None: ...
+
+
 class ScenarioUnitOfWork(Protocol):
     """Application service owns one atomic scenario/children write."""
-    scenarios: ScenarioRepository
-    rules: RecurringRuleRepository
+
+    accounts: AccountRepository
+    scenarios: ScenarioAggregateWriter
+    rules: ScenarioRuleWriter
     transactions: ScenarioTransactionWriter
 
     def __enter__(self) -> "ScenarioUnitOfWork": ...

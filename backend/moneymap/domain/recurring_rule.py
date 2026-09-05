@@ -7,7 +7,7 @@ materialize 시 만들어지는 거래 (from에서 나가서 to로 들어감):
       to_account   +amount  (차변)
       from_account −amount  (대변)
 
-시나리오 생성 시 actual의 규칙이 이 형태 그대로 복사된다 (copy-on-fork, D5).
+새 시나리오는 실제 규칙을 실시간 상속하며 전용 규칙만 별도로 소유한다.
 materialize 의미론(원자성·과거 불변)은 services 쪽 책임 (D9).
 """
 

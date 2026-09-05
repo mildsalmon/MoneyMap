@@ -1,47 +1,27 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, chartToggles, type Account, type BalanceRow, type Series, type Txn } from "../api";
+import { useMemo, useState } from "react";
+import { api, chartToggles } from "../api";
 import { fmtWon, todayIso } from "../format";
 import { ProjectionChart } from "../chart/ProjectionChart";
 import type { ViewProps } from "../App";
+import { useQuery } from "./scenarios/useQuery";
 
 const FUTURE = [
   { m: 6, label: "6개월" },
   { m: 12, label: "1년" },
-  { m: 36, label: "3년" },
-  { m: 60, label: "5년" },
+  { m: 3, label: "3개월" },
 ];
 
 export function Dashboard({ gen, go }: ViewProps) {
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [balances, setBalances] = useState<{ net_worth: number; accounts: BalanceRow[] } | null>(null);
-  const [balancesError, setBalancesError] = useState("");
-  const [txns, setTxns] = useState<Txn[]>([]);
-  const [rulesCount, setRulesCount] = useState(0);
   const [months, setMonths] = useState(12);
-  const [series, setSeries] = useState<Series[] | null>(null);
-  const [stale, setStale] = useState(false); // 리페치 중 이전 렌더 유지 + 디밍
-
-  const loadBalances = useCallback(() => {
-    setBalances(null);
-    setBalancesError("");
-    api.balances().then(setBalances).catch((error: Error) => setBalancesError(error.message));
-  }, []);
-
-  useEffect(() => {
-    api.accounts().then(setAccounts);
-    loadBalances();
-    api.transactions().then(setTxns);
-    api.rules().then((r) => setRulesCount(r.length));
-  }, [gen, loadBalances]);
-
-  useEffect(() => {
-    setStale(true);
-    const ids = chartToggles.get();
-    api.projection(months, ids).then(({ series }) => {
-      setSeries(series.filter((s) => s.points.length > 0));
-      setStale(false);
-    });
-  }, [months, gen]);
+  const supportQuery = useQuery(`dashboard-inputs:${gen}`, signal => Promise.all([api.accounts(signal), api.transactions(1, signal), api.rules(1, signal)]));
+  const balancesQuery = useQuery(`dashboard-balances:${gen}`, signal => api.balances(1, signal));
+  const projectionQuery = useQuery(`dashboard-projection:${months}:${gen}`, signal => api.projection(months, chartToggles.get(), signal));
+  const accounts = supportQuery.data?.[0] ?? [];
+  const txns = supportQuery.data?.[1] ?? [];
+  const rulesCount = supportQuery.data?.[2].length ?? 0;
+  const balances = balancesQuery.data;
+  const balancesError = balancesQuery.error;
+  const series = projectionQuery.data?.series.filter(series => series.points.length > 0);
 
   const month = todayIso().slice(0, 7);
   const typeOf = useMemo(() => new Map(accounts.map((a) => [a.id, a.type])), [accounts]);
@@ -80,7 +60,7 @@ export function Dashboard({ gen, go }: ViewProps) {
     zeroConfirmed.length > 0 ||
     localStorage.getItem("moneymap.opening_skipped") === "1"; // 구버전 호환
   const hasRules = rulesCount > 0;
-  if (balances && !(hasAccounts && hasOpening)) {
+  if (balances && supportQuery.data && !(hasAccounts && hasOpening)) {
     const steps = [
       { done: hasAccounts, label: "계정 만들기 — 통장·카드·대출 등록", goTo: "accounts" as const },
       { done: hasOpening, label: "개시잔액 입력 — 잔액이 0원이어도 '기록'으로 확인", goTo: "accounts" as const },
@@ -121,6 +101,8 @@ export function Dashboard({ gen, go }: ViewProps) {
 
   return (
     <div>
+      {supportQuery.error && <p role="alert">장부 정보를 불러오지 못했습니다. {supportQuery.error} <button className="btn secondary" onClick={supportQuery.reload}>다시 불러오기</button></p>}
+      {!supportQuery.data && !supportQuery.error && <p role="status">장부 정보 확인 중…</p>}
       {/* 상단: 테두리 없는 순자산 스트립 (D6) */}
       <div className="strip">
         <div className="cell">
@@ -131,11 +113,11 @@ export function Dashboard({ gen, go }: ViewProps) {
         </div>
         <div className="cell">
           <span className="metric-label">이번 달 수입</span>
-          <div className="v num">{fmtWon(income)}</div>
+          <div className="v num">{supportQuery.data ? fmtWon(income) : "…"}</div>
         </div>
         <div className="cell">
           <span className="metric-label">이번 달 지출</span>
-          <div className="v num">{fmtWon(expense)}</div>
+          <div className="v num">{supportQuery.data ? fmtWon(expense) : "…"}</div>
         </div>
       </div>
 
@@ -153,7 +135,10 @@ export function Dashboard({ gen, go }: ViewProps) {
       </div>
 
       {/* 차트 워크벤치 — full-width, 카드에 가두지 않음 */}
-      <div style={{ opacity: stale ? 0.55 : 1, transition: "opacity .15s" }}>
+      <div>
+        {projectionQuery.error && <p role="alert">전망을 불러오지 못했습니다. {projectionQuery.error} <button className="btn secondary" onClick={projectionQuery.reload}>다시 계산</button></p>}
+        {!projectionQuery.data && !projectionQuery.error && <p role="status">전망 계산 중…</p>}
+        {projectionQuery.data && series?.length === 0 && <p>표시할 전망이 없습니다.</p>}
         {series && series.length > 0 && <ProjectionChart series={series} today={todayIso()} />}
       </div>
 
@@ -180,7 +165,7 @@ export function Dashboard({ gen, go }: ViewProps) {
                 <tr>
                   <td colSpan={2} className="cell-error" role="alert">
                     계정 잔액을 불러오지 못함
-                    <button className="retry-action" type="button" onClick={loadBalances}>다시 시도</button>
+                    <button className="retry-action" type="button" onClick={balancesQuery.reload}>다시 시도</button>
                   </td>
                 </tr>
               )}
@@ -201,7 +186,7 @@ export function Dashboard({ gen, go }: ViewProps) {
                   <td className="num">{amt.toLocaleString("ko-KR")}</td>
                 </tr>
               ))}
-              {topExpense.length === 0 && (
+              {supportQuery.data && topExpense.length === 0 && (
                 <tr><td colSpan={2} style={{ color: "var(--muted)" }}>이번 달 지출 기록이 없습니다</td></tr>
               )}
             </tbody>

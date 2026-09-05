@@ -62,6 +62,7 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
         allow_origins=_cors_origins(),
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["ETag"],
     )
     install_error_handlers(app)
     for feature in (status, accounts, transactions, rules, scenarios, reporting):

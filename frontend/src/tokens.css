@@ -426,3 +426,31 @@ textarea:focus-visible,
   .settings-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .toast { left: 12px; right: 12px; bottom: 12px; transform: none; }
 }
+
+/* Scenario workspace: daily-close results, explicit ownership and lifecycle. */
+.scenario-heading, .scenario-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
+.scenario-title { overflow-wrap: anywhere; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.scenario-list-name { max-width: 360px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.scenario-tabs { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid var(--line-strong); margin: 24px 0; }
+.scenario-tabs button { min-height: 44px; border: none; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+.scenario-tabs [aria-selected="true"] { border-bottom: 3px solid var(--accent); font-weight: 650; }
+.scenario-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; padding: 20px 0; border-bottom: 1px solid var(--line); }
+.scenario-summary dt { color: var(--muted); }
+.scenario-summary dd { margin: 8px 0 0; text-align: right; font-size: clamp(18px, 2.5vw, 28px); font-variant-numeric: tabular-nums; }
+.scenario-rule-form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 20px 0; }
+.scenario-rule-form .field { min-width: 140px; flex: 1 1 140px; }
+.scenario-detail .field { margin: 12px 0; }
+.scenario-detail textarea { width: 100%; min-height: 100px; font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); }
+.scenario-detail fieldset { border: 1px solid var(--line); margin: 16px 0; padding: 16px; }
+.scenario-delete-dialog { margin: auto; width: min(520px, calc(100% - 32px)); max-height: 90vh; overflow: auto; border: 1px solid var(--line-strong); border-radius: 4px; padding: 24px; color: var(--ink); background: var(--surface); }
+.scenario-delete-dialog::backdrop { background: rgb(33 29 23 / 40%); }
+.scenario-delete-dialog dd { font-variant-numeric: tabular-nums; text-align: right; }
+.scenario-detail caption { text-align: left; color: var(--muted); padding: 8px 0; }
+@media (max-width: 720px) {
+  .scenario-summary { grid-template-columns: 1fr; gap: 12px; }
+  .scenario-list-name { max-width: 180px; }
+  .scenario-controls { align-items: stretch; }
+  .scenario-detail .btn { min-height: 44px; }
+}
+
+.scenario-controls button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }

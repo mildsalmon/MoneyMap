@@ -31,6 +31,11 @@ function styleOf(s: Series, scenarioIndex: number) {
   return STYLE[`s${scenarioIndex}`] ?? STYLE.s0;
 }
 
+const localDate = (value: number) => {
+  const date = new Date(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
+
 const day = (iso: string) => new Date(iso + "T00:00:00").getTime();
 
 /** step 의미론: x 시점의 값 = date ≤ x 인 마지막 점.
@@ -62,9 +67,11 @@ function niceTicks(min: number, max: number, count = 4): number[] {
 export function ProjectionChart({
   series,
   today,
+  anchorLabel = "오늘",
 }: {
   series: Series[];
   today: string;
+  anchorLabel?: string;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [hoverX, setHoverX] = useState<number | null>(null); // 스냅된 날짜(ms)
@@ -194,7 +201,7 @@ export function ProjectionChart({
           {/* 오늘 마커 */}
           <line x1={sx(day(today))} x2={sx(day(today))} y1={PAD.top} y2={H - PAD.bottom}
             stroke="var(--faint)" strokeWidth="1" />
-          <text x={sx(day(today))} y={H - 8} fontSize="10" textAnchor="middle" fill="var(--muted)">오늘</text>
+          <text x={sx(day(today))} y={H - 8} fontSize="10" textAnchor="middle" fill="var(--muted)">{anchorLabel}</text>
 
           {/* 시리즈 (step-after) */}
           {withStyle.map(({ s, st }) =>
@@ -249,7 +256,7 @@ export function ProjectionChart({
             top: 8,
             transform: "translateX(-50%)",
           }}>
-            <div className="date">{new Date(hoverX).toISOString().slice(0, 10)}</div>
+            <div className="date">{localDate(hoverX)}</div>
             {withStyle.map(({ s, st }) => {
               const v = valueAt(s, hoverX);
               if (v === null) return null;
@@ -290,7 +297,7 @@ export function ProjectionChart({
           <tbody>
             {allDates.map((d) => (
               <tr key={d}>
-                <td>{new Date(d).toISOString().slice(0, 10)}</td>
+                <td>{localDate(d)}</td>
                 {series.map((s) => {
                   const v = valueAt(s, d);
                   return (

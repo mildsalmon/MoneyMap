@@ -1,3 +1,4 @@
+import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BarChart3, FolderTree, GitBranch, PenLine, Repeat, ScrollText } from "lucide-react";
 import { api } from "./api";
@@ -7,6 +8,7 @@ import { History } from "./views/History";
 import { Accounts } from "./views/Accounts";
 import { Rules } from "./views/Rules";
 import { Scenarios } from "./views/Scenarios";
+import { ScenarioDetail } from "./views/scenarios/ScenarioDetail";
 
 export type View = "dashboard" | "input" | "history" | "accounts" | "rules" | "scenarios";
 
@@ -25,7 +27,11 @@ export interface Toast {
 }
 
 export function App() {
-  const [view, setView] = useState<View>("dashboard");
+  const navigate = useNavigate();
+  const location = useLocation();
+  const paths: Record<View, string> = { dashboard: "/", input: "/transactions/new", history: "/transactions", accounts: "/accounts", rules: "/rules", scenarios: "/scenarios" };
+  const view = location.pathname.startsWith("/scenarios") ? "scenarios" : (Object.keys(paths) as View[]).find(key => paths[key] === location.pathname);
+  const setView = (next: View) => navigate(paths[next]);
   const [online, setOnline] = useState(true);
   const [status, setStatus] = useState<Awaited<ReturnType<typeof api.status>> | null>(null);
   const [banner, setBanner] = useState<{ id: number; date: string; description: string }[]>([]);
@@ -124,12 +130,18 @@ export function App() {
           </div>
         )}
 
-        {view === "dashboard" && <Dashboard {...viewProps} />}
-        {view === "input" && <TxnInput {...viewProps} />}
-        {view === "history" && <History {...viewProps} />}
-        {view === "accounts" && <Accounts {...viewProps} />}
-        {view === "rules" && <Rules {...viewProps} />}
-        {view === "scenarios" && <Scenarios {...viewProps} />}
+        <Routes>
+          <Route path="/" element={<Dashboard {...viewProps} />} />
+          <Route path="/transactions/new" element={<TxnInput {...viewProps} />} />
+          <Route path="/transactions" element={<History {...viewProps} />} />
+          <Route path="/accounts" element={<Accounts {...viewProps} />} />
+          <Route path="/rules" element={<Rules {...viewProps} />} />
+          <Route path="/scenarios" element={<Scenarios {...viewProps} />} />
+          <Route path="/scenarios/archived" element={<Scenarios {...viewProps} archived />} />
+          <Route path="/scenarios/:id" element={<ScenarioDetail {...viewProps} />} />
+          <Route path="/scenarios/:id/:tab" element={<ScenarioDetail {...viewProps} />} />
+          <Route path="*" element={<section><h1>페이지를 찾을 수 없습니다</h1><button className="btn" onClick={() => navigate("/")}>대시보드로</button></section>} />
+        </Routes>
       </main>
 
       {toast && (

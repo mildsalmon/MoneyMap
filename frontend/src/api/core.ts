@@ -13,10 +13,10 @@ export class ApiError extends Error {
   }
 }
 
-export async function req<T>(path: string, init?: RequestInit): Promise<T> {
+export async function reqWithHeaders<T>(path: string, init?: RequestInit): Promise<{ data: T; headers: Headers }> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...init,
+    headers: { "Content-Type": "application/json", ...init?.headers },
   });
   if (!res.ok) {
     let detail = res.statusText;
@@ -41,6 +41,10 @@ export async function req<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(res.status, detail, code, context, rawDetail);
   }
-  return res.json();
+  return { data: await res.json(), headers: res.headers };
 }
 
+
+export async function req<T>(path: string, init?: RequestInit): Promise<T> {
+  return (await reqWithHeaders<T>(path, init)).data;
+}

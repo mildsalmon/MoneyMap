@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import sqlite3
 
+from .lifecycle_migration import migrate_lifecycle
+
 from moneymap.domain.account import OPENING_BALANCE_ACCOUNT_NAME
 from moneymap.domain.scenario import ACTUAL_SCENARIO_ID
 
@@ -317,7 +319,7 @@ def _execute_script(conn: sqlite3.Connection, script: str) -> None:
         raise ValueError("Incomplete migration SQL")
 
 
-MIGRATIONS = (_foundation_schema,)
+MIGRATIONS = (_foundation_schema, migrate_lifecycle)
 
 
 def init_db(conn: sqlite3.Connection) -> None:

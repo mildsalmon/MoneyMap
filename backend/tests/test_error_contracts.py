@@ -28,7 +28,7 @@ def client(tmp_path):
         ("delete", "/api/rules/999", None, 404, "rule_not_found", {}),
         (
             "get",
-            "/api/projection?scenario_ids=invalid",
+            "/api/dashboard-projection?scenario_ids=invalid",
             None,
             400,
             "invalid_scenario_ids",

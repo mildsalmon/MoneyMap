@@ -55,6 +55,12 @@ export interface Scenario {
   name: string;
   base_scenario_id: number | null;
   fork_date: string | null;
+  description: string;
+  status: "active" | "archived";
+  archived_at: string | null;
+  created_at: string;
+  version: number;
+  rule_mode: "live_additive" | "legacy_snapshot";
 }
 
 export interface SeriesPoint {
@@ -93,7 +99,6 @@ export interface StatusSummary {
 }
 
 export interface RuleBody {
-  scenario_id?: number;
   description?: string;
   from_account_id: number;
   to_account_id: number;
@@ -103,3 +108,25 @@ export interface RuleBody {
   end_date?: string | null;
 }
 
+
+export interface EffectiveRule { rule: Rule; origin: "actual" | "scenario"; editable: boolean }
+export interface Projection {
+  fork_date: string; projection_start: string; projection_end: string; months: number;
+  basis: { scenario_version: number; actual_ledger_revision: number; actual_rule_revision: number };
+  capabilities?: { scenario_liquidity?: unknown };
+  net_worth: Record<"baseline" | "scenario", { points: { date: string; balance: number }[] }>;
+  monthly_income_expense: { month: string; baseline: { income: number; expense: number }; scenario: { income: number; expense: number } }[];
+  has_assumptions: boolean;
+}
+export interface DeletionImpact { scenario_id: number; name: string; rules: number; planned_transactions: number; generated_transactions: number; postings: number; version: number }
+export interface LegacyResolution {
+  scenario: Scenario;
+  rules: { legacy_rule_id: number; rule: Rule; actual_candidates: Rule[] }[];
+  transaction_conflicts: { id: number; date: string; description: string }[];
+  generated_transactions: number;
+}
+export interface ResolutionBody {
+  version: number;
+  rule_decisions: { legacy_rule_id: number; action: "discard_snapshot" | "keep_as_scenario" }[];
+  transaction_decisions: { transaction_id: number; action: "move" | "delete"; date?: string }[];
+}

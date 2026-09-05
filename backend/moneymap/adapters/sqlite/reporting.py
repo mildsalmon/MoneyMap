@@ -17,20 +17,14 @@ from .common import _iso
 
 
 class SqliteLedgerQueries:
-    """읽기 전용 집계. 시나리오 fold 의미론 (depth-1, D2):
+    """Stored balances: actual through fork close plus owned manual entries after fork.
 
-        actual:    date ≤ T 의 actual 거래 합
-        시나리오 X: actual 거래 중 [date < fork] 또는
-                     [date = fork 이고 수동 입력(source_rule_id IS NULL)]
-                  + (X 거래, fork_date ≤ date ≤ T)
-
-    fork 당일 규칙 생성분만 제외하는 이유: 시뮬레이션이 복사된 규칙을
-    fork 당일부터 전개하므로, 포함하면 그날 실행분이 이중 계상된다.
-    수동 입력(오늘 적은 개시잔액·지출)은 시나리오에도 보여야 한다.
+    Future rule expansion belongs to ProjectionInputReader and the pure fold.
+    Historical legacy snapshot semantics are isolated in the compatibility reader.
     """
 
     # actual 쪽 fork 경계 조건 (위 docstring의 SQL 표현)
-    _ACTUAL_BEFORE_FORK = "(t.scenario_id=? AND (t.date < ? OR (t.date = ? AND t.source_rule_id IS NULL)))"
+    _ACTUAL_BEFORE_FORK = "(t.scenario_id=? AND t.date <= ?)"
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
@@ -60,17 +54,17 @@ class SqliteLedgerQueries:
             " JOIN transactions t ON t.id = p.txn_id"
             " WHERE p.account_id=? AND t.posted=1 AND ("
             f"   {self._ACTUAL_BEFORE_FORK}"
-            "   OR (t.scenario_id=? AND t.date >= ? AND t.date <= ?)"  # 시나리오 자신
+            "   OR (t.scenario_id=? AND t.date > ? AND t.date <= ? AND t.source_rule_id IS NULL)"  # 시나리오 자신
             " )",
-            (account_id, ACTUAL_SCENARIO_ID, fork, fork, scenario_id, fork, _iso(at)),
+            (account_id, ACTUAL_SCENARIO_ID, fork, scenario_id, fork, _iso(at)),
         ).fetchone()
         return Money(amount=row["bal"])
 
     def actual_base_net_worth(self, fork: datetime.date) -> int:
         """시나리오 시뮬레이션의 시작 순자산 — fork 경계의 actual 쪽만.
 
-        (date < fork) + (date = fork 인 수동 입력). 규칙 생성분 제외 이유는
-        클래스 docstring 참조.
+        fork 당일을 포함한 게시 완료 실제 거래를 합산한다.
+        규칙으로 생성한 실제 거래도 시작일 마감 잔액에 포함한다.
         """
         row = self._conn.execute(
             "SELECT COALESCE(SUM(p.amount),0) AS nw FROM postings p"
@@ -78,7 +72,7 @@ class SqliteLedgerQueries:
             " JOIN accounts a ON a.id = p.account_id"
             " WHERE a.type IN ('asset','liability') AND t.posted=1 AND "
             f"  {self._ACTUAL_BEFORE_FORK}",
-            (ACTUAL_SCENARIO_ID, _iso(fork), _iso(fork)),
+            (ACTUAL_SCENARIO_ID, _iso(fork)),
         ).fetchone()
         return row["nw"]
 
@@ -111,9 +105,9 @@ class SqliteLedgerQueries:
             " JOIN accounts a ON a.id = p.account_id"
             f" WHERE {nw_filter} AND t.posted=1 AND ("
             f"   {self._ACTUAL_BEFORE_FORK}"
-            "   OR (t.scenario_id=? AND t.date >= ? AND t.date <= ?)"
+            "   OR (t.scenario_id=? AND t.date > ? AND t.date <= ? AND t.source_rule_id IS NULL)"
             " )",
-            (ACTUAL_SCENARIO_ID, fork, fork, scenario_id, fork, _iso(at)),
+            (ACTUAL_SCENARIO_ID, fork, scenario_id, fork, _iso(at)),
         ).fetchone()
         return row["nw"]
 

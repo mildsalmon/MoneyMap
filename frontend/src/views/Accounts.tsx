@@ -62,13 +62,22 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   const [reclassTargets, setReclassTargets] = useState<Record<number, number | "">>({});
   const inlineRef = useRef<HTMLInputElement>(null);
 
+  const accountRequest = useRef<AbortController | null>(null);
+  const balanceRequest = useRef<AbortController | null>(null);
+  const openingRequest = useRef<AbortController | null>(null);
+
   const loadAccounts = useCallback(async () => {
+    accountRequest.current?.abort();
+    const controller = new AbortController();
+    accountRequest.current = controller;
     setAccountsError("");
     try {
-      const result = await api.accounts();
+      const result = await api.accounts(controller.signal);
+      if (controller.signal.aborted) return undefined;
       setAccounts(result);
       return result;
     } catch (caught) {
+      if (controller.signal.aborted) return undefined;
       const error = caught as Error;
       setAccountsError(error.message);
       setAccounts((current) => current ?? null);
@@ -77,18 +86,28 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   }, []);
 
   const loadBalances = useCallback(() => {
+    balanceRequest.current?.abort();
+    const controller = new AbortController();
+    balanceRequest.current = controller;
     setBalances(null);
     setBalancesError("");
-    api.balances().then((result) => setBalances(result.accounts)).catch((error: Error) => {
-      setBalancesError(error.message);
+    api.balances(1, controller.signal).then((result) => {
+      if (!controller.signal.aborted) setBalances(result.accounts);
+    }).catch((error: Error) => {
+      if (!controller.signal.aborted) setBalancesError(error.message);
     });
   }, []);
 
   const loadOpeningRecords = useCallback(() => {
+    openingRequest.current?.abort();
+    const controller = new AbortController();
+    openingRequest.current = controller;
     setOpeningRecords(null);
     setOpeningsError("");
-    api.openingBalances().then(setOpeningRecords).catch((error: Error) => {
-      setOpeningsError(error.message);
+    api.openingBalances(controller.signal).then(result => {
+      if (!controller.signal.aborted) setOpeningRecords(result);
+    }).catch((error: Error) => {
+      if (!controller.signal.aborted) setOpeningsError(error.message);
     });
   }, []);
 
@@ -96,6 +115,11 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     void loadAccounts();
     loadBalances();
     loadOpeningRecords();
+    return () => {
+      accountRequest.current?.abort();
+      balanceRequest.current?.abort();
+      openingRequest.current?.abort();
+    };
   }, [gen, loadAccounts, loadBalances, loadOpeningRecords]);
 
   useEffect(() => {

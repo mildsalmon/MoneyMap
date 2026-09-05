@@ -190,7 +190,7 @@ class SqliteTransactionRepository:
             self._conn.rollback()
             raise
 
-    def delete(self, txn_id: int) -> bool:
+    def delete(self, txn_id: int, *, scenario_id: int | None = None) -> bool:
         """거래 삭제. 확정 거래는 먼저 un-post해서 변조 차단 트리거를 통과시킨다.
 
         (트리거는 posted=1 거래의 postings 변조를 막지만, posted 0→ 되돌림은
@@ -200,7 +200,8 @@ class SqliteTransactionRepository:
         try:
             self._conn.execute("BEGIN IMMEDIATE")
             cur = self._conn.execute(
-                "UPDATE transactions SET posted=0 WHERE id=?", (txn_id,)
+                "UPDATE transactions SET posted=0 WHERE id=? AND (? IS NULL OR scenario_id=?)",
+                (txn_id, scenario_id, scenario_id),
             )
             if cur.rowcount == 0:
                 self._conn.rollback()
