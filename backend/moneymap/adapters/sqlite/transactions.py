@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime
 import sqlite3
+from itertools import groupby
 
 from moneymap.domain.account import (
     OPENING_BALANCE_ACCOUNT_NAME,
@@ -265,3 +266,58 @@ class ScenarioTransactionWriter:
         if txn.id is not None:
             raise NotImplementedError("Transaction updates are not implemented")
         return txn.model_copy(update={"id": _insert_txn(self._conn, txn)})
+
+    def list_owned(self, sid: int) -> list[Transaction]:
+        rows = self._conn.execute(
+            "SELECT t.id,t.date,t.description,p.account_id,p.amount,p.currency "
+            "FROM transactions t JOIN postings p ON p.txn_id=t.id "
+            "WHERE t.scenario_id=? AND t.source_rule_id IS NULL AND t.posted=1 "
+            "ORDER BY t.date,t.id,p.id",
+            (sid,),
+        )
+        result = []
+        for tid, items in groupby(rows, key=lambda r: r["id"]):
+            items = list(items)
+            result.append(
+                Transaction(
+                    id=tid,
+                    scenario_id=sid,
+                    date=_D(items[0]["date"]),
+                    description=items[0]["description"],
+                    postings=[
+                        Posting(
+                            account_id=p["account_id"],
+                            amount=Money(amount=p["amount"], currency=p["currency"]),
+                        )
+                        for p in items
+                    ],
+                )
+            )
+        return result
+
+    def replace(self, txn: Transaction) -> Transaction:
+        if not self._conn.in_transaction:
+            raise RuntimeError("Transaction updates require an active UnitOfWork")
+        cur = self._conn.execute(
+            "UPDATE transactions SET posted=0 WHERE id=? AND scenario_id=? "
+            "AND source_rule_id IS NULL AND posted=1",
+            (txn.id, txn.scenario_id),
+        )
+        if cur.rowcount != 1:
+            raise DomainNotFoundError(
+                "예정 거래가 없습니다", code="transaction_not_found"
+            )
+        self._conn.execute("DELETE FROM postings WHERE txn_id=?", (txn.id,))
+        self._conn.execute(
+            "UPDATE transactions SET date=?,description=? WHERE id=?",
+            (_iso(txn.date), txn.description, txn.id),
+        )
+        self._conn.executemany(
+            "INSERT INTO postings(txn_id,account_id,amount,currency) VALUES(?,?,?,?)",
+            [
+                (txn.id, p.account_id, p.amount.amount, p.amount.currency)
+                for p in txn.postings
+            ],
+        )
+        self._conn.execute("UPDATE transactions SET posted=1 WHERE id=?", (txn.id,))
+        return txn
