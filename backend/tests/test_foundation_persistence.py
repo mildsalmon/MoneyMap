@@ -105,33 +105,30 @@ def test_aggregate_failure_rolls_back_all_children(ledger, stage):
     assert not ledger.in_transaction
 
 
-def test_fork_copy_is_atomic_and_writers_do_not_commit(ledger, monkeypatch):
+def test_create_does_not_copy_rules_and_commits_once(ledger, monkeypatch):
+    from moneymap.app_services.scenarios import create_scenario
+    from moneymap.adapters.sqlite.scenarios import ScenarioWriter
+
     with SqliteUnitOfWork(ledger) as uow:
         uow.rules.save(rule())
-        uow.rules.save(rule())
     before = snapshot(ledger)
-    original = ScenarioRuleWriter.save
-    calls = 0
+    original = ScenarioWriter.save
 
-    def fail_second(self, value):
-        nonlocal calls
-        saved = original(self, value)
-        calls += 1
-        if calls == 2:
-            raise DomainInvariantError("injected")
-        return saved
+    def fail_after_insert(self, scenario):
+        original(self, scenario)
+        raise DomainInvariantError("injected")
 
-    monkeypatch.setattr(ScenarioRuleWriter, "save", fail_second)
+    monkeypatch.setattr(ScenarioWriter, "save", fail_after_insert)
     with pytest.raises(DomainInvariantError):
-        app_services.fork_scenario("copy", DAY, SqliteUnitOfWork(ledger))
+        create_scenario("new", "", DAY, SqliteUnitOfWork(ledger))
     assert snapshot(ledger) == before
-    monkeypatch.setattr(ScenarioRuleWriter, "save", original)
+    monkeypatch.setattr(ScenarioWriter, "save", original)
     statements = []
     ledger.set_trace_callback(statements.append)
-    saved, count = app_services.fork_scenario("copy", DAY, SqliteUnitOfWork(ledger))
-    assert saved.id and count == 2
-    assert sum(s == "COMMIT" for s in statements) == 1
-    assert sum(s == "BEGIN IMMEDIATE" for s in statements) == 1
+    result = create_scenario("new", "", DAY, SqliteUnitOfWork(ledger))
+    assert result["effective_actual_rules"] == 1
+    assert not SqliteUnitOfWork(ledger).rules.find_by_scenario(result["scenario"].id)
+    assert statements.count("COMMIT") == statements.count("BEGIN IMMEDIATE") == 1
     with pytest.raises(RuntimeError, match="UnitOfWork"):
         SqliteUnitOfWork(ledger).rules.save(rule())
 
@@ -141,19 +138,22 @@ def test_projection_read_snapshot_and_independent_requests(tmp_path, monkeypatch
         account = client.post(
             "/api/accounts", json={"name": "현금", "type": "asset"}
         ).json()["id"]
-        expected_before = client.get("/api/projection").json()
+        expected_before = client.get("/api/projection?scenario_id=1").json()
+        expected_before.pop("as_of")
         entered, written = Barrier(2), Barrier(2)
-        original = app_services.build_projection
+        from moneymap.adapters.sqlite.projection import ProjectionInputReader
 
-        def paused(**kwargs):
-            # Router has read accounts already, establishing the request's snapshot.
+        original = ProjectionInputReader.read
+
+        def paused(self, sid):
+            self.conn.execute("SELECT * FROM calculation_revisions").fetchall()
             entered.wait(timeout=5)
             written.wait(timeout=5)
-            return original(**kwargs)
+            return original(self, sid)
 
-        monkeypatch.setattr(app_services, "build_projection", paused)
+        monkeypatch.setattr(ProjectionInputReader, "read", paused)
         with ThreadPoolExecutor(max_workers=1) as pool:
-            pending = pool.submit(client.get, "/api/projection")
+            pending = pool.submit(client.get, "/api/projection?scenario_id=1")
             entered.wait(timeout=5)
             assert client.get("/api/health").status_code == 200
             created = client.post(
@@ -166,9 +166,14 @@ def test_projection_read_snapshot_and_independent_requests(tmp_path, monkeypatch
             )
             assert created.status_code == 201
             written.wait(timeout=5)
-            assert pending.result(timeout=5).json() == expected_before
-        monkeypatch.setattr(app_services, "build_projection", original)
-        assert client.get("/api/projection").json() != expected_before
+            result = pending.result(timeout=5).json()
+            result.pop("as_of")
+            assert result == expected_before
+        monkeypatch.setattr(ProjectionInputReader, "read", original)
+        assert (
+            client.get("/api/projection?scenario_id=1").json()["basis"]
+            != expected_before["basis"]
+        )
         assert not hasattr(client.app.state, "conn")
 
 
@@ -332,9 +337,12 @@ def test_materialization_locks_rules_before_planning(ledger, monkeypatch):
         updated = SqliteRecurringRuleRepository(editor).save(edited)
         assert updated.amount.amount == 200
         assert updated.last_materialized == DAY
-        assert ledger.execute(
-            "SELECT amount FROM postings WHERE account_id=2"
-        ).fetchone()["amount"] == 100
+        assert (
+            ledger.execute("SELECT amount FROM postings WHERE account_id=2").fetchone()[
+                "amount"
+            ]
+            == 100
+        )
         monkeypatch.setattr(materialization, "plan_materialization", original)
         assert materialization.materialize_actual(ledger, DAY)[0] == []
     finally:

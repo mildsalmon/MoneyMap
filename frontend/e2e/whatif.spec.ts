@@ -249,6 +249,7 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
 
   // 거래 내역에서 확인
   await nav(page, "거래 내역").click();
+  await expect(page.getByRole("heading", { name: "거래 내역", exact: true })).toBeVisible();
   await expect(page.locator("table.ledger")).toContainText("야식");
   await expect(page.locator("table.ledger")).toContainText("₩52,000");
 
@@ -257,14 +258,15 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
   await expect(page.locator("table.ledger")).toContainText("매월 25일");
   await expect(page.locator("table.ledger")).toContainText("토스뱅크");
 
-  // ── 4. 시나리오 fork — copy-on-fork 확인 (D5)
+  // ── 4. 시나리오 생성 — 최신 실제 규칙은 읽기 전용
   await nav(page, "시나리오").click();
   await field(page, "이름").fill("월 100만 더 저축");
   await page.getByRole("button", { name: "+ 새 시나리오" }).click();
-  await expect(page.locator(".toast")).toContainText("규칙 1개가 복사됨");
+  await expect(page.getByRole("heading", { name: "월 100만 더 저축", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "가정", exact: true }).click();
 
-  const editor = page.locator(".panel", { hasText: "시나리오: 월 100만 더 저축" });
-  await expect(editor).toContainText("월급"); // 복사된 규칙
+  const editor = page.getByRole("tabpanel");
+  await expect(editor).toContainText("월급"); // actual 읽기 전용
 
   // 가설 규칙 추가 (자산→자산 이체 = 순자산 중립)
   await editor.locator('.field:has(label:text-is("내역")) input').fill("추가 저축");
@@ -275,8 +277,8 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
   await expect(editor).toContainText("추가 저축");
 
   // 즉시 미리보기 — 저축 이체는 순자산을 바꾸지 않는다
-  await expect(editor).toContainText("1년 뒤");
-  await expect(editor).toContainText("차이: +₩0");
+  await page.getByRole("tab", { name: "개요", exact: true }).click();
+  await expect(page.locator(".scenario-summary")).toContainText("+₩0");
 
   // ── 5. 대시보드 — 비교 차트 (wedge)
   await nav(page, "대시보드").click();
@@ -295,7 +297,7 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
   // 크로스헤어 툴팁 — 값 + 기준선 근거 (D17, 툴팁은 게이트하지 않음)
   await chart.hover({ position: { x: 600, y: 100 } });
   await expect(page.locator(".chart-tip")).toContainText("현재 패턴 유지");
-  await expect(page.locator(".chart-tip")).toContainText("기준선 근거");
+  await expect(page.locator(".chart-tip")).not.toContainText("변동지출 월평균");
 
   // 표 뷰 — 접근성 경로
   await page.getByRole("button", { name: "표로 보기" }).click();

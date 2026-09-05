@@ -4,9 +4,10 @@
  * 항상 같은 자리에서 검산을 보여준다.
  */
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import { accountTree, api, isPostable, type Account, type Txn } from "../api";
+import { accountTree, api, isPostable, type Account } from "../api";
 import { commaInput, fmtDelta, fmtWon, todayIso } from "../format";
 import type { ViewProps } from "../App";
+import { useQuery } from "./scenarios/useQuery";
 
 type Tab = "expense" | "income" | "transfer" | "card" | "advanced";
 
@@ -48,8 +49,9 @@ function AccountSelect({
 }
 
 export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [recent, setRecent] = useState<Txn[]>([]);
+  const query = useQuery(`transaction-input:${gen}`, signal => Promise.all([api.accounts(signal), api.transactions(1, signal)]));
+  const accounts = query.data?.[0] ?? [];
+  const recent = query.data?.[1].slice(-8).reverse() ?? [];
   const [tab, setTab] = useState<Tab>("expense");
   const [date, setDate] = useState(todayIso());
   const [desc, setDesc] = useState("");
@@ -63,24 +65,16 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
   const [err, setErr] = useState("");
   const amountRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    api.accounts().then(setAccounts);
-    api.transactions().then((t) => setRecent(t.slice(-8).reverse()));
-  }, [gen]);
-
   const typeOf = useMemo(() => new Map(accounts.map((a) => [a.id, a.type])), [accounts]);
   const nameOf = (id: number) => accounts.find((a) => a.id === id)?.name ?? `#${id}`;
   const value = commaInput(amount).value;
 
-  // 카드값 탭: 카드 선택 시 현재 부채 잔액 자동 채움 (수정 가능 = 부분 납부, D18)
+  // 카드 선택이 바뀌거나 화면을 떠나면 이전 잔액 요청을 취소한다.
+  const cardQuery = useQuery(`card-balance:${tab}:${acc1}`, signal => tab === "card" && acc1 !== "" ? api.balances(1, signal) : Promise.resolve(undefined));
   useEffect(() => {
-    if (tab !== "card" || acc1 === "") return;
-    api.balances().then((b) => {
-      const bal = b.accounts.find((x) => x.account_id === acc1);
-      if (bal && !amount) setAmount(commaInput(String(Math.abs(bal.balance))).display);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [acc1, tab]);
+    const balance = cardQuery.data?.accounts.find(account => account.account_id === acc1);
+    if (balance) setAmount(current => current || commaInput(String(Math.abs(balance.balance))).display);
+  }, [cardQuery.data, acc1]);
 
   // 미리보기 postings (저장 payload와 동일 소스 — 미리보기가 곧 진실)
   const postings = useMemo((): { account_id: number; amount: number }[] => {
@@ -117,7 +111,7 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
 
   const save = async (thenDashboard = false) => {
     setErr("");
-    if (!balanced) return;
+    if (!balanced || !query.data) return;
     try {
       const txn = await api.createTransaction({ date, description: desc.trim(), postings });
       refresh();
@@ -182,6 +176,11 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
   return (
     <div>
       <h1>거래 입력</h1>
+      {query.error && <p role="alert">입력 정보를 불러오지 못했습니다. {query.error} <button className="btn secondary" onClick={query.reload}>다시 불러오기</button></p>}
+      {!query.data && !query.error && <p role="status">입력 정보 확인 중…</p>}
+      {query.data && accounts.length === 0 && <p>거래를 입력할 계정을 먼저 만들어주세요. <button className="btn secondary" onClick={() => go("accounts")}>계정 만들기</button></p>}
+      {tab === "card" && acc1 !== "" && !cardQuery.data && !cardQuery.error && <p role="status">카드 잔액 확인 중…</p>}
+      {cardQuery.error && <p role="alert">카드 잔액을 불러오지 못했습니다. {cardQuery.error} <button className="btn secondary" onClick={cardQuery.reload}>잔액 다시 확인</button></p>}
       <div className="tabs">
         {TABS.map((t) => (
           <button key={t.id} type="button" className={`tab ${tab === t.id ? "on" : ""}`}
@@ -256,8 +255,8 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
           </>)}
 
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-            <button className="btn primary" disabled={!balanced} onClick={() => save(false)}>저장 (Enter)</button>
-            <button className="btn secondary" disabled={!balanced} onClick={() => save(true)}>저장 후 대시보드</button>
+            <button className="btn primary" disabled={!balanced || !query.data} onClick={() => save(false)}>저장 (Enter)</button>
+            <button className="btn secondary" disabled={!balanced || !query.data} onClick={() => save(true)}>저장 후 대시보드</button>
             {err && <span style={{ color: "var(--danger)", fontSize: 12, alignSelf: "center" }}>{err}</span>}
           </div>
         </div>

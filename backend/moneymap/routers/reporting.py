@@ -1,15 +1,28 @@
 from __future__ import annotations
 
 import datetime
+from enum import IntEnum
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from moneymap import app_services
+from moneymap.app_services.projection import (
+    build_projection,
+    build_dashboard_projection,
+)
+from moneymap.app_services.scenarios import now
+from moneymap.adapters.sqlite.projection import ProjectionInputReader
 from moneymap.dependencies import repos, request_connection
 from moneymap.domain import (
     ACTUAL_SCENARIO_ID,
     reporting_type,
 )
+
+
+class Months(IntEnum):
+    three = 3
+    six = 6
+    twelve = 12
+
 
 router = APIRouter(dependencies=[Depends(request_connection)])
 
@@ -21,7 +34,7 @@ def balances(
     at: datetime.date | None = None,
 ):
     r = repos(request)
-    at = at or datetime.date.today()
+    at = at or now().date()
     out = []
     for a in r["accounts"].find_all():
         assert a.id is not None
@@ -45,16 +58,30 @@ def balances(
 
 @router.get("/api/projection")
 def projection(
-    request: Request,
-    months: int = Query(default=12, ge=1, le=60),
-    scenario_ids: str = "",  # "2,3"
+    request: Request, scenario_id: int = Query(..., gt=0), months: Months = Months.six
 ):
-    r = repos(request)
+    if len(request.query_params.getlist("scenario_id")) != 1:
+        raise HTTPException(
+            422,
+            detail={
+                "code": "invalid_scenario_id",
+                "message": "scenario_id는 하나만 지정하세요",
+            },
+        )
+    return build_projection(
+        ProjectionInputReader(request.state.conn), scenario_id, months
+    )
+
+
+@router.get("/api/dashboard-projection")
+def dashboard_projection(
+    request: Request, months: Months = Months.six, scenario_ids: str = ""
+):
     try:
-        ids = [int(s) for s in scenario_ids.split(",") if s.strip()]
+        ids = [int(value) for value in scenario_ids.split(",") if value.strip()]
     except ValueError as exc:
         raise HTTPException(
-            status_code=400,
+            400,
             detail={
                 "code": "invalid_scenario_ids",
                 "message": "시나리오 ID는 정수여야 합니다",
@@ -62,23 +89,16 @@ def projection(
         ) from exc
     if len(ids) > 3:
         raise HTTPException(
-            status_code=400,
+            400,
             detail={
                 "code": "scenario_limit_exceeded",
-                "message": "차트에는 최대 3개 시나리오만 표시됩니다 (D19)",
+                "message": "차트에는 최대 3개 시나리오만 표시됩니다",
                 "maximum": 3,
             },
         )
-    return {
-        "series": app_services.build_projection(
-            accounts=r["accounts"].find_all(),
-            txn_repo=r["txns"],
-            rule_repo=r["rules"],
-            scenario_repo=r["scenarios"],
-            net_worth_at=r["queries"].net_worth_at,
-            actual_base_net_worth=r["queries"].actual_base_net_worth,
-            today=datetime.date.today(),
-            months=months,
-            scenario_ids=ids,
-        )
-    }
+    return build_dashboard_projection(
+        ProjectionInputReader(request.state.conn),
+        repos(request)["scenarios"],
+        ids,
+        months,
+    )

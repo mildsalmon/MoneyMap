@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ValidationError
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from moneymap.adapters.sqlite.materialization import materialize_actual
+from moneymap.app_services.scenarios import now
 from moneymap.dependencies import repos, request_connection
 from moneymap.domain import (
     ACTUAL_SCENARIO_ID,
@@ -18,7 +20,7 @@ router = APIRouter(dependencies=[Depends(request_connection)])
 
 
 class RuleIn(BaseModel):
-    scenario_id: int = ACTUAL_SCENARIO_ID
+    model_config = ConfigDict(extra="forbid")
     description: str = ""
     from_account_id: int
     to_account_id: int
@@ -29,7 +31,7 @@ class RuleIn(BaseModel):
 
 
 @router.get("/api/rules")
-def list_rules(request: Request, scenario_id: int = ACTUAL_SCENARIO_ID):
+def list_rules(request: Request, scenario_id: int = Query(default=1, ge=1, le=1)):
     return [
         r.model_dump() for r in repos(request)["rules"].find_by_scenario(scenario_id)
     ]
@@ -39,7 +41,7 @@ def list_rules(request: Request, scenario_id: int = ACTUAL_SCENARIO_ID):
 def create_rule(body: RuleIn, request: Request):
     try:
         rule = RecurringRule(
-            scenario_id=body.scenario_id,
+            scenario_id=ACTUAL_SCENARIO_ID,
             description=body.description,
             from_account_id=body.from_account_id,
             to_account_id=body.to_account_id,
@@ -57,7 +59,7 @@ def create_rule(body: RuleIn, request: Request):
 def update_rule(rule_id: int, body: RuleIn, request: Request):
     r = repos(request)
     existing = [
-        x for x in r["rules"].find_by_scenario(body.scenario_id) if x.id == rule_id
+        x for x in r["rules"].find_by_scenario(ACTUAL_SCENARIO_ID) if x.id == rule_id
     ]
     if not existing:
         raise HTTPException(
@@ -65,8 +67,9 @@ def update_rule(rule_id: int, body: RuleIn, request: Request):
             detail={"code": "rule_not_found", "message": "규칙이 없습니다"},
         )
     try:
-        updated = existing[0].model_copy(
-            update={
+        updated = RecurringRule.model_validate(
+            {
+                **existing[0].model_dump(),
                 "description": body.description,
                 "from_account_id": body.from_account_id,
                 "to_account_id": body.to_account_id,
@@ -89,14 +92,14 @@ def delete_rule(rule_id: int, request: Request):
     생성된 거래의 source_rule_id 참조(FK)는 끊고(NULL) 지운다 —
     거래는 보존하되 출처 badge만 사라진다.
     """
-    repos(request)["rules"].delete(rule_id)
+    repos(request)["rules"].delete(rule_id, scenario_id=ACTUAL_SCENARIO_ID)
     return {"deleted": rule_id}
 
 
 @router.post("/api/materialize")
 def materialize(request: Request):
     r = repos(request)
-    ids, plan = materialize_actual(r["conn"], today=datetime.date.today())
+    ids, plan = materialize_actual(r["conn"], today=now().date())
     return {
         "created": len(ids),
         "transactions": [

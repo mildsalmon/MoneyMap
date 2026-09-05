@@ -110,16 +110,17 @@ def test_vertical_slice_onboarding_to_projection(client):
         json={"name": "월 100만 더 저축", "fork_date": TODAY.isoformat()},
     )
     assert res.status_code == 201, res.text
-    sc = res.json()
-    assert sc["copied_rules"] == 1
-    copied = client.get("/api/rules", params={"scenario_id": sc["id"]}).json()
-    assert len(copied) == 1 and copied[0]["description"] == "월급"
+    sc = res.json()["scenario"]
+    assert res.json()["effective_actual_rules"] == 1
+    assert client.get(f"/api/scenarios/{sc['id']}/rules").json() == []
+    effective = client.get(f"/api/scenarios/{sc['id']}/effective-rules").json()
+    assert effective[0]["origin"] == "actual" and not effective[0]["editable"]
 
     # 6. 시나리오에 가설 규칙 추가 (자산→자산 이체라 순자산 중립)
     client.post(
-        "/api/rules",
+        f"/api/scenarios/{sc['id']}/rules",
         json={
-            "scenario_id": sc["id"],
+            "scenario_version": sc["version"],
             "from_account_id": toss,
             "to_account_id": saving,
             "amount": 1_000_000,
@@ -131,14 +132,15 @@ def test_vertical_slice_onboarding_to_projection(client):
 
     # 7. 프로젝션 — 시리즈 3종 (실제 / 기준선 / 시나리오)
     proj = client.get(
-        "/api/projection", params={"months": 12, "scenario_ids": str(sc["id"])}
+        "/api/dashboard-projection",
+        params={"months": 12, "scenario_ids": str(sc["id"])},
     ).json()
     kinds = [s["kind"] for s in proj["series"]]
     assert kinds == ["actual", "baseline", "scenario"]
 
     actual, baseline, scenario = proj["series"]
-    assert actual["points"][-1]["net_worth"] == expected_nw      # 실제는 오늘에서 끊김
-    assert baseline["basis"]["monthly_variable_spend"] == 0      # 변동지출 기록 없음
+    assert actual["points"][-1]["net_worth"] == expected_nw  # 실제는 오늘에서 끊김
+    assert "basis" not in baseline  # No inferred variable-spend adjustment.
     # 1년 뒤: 기준선은 월급 12회 안팎으로 증가해야 한다
     assert baseline["points"][-1]["net_worth"] >= expected_nw + 11 * 3_000_000
     # 시나리오의 저축 이체는 순자산 중립 → 기준선과 최종값 동일
@@ -165,13 +167,15 @@ def test_unbalanced_transaction_returns_400(client):
 
 def test_account_parent_type_mismatch_returns_stable_conflict(client):
     a = make_account(client, "A", "asset")
-    res = client.post("/api/accounts", json={"name": "B", "type": "expense", "parent_id": a})
+    res = client.post(
+        "/api/accounts", json={"name": "B", "type": "expense", "parent_id": a}
+    )
     assert res.status_code == 409
     assert res.json()["detail"]["code"] == "account_parent_type_mismatch"
 
 
 def test_projection_rejects_more_than_3_scenarios(client):
-    res = client.get("/api/projection", params={"scenario_ids": "2,3,4,5"})
+    res = client.get("/api/dashboard-projection", params={"scenario_ids": "2,3,4,5"})
     assert res.status_code == 400
     assert "최대 3개" in res.json()["detail"]["message"]
 
@@ -185,8 +189,15 @@ def test_seed_standard_accounts_builds_tree_and_is_idempotent(client):
     assert len(accounts) == 31
     by_name = {a["name"]: a for a in accounts}
     for group_name in [
-        "입출금통장", "저축·적금", "투자", "페이·선불충전",
-        "신용카드", "대출", "식비", "교통", "문화·여가",
+        "입출금통장",
+        "저축·적금",
+        "투자",
+        "페이·선불충전",
+        "신용카드",
+        "대출",
+        "식비",
+        "교통",
+        "문화·여가",
     ]:
         assert by_name[group_name]["is_placeholder"] is True
     for leaf_name in ["현금", "급여", "외식", "식료품", "배달", "개시잔액"]:
@@ -220,19 +231,28 @@ def test_account_rename_preserves_id_and_balances(client):
     toss = make_account(client, "Toss", "asset")
     salary = make_account(client, "월급", "income")
     opening = opening_account_id(client)
-    res = client.post("/api/transactions", json={
-        "date": TODAY.isoformat(),
-        "postings": [{"account_id": toss, "amount": 1000}, {"account_id": opening, "amount": -1000}],
-    })
+    res = client.post(
+        "/api/transactions",
+        json={
+            "date": TODAY.isoformat(),
+            "postings": [
+                {"account_id": toss, "amount": 1000},
+                {"account_id": opening, "amount": -1000},
+            ],
+        },
+    )
     assert res.status_code == 201, res.text
-    res = client.post("/api/rules", json={
-        "from_account_id": salary,
-        "to_account_id": toss,
-        "amount": 3000,
-        "schedule": "monthly:25",
-        "start_date": TODAY.isoformat(),
-        "description": "월급",
-    })
+    res = client.post(
+        "/api/rules",
+        json={
+            "from_account_id": salary,
+            "to_account_id": toss,
+            "amount": 3000,
+            "schedule": "monthly:25",
+            "start_date": TODAY.isoformat(),
+            "description": "월급",
+        },
+    )
     assert res.status_code == 201, res.text
     before = client.get("/api/balances").json()
 
@@ -244,7 +264,9 @@ def test_account_rename_preserves_id_and_balances(client):
 
     after = client.get("/api/balances").json()
     assert after["net_worth"] == before["net_worth"]
-    assert next(b for b in after["accounts"] if b["account_id"] == toss)["balance"] == 1000
+    assert (
+        next(b for b in after["accounts"] if b["account_id"] == toss)["balance"] == 1000
+    )
     assert client.get("/api/status").json()["trial_balance_ok"] is True
     rule = client.get("/api/rules", params={"scenario_id": 1}).json()[0]
     assert rule["from_account_id"] == salary
@@ -286,7 +308,9 @@ def test_account_create_and_rename_share_name_policy(client):
     assert res.json()["detail"]["code"] == "account_name_required"
 
 
-def test_account_rename_duplicate_policy_includes_archived_and_allows_different_parent(client):
+def test_account_rename_duplicate_policy_includes_archived_and_allows_different_parent(
+    client,
+):
     archived = make_account(client, "Toss", "asset")
     assert client.post(f"/api/accounts/{archived}/archive").status_code == 200
     other = make_account(client, "Other", "asset")
@@ -348,7 +372,8 @@ def test_account_settings_reparent_preserves_linked_accounting_data(client):
     )
     assert rule.status_code == 201, rule.text
     before_balance = next(
-        row for row in client.get("/api/balances").json()["accounts"]
+        row
+        for row in client.get("/api/balances").json()["accounts"]
         if row["account_id"] == moving
     )
     before_opening = client.get("/api/opening-balances").json()
@@ -372,7 +397,8 @@ def test_account_settings_reparent_preserves_linked_accounting_data(client):
     }
 
     after_balance = next(
-        row for row in client.get("/api/balances").json()["accounts"]
+        row
+        for row in client.get("/api/balances").json()["accounts"]
         if row["account_id"] == moving
     )
     assert after_balance["balance"] == before_balance["balance"]
@@ -566,7 +592,9 @@ def test_account_archive_and_restore(client):
 
 def test_archive_blocked_by_children_and_rules(client):
     group = make_account(client, "식비그룹", "expense")
-    child = client.post("/api/accounts", json={"name": "배달", "type": "expense", "parent_id": group}).json()["id"]
+    child = client.post(
+        "/api/accounts", json={"name": "배달", "type": "expense", "parent_id": group}
+    ).json()["id"]
     # 자식이 있으면 차단
     assert client.post(f"/api/accounts/{group}/archive").status_code == 400
     # 자식 보관 후에는 가능
@@ -578,11 +606,16 @@ def test_archive_blocked_by_children_and_rules(client):
     # 규칙 참조 차단
     toss = make_account(client, "Toss", "asset")
     salary = make_account(client, "월급", "income")
-    rule = client.post("/api/rules", json={
-        "from_account_id": salary, "to_account_id": toss,
-        "amount": 3_000_000, "schedule": "monthly:25",
-        "start_date": TODAY.replace(day=1).isoformat(),
-    }).json()
+    rule = client.post(
+        "/api/rules",
+        json={
+            "from_account_id": salary,
+            "to_account_id": toss,
+            "amount": 3_000_000,
+            "schedule": "monthly:25",
+            "start_date": TODAY.replace(day=1).isoformat(),
+        },
+    ).json()
     res = client.post(f"/api/accounts/{toss}/archive")
     assert res.status_code == 400 and "반복 규칙" in res.json()["detail"]["message"]
     # 규칙 삭제 후에는 보관 가능
@@ -593,16 +626,21 @@ def test_archive_blocked_by_children_and_rules(client):
 def test_delete_rule_keeps_materialized_txns(client):
     toss = make_account(client, "Toss", "asset")
     salary = make_account(client, "월급", "income")
-    rule = client.post("/api/rules", json={
-        "from_account_id": salary, "to_account_id": toss,
-        "amount": 3_000_000, "schedule": f"monthly:{min(TODAY.day, 28)}",
-        "start_date": TODAY.replace(day=1).isoformat(),
-    }).json()
+    rule = client.post(
+        "/api/rules",
+        json={
+            "from_account_id": salary,
+            "to_account_id": toss,
+            "amount": 3_000_000,
+            "schedule": f"monthly:{min(TODAY.day, 28)}",
+            "start_date": TODAY.replace(day=1).isoformat(),
+        },
+    ).json()
     created = client.post("/api/materialize").json()["created"]
     assert created >= 1
     assert client.delete(f"/api/rules/{rule['id']}").status_code == 200
     txns = client.get("/api/transactions").json()
-    assert len(txns) == created                      # 거래는 보존 (D9)
+    assert len(txns) == created  # 거래는 보존 (D9)
     assert all(t["source_rule_id"] is None for t in txns)  # 출처 참조만 해제
     assert client.get("/api/rules").json() == []
 
@@ -610,31 +648,40 @@ def test_delete_rule_keeps_materialized_txns(client):
 def test_system_accounts_cannot_be_used_by_recurring_rules(client):
     cash = make_account(client, "현금", "asset")
     opening = opening_account_id(client)
-    invalid = client.post("/api/rules", json={
-        "from_account_id": opening,
-        "to_account_id": cash,
-        "amount": 1000,
-        "schedule": "monthly:1",
-        "start_date": TODAY.replace(day=1).isoformat(),
-    })
+    invalid = client.post(
+        "/api/rules",
+        json={
+            "from_account_id": opening,
+            "to_account_id": cash,
+            "amount": 1000,
+            "schedule": "monthly:1",
+            "start_date": TODAY.replace(day=1).isoformat(),
+        },
+    )
     assert invalid.status_code == 400
     assert "시스템" in invalid.json()["detail"]["message"]
 
     income = make_account(client, "급여", "income")
-    valid = client.post("/api/rules", json={
-        "from_account_id": income,
-        "to_account_id": cash,
-        "amount": 1000,
-        "schedule": "monthly:1",
-        "start_date": TODAY.replace(day=1).isoformat(),
-    }).json()
-    update = client.put(f"/api/rules/{valid['id']}", json={
-        "from_account_id": opening,
-        "to_account_id": cash,
-        "amount": 1000,
-        "schedule": "monthly:1",
-        "start_date": TODAY.replace(day=1).isoformat(),
-    })
+    valid = client.post(
+        "/api/rules",
+        json={
+            "from_account_id": income,
+            "to_account_id": cash,
+            "amount": 1000,
+            "schedule": "monthly:1",
+            "start_date": TODAY.replace(day=1).isoformat(),
+        },
+    ).json()
+    update = client.put(
+        f"/api/rules/{valid['id']}",
+        json={
+            "from_account_id": opening,
+            "to_account_id": cash,
+            "amount": 1000,
+            "schedule": "monthly:1",
+            "start_date": TODAY.replace(day=1).isoformat(),
+        },
+    )
     assert update.status_code == 400
     assert "시스템" in update.json()["detail"]["message"]
 
@@ -663,7 +710,9 @@ def test_legacy_system_rule_cannot_turn_materialized_txn_into_opening(client):
 
     blocked = client.delete(f"/api/rules/{rule_id}")
     assert blocked.status_code == 409
-    assert blocked.json()["detail"]["code"] == "system_rule_has_materialized_transactions"
+    assert (
+        blocked.json()["detail"]["code"] == "system_rule_has_materialized_transactions"
+    )
     assert client.get("/api/opening-balances").json() == []
 
     txn_id = materialized["transactions"][0]["id"]
@@ -674,20 +723,37 @@ def test_legacy_system_rule_cannot_turn_materialized_txn_into_opening(client):
 
 def test_placeholder_account_blocks_posting(client):
     # 그룹으로 계정 생성 → 직접 기장·규칙 대상 불가
-    grp = client.post("/api/accounts", json={"name": "입출금통장", "type": "asset", "is_placeholder": True}).json()["id"]
+    grp = client.post(
+        "/api/accounts",
+        json={"name": "입출금통장", "type": "asset", "is_placeholder": True},
+    ).json()["id"]
     opening = opening_account_id(client)
-    res = client.post("/api/transactions", json={
-        "date": TODAY.isoformat(),
-        "postings": [{"account_id": grp, "amount": 1_000_000}, {"account_id": opening, "amount": -1_000_000}],
-    })
+    res = client.post(
+        "/api/transactions",
+        json={
+            "date": TODAY.isoformat(),
+            "postings": [
+                {"account_id": grp, "amount": 1_000_000},
+                {"account_id": opening, "amount": -1_000_000},
+            ],
+        },
+    )
     assert res.status_code == 400 and "그룹" in res.json()["detail"]["message"]
 
     # 하위 리프를 만들면 거기엔 기장 가능
-    leaf = client.post("/api/accounts", json={"name": "토스뱅크", "type": "asset", "parent_id": grp}).json()["id"]
-    res = client.post("/api/transactions", json={
-        "date": TODAY.isoformat(),
-        "postings": [{"account_id": leaf, "amount": 1_000_000}, {"account_id": opening, "amount": -1_000_000}],
-    })
+    leaf = client.post(
+        "/api/accounts", json={"name": "토스뱅크", "type": "asset", "parent_id": grp}
+    ).json()["id"]
+    res = client.post(
+        "/api/transactions",
+        json={
+            "date": TODAY.isoformat(),
+            "postings": [
+                {"account_id": leaf, "amount": 1_000_000},
+                {"account_id": opening, "amount": -1_000_000},
+            ],
+        },
+    )
     assert res.status_code == 201
 
 
@@ -695,34 +761,59 @@ def test_account_with_children_auto_nonpostable(client):
     # placeholder 아닌 일반 리프도 자식이 붙으면 자동으로 비기장
     parent = make_account(client, "식비", "expense")
     toss = make_account(client, "Toss", "asset")
-    client.post("/api/accounts", json={"name": "배달", "type": "expense", "parent_id": parent})
-    res = client.post("/api/transactions", json={
-        "date": TODAY.isoformat(),
-        "postings": [{"account_id": parent, "amount": 5000}, {"account_id": toss, "amount": -5000}],
-    })
+    client.post(
+        "/api/accounts", json={"name": "배달", "type": "expense", "parent_id": parent}
+    )
+    res = client.post(
+        "/api/transactions",
+        json={
+            "date": TODAY.isoformat(),
+            "postings": [
+                {"account_id": parent, "amount": 5000},
+                {"account_id": toss, "amount": -5000},
+            ],
+        },
+    )
     assert res.status_code == 400 and "그룹" in res.json()["detail"]["message"]
 
 
 def test_posted_leaf_can_gain_child_then_blocks_new_direct_postings(client):
     parent = make_account(client, "식비", "expense")
     cash = make_account(client, "현금", "asset")
-    res = client.post("/api/transactions", json={
-        "date": TODAY.isoformat(),
-        "description": "기존 식비",
-        "postings": [{"account_id": parent, "amount": 5000}, {"account_id": cash, "amount": -5000}],
-    })
+    res = client.post(
+        "/api/transactions",
+        json={
+            "date": TODAY.isoformat(),
+            "description": "기존 식비",
+            "postings": [
+                {"account_id": parent, "amount": 5000},
+                {"account_id": cash, "amount": -5000},
+            ],
+        },
+    )
     assert res.status_code == 201, res.text
 
-    child = client.post("/api/accounts", json={
-        "name": "배달", "type": "expense", "parent_id": parent,
-    })
+    child = client.post(
+        "/api/accounts",
+        json={
+            "name": "배달",
+            "type": "expense",
+            "parent_id": parent,
+        },
+    )
     assert child.status_code == 201, child.text
 
-    res = client.post("/api/transactions", json={
-        "date": TODAY.isoformat(),
-        "description": "새 식비",
-        "postings": [{"account_id": parent, "amount": 7000}, {"account_id": cash, "amount": -7000}],
-    })
+    res = client.post(
+        "/api/transactions",
+        json={
+            "date": TODAY.isoformat(),
+            "description": "새 식비",
+            "postings": [
+                {"account_id": parent, "amount": 7000},
+                {"account_id": cash, "amount": -7000},
+            ],
+        },
+    )
     assert res.status_code == 400 and "그룹" in res.json()["detail"]["message"]
 
 
@@ -730,38 +821,63 @@ def test_rule_reference_blocks_adding_child_until_rule_is_moved(client):
     parent = make_account(client, "식비", "expense")
     other_expense = make_account(client, "기타지출", "expense")
     cash = make_account(client, "현금", "asset")
-    rule = client.post("/api/rules", json={
-        "from_account_id": cash, "to_account_id": parent,
-        "amount": 30_000, "schedule": "monthly:25",
-        "start_date": TODAY.replace(day=1).isoformat(),
-        "description": "월 식비",
-    }).json()
+    rule = client.post(
+        "/api/rules",
+        json={
+            "from_account_id": cash,
+            "to_account_id": parent,
+            "amount": 30_000,
+            "schedule": "monthly:25",
+            "start_date": TODAY.replace(day=1).isoformat(),
+            "description": "월 식비",
+        },
+    ).json()
 
-    res = client.post("/api/accounts", json={
-        "name": "배달", "type": "expense", "parent_id": parent,
-    })
+    res = client.post(
+        "/api/accounts",
+        json={
+            "name": "배달",
+            "type": "expense",
+            "parent_id": parent,
+        },
+    )
     assert res.status_code == 400
     assert "반복 규칙" in res.json()["detail"]["message"]
 
-    res = client.put(f"/api/rules/{rule['id']}", json={
-        "from_account_id": cash, "to_account_id": other_expense,
-        "amount": 30_000, "schedule": "monthly:25",
-        "start_date": TODAY.replace(day=1).isoformat(),
-        "description": "월 식비",
-    })
+    res = client.put(
+        f"/api/rules/{rule['id']}",
+        json={
+            "from_account_id": cash,
+            "to_account_id": other_expense,
+            "amount": 30_000,
+            "schedule": "monthly:25",
+            "start_date": TODAY.replace(day=1).isoformat(),
+            "description": "월 식비",
+        },
+    )
     assert res.status_code == 200, res.text
 
-    res = client.post("/api/accounts", json={
-        "name": "배달", "type": "expense", "parent_id": parent,
-    })
+    res = client.post(
+        "/api/accounts",
+        json={
+            "name": "배달",
+            "type": "expense",
+            "parent_id": parent,
+        },
+    )
     assert res.status_code == 201, res.text
 
 
 def test_clean_parent_can_gain_child(client):
     parent = make_account(client, "교통", "expense")
-    child = client.post("/api/accounts", json={
-        "name": "택시", "type": "expense", "parent_id": parent,
-    })
+    child = client.post(
+        "/api/accounts",
+        json={
+            "name": "택시",
+            "type": "expense",
+            "parent_id": parent,
+        },
+    )
     assert child.status_code == 201, child.text
 
 
@@ -770,11 +886,17 @@ def test_reclassify_direct_postings_to_child_preserves_combined_balance(client):
     cash = make_account(client, "현금", "asset")
     amounts = [5000, 8000, 12_000]
     for i, amount in enumerate(amounts):
-        res = client.post("/api/transactions", json={
-            "date": TODAY.isoformat(),
-            "description": f"식비 {i}",
-            "postings": [{"account_id": parent, "amount": amount}, {"account_id": cash, "amount": -amount}],
-        })
+        res = client.post(
+            "/api/transactions",
+            json={
+                "date": TODAY.isoformat(),
+                "description": f"식비 {i}",
+                "postings": [
+                    {"account_id": parent, "amount": amount},
+                    {"account_id": cash, "amount": -amount},
+                ],
+            },
+        )
         assert res.status_code == 201, res.text
     child = make_child_account(client, "배달", "expense", parent)
     total = sum(amounts)
@@ -804,7 +926,9 @@ def test_reclassify_direct_rejects_non_child_or_group_target(client):
     res = client.post(f"/api/accounts/{parent}/reclassify-direct", params={"to": other})
     assert res.status_code == 400 and "직접 하위" in res.json()["detail"]["message"]
 
-    res = client.post(f"/api/accounts/{parent}/reclassify-direct", params={"to": child_group})
+    res = client.post(
+        f"/api/accounts/{parent}/reclassify-direct", params={"to": child_group}
+    )
     assert res.status_code == 400 and "그룹" in res.json()["detail"]["message"]
 
 
@@ -812,11 +936,16 @@ def test_placeholder_toggle_guard(client):
     toss = make_account(client, "Toss", "asset")
     opening = opening_account_id(client)
     salary = make_account(client, "급여", "income")
-    rule = client.post("/api/rules", json={
-        "from_account_id": salary, "to_account_id": toss,
-        "amount": 3_000_000, "schedule": "monthly:25",
-        "start_date": TODAY.replace(day=1).isoformat(),
-    }).json()
+    rule = client.post(
+        "/api/rules",
+        json={
+            "from_account_id": salary,
+            "to_account_id": toss,
+            "amount": 3_000_000,
+            "schedule": "monthly:25",
+            "start_date": TODAY.replace(day=1).isoformat(),
+        },
+    ).json()
     # 반복 규칙이 계속 그룹을 직접 참조하게 되는 전환도 차단한다.
     blocked_by_rule = client.post(
         f"/api/accounts/{toss}/placeholder", json={"is_placeholder": True}
@@ -825,15 +954,28 @@ def test_placeholder_toggle_guard(client):
     assert "반복 규칙" in blocked_by_rule.json()["detail"]["message"]
     assert client.delete(f"/api/rules/{rule['id']}").status_code == 200
     # 그룹 전환 가능 (거래 없음)
-    assert client.post(f"/api/accounts/{toss}/placeholder", json={"is_placeholder": True}).json()["is_placeholder"] is True
+    assert (
+        client.post(
+            f"/api/accounts/{toss}/placeholder", json={"is_placeholder": True}
+        ).json()["is_placeholder"]
+        is True
+    )
     # 해제 후 거래 기록
     client.post(f"/api/accounts/{toss}/placeholder", json={"is_placeholder": False})
-    client.post("/api/transactions", json={
-        "date": TODAY.isoformat(),
-        "postings": [{"account_id": toss, "amount": 1000}, {"account_id": opening, "amount": -1000}],
-    })
+    client.post(
+        "/api/transactions",
+        json={
+            "date": TODAY.isoformat(),
+            "postings": [
+                {"account_id": toss, "amount": 1000},
+                {"account_id": opening, "amount": -1000},
+            ],
+        },
+    )
     # 거래가 있으면 그룹 전환 차단
-    res = client.post(f"/api/accounts/{toss}/placeholder", json={"is_placeholder": True})
+    res = client.post(
+        f"/api/accounts/{toss}/placeholder", json={"is_placeholder": True}
+    )
     assert res.status_code == 400 and "이미 거래" in res.json()["detail"]["message"]
 
 
@@ -919,12 +1061,14 @@ def test_negative_opening_balance_reports_liability_and_keeps_trial_balance(clie
     assert postings == [-74_566_154, 74_566_154]
 
     openings = client.get("/api/opening-balances").json()
-    assert openings == [{
-        "account_id": overdraft,
-        "transaction_id": created.json()["id"],
-        "date": "2026-08-02",
-        "state": "negative",
-    }]
+    assert openings == [
+        {
+            "account_id": overdraft,
+            "transaction_id": created.json()["id"],
+            "date": "2026-08-02",
+            "state": "negative",
+        }
+    ]
     balance = client.get("/api/balances", params={"at": "2026-08-02"}).json()
     row = next(b for b in balance["accounts"] if b["account_id"] == overdraft)
     assert row["type"] == "asset"
@@ -1053,7 +1197,7 @@ def test_scenario_balance_uses_raw_balance_for_overdraft_reporting(client):
 
     result = client.get(
         "/api/balances",
-        params={"scenario_id": scenario["id"], "at": "2026-08-02"},
+        params={"scenario_id": scenario["scenario"]["id"], "at": "2026-08-02"},
     ).json()
     row = next(item for item in result["accounts"] if item["account_id"] == overdraft)
     assert row["balance"] == -1000

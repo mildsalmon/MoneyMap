@@ -4,6 +4,27 @@ All notable changes to MoneyMap are documented in this file.
 
 ## [Unreleased]
 
+## [0.3.0.0] - 2026-09-05
+
+### Added
+- Create scenarios with names, descriptions, and dedicated overview, assumptions, and information pages; open them directly and navigate with browser history.
+- Compare baseline and scenario net worth over 3, 6, or 12 months, with monthly income and expense bars and exact values in tables.
+- Edit scenario-only recurring rules, archive and restore scenarios, and permanently delete archived scenarios after reviewing their affected records.
+- Resolve older copied rules explicitly before switching an existing scenario to live assumptions, with recovery backups before migration.
+
+### Changed
+- New scenarios inherit the latest actual rules and add their own assumptions without copying rules. Archived scenarios remain read-only and recalculate from the latest actual ledger.
+- Start projections from the actual ledger's closing balance on the selected date and project from the next day, using registered assumptions without inferred spending averages. Unconverted legacy scenarios retain their previous dashboard calculation.
+- Use consistent read snapshots and batched queries for scenario projections; check query counts and release-to-release performance in CI.
+- Cancel outdated screen queries and show explicit loading, failure, retry, and empty states while retaining editing drafts.
+
+### Fixed
+- Keep scenario mutations atomic and reject stale versions, cross-scenario writes, and stale deletion confirmations. Deleted scenario identities cannot be reused by a new scenario.
+- Preserve keyboard focus and drafts after conflicts, require a second confirmation when deletion impact changes, and correctly distinguish dialog padding from its backdrop.
+- Preserve the selected ledger date in chart tables across time zones and avoid reloading a scenario after successful deletion.
+- Keep the current page and editing draft when a scenario creation or update finishes after navigating away, and prevent unsaved rule edits during a pending save.
+- Avoid repeated transaction queries and spending calculations when comparing several unconverted legacy scenarios.
+
 ## [0.2.0.0] - 2026-09-05
 
 ### Added

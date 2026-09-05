@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { api, isPostable, type Account, type Rule } from "../api";
+import { useState } from "react";
+import { api, isPostable, type Account, type Rule, type RuleBody } from "../api";
 import { commaInput, fmtWon, todayIso } from "../format";
 import type { ViewProps } from "../App";
+import { useQuery } from "./scenarios/useQuery";
 
 
 export function humanSchedule(spec: string): string {
@@ -17,10 +18,12 @@ export function RuleForm({
   scenarioId,
   accounts,
   onSaved,
+  saveRule = api.createRule,
 }: {
   scenarioId: number;
   accounts: Account[];
   onSaved: (r: Rule) => void;
+  saveRule?: (body: RuleBody) => Promise<Rule>;
 }) {
   const [desc, setDesc] = useState("");
   const [from, setFrom] = useState<number | "">("");
@@ -35,8 +38,7 @@ export function RuleForm({
     const { value } = commaInput(amount);
     if (!value || from === "" || to === "") return;
     try {
-      const r = await api.createRule({
-        scenario_id: scenarioId,
+      const r = await saveRule({
         description: desc.trim(),
         from_account_id: from as number,
         to_account_id: to as number,
@@ -81,14 +83,10 @@ export function RuleForm({
 }
 
 export function Rules({ gen, refresh, showToast }: ViewProps) {
-  const [rules, setRules] = useState<Rule[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const query = useQuery(`actual-rules:${gen}`, signal => Promise.all([api.rules(1, signal), api.accounts(signal)]));
+  const rules = query.data?.[0] ?? [];
+  const accounts = query.data?.[1] ?? [];
   const [deleteErrors, setDeleteErrors] = useState<Record<number, string>>({});
-
-  useEffect(() => {
-    api.rules(1).then(setRules);
-    api.accounts().then(setAccounts);
-  }, [gen]);
 
   const nameOf = (id: number) => accounts.find((a) => a.id === id)?.name ?? `#${id}`;
 
@@ -100,6 +98,8 @@ export function Rules({ gen, refresh, showToast }: ViewProps) {
         매월 31일 규칙은 짧은 달에 말일로 당겨집니다.
       </p>
 
+      {query.error && <p role="alert">반복 규칙을 불러오지 못했습니다. {query.error} <button className="btn secondary" onClick={query.reload}>다시 불러오기</button></p>}
+      {!query.data && !query.error && <p role="status">반복 규칙 확인 중…</p>}
       <div className="panel rules-workspace" style={{ marginBottom: 20 }}>
         <h2 className="panel-heading">새 규칙</h2>
         <RuleForm scenarioId={1} accounts={accounts} onSaved={(r) => {
@@ -139,7 +139,7 @@ export function Rules({ gen, refresh, showToast }: ViewProps) {
                 </td>
               </tr>
             ))}
-            {rules.length === 0 && (
+            {query.data && rules.length === 0 && (
               <tr><td colSpan={6} style={{ color: "var(--muted)" }}>규칙이 없습니다.</td></tr>
             )}
           </tbody>

@@ -3,19 +3,16 @@
  * 삭제 엣지 (D20 표 최소 반영): 개시잔액·규칙 생성 거래 삭제와
  * fork 이전 거래 삭제는 시나리오·잔액에 영향 — confirm 문구로 고지.
  */
-import { useEffect, useMemo, useState } from "react";
-import { api, type Account, type Txn } from "../api";
+import { useMemo } from "react";
+import { api, type Txn } from "../api";
 import { fmtWon } from "../format";
 import type { ViewProps } from "../App";
+import { useQuery } from "./scenarios/useQuery";
 
 export function History({ gen, refresh, showToast, go }: ViewProps) {
-  const [txns, setTxns] = useState<Txn[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-
-  useEffect(() => {
-    api.transactions().then((t) => setTxns([...t].reverse())); // 최신 날짜 위로
-    api.accounts().then(setAccounts);
-  }, [gen]);
+  const query = useQuery(`history:${gen}`, signal => Promise.all([api.transactions(1, signal), api.accounts(signal)]));
+  const txns = query.data ? [...query.data[0]].reverse() : [];
+  const accounts = query.data?.[1] ?? [];
 
   const nameOf = useMemo(() => {
     const m = new Map(accounts.map((a) => [a.id, a.name]));
@@ -47,6 +44,8 @@ export function History({ gen, refresh, showToast, go }: ViewProps) {
       <p style={{ color: "var(--muted)", fontSize: 13, marginBottom: 14 }}>
         수정이 필요하면 삭제 후 다시 입력하세요 — 장부에 애매한 중간 상태를 남기지 않기 위한 v1 규칙입니다.
       </p>
+      {query.error && <p role="alert">거래 내역을 불러오지 못했습니다. {query.error} <button className="btn secondary" onClick={query.reload}>다시 불러오기</button></p>}
+      {!query.data && !query.error && <p role="status">거래 내역 확인 중…</p>}
       <div className="table-scroll history-scroll">
         <table className="ledger">
           <thead>
@@ -66,7 +65,7 @@ export function History({ gen, refresh, showToast, go }: ViewProps) {
                 </td>
               </tr>
             ))}
-            {txns.length === 0 && (
+            {query.data && txns.length === 0 && (
               <tr>
                 <td colSpan={5}>
                   <div className="history-empty">

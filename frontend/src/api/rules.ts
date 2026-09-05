@@ -2,7 +2,7 @@ import { req } from "./core";
 import type { Rule, RuleBody } from "./types";
 
 export const rulesApi = {
-  rules: (scenarioId = 1) => req<Rule[]>(`/rules?scenario_id=${scenarioId}`),
+  rules: (scenarioId = 1, signal?: AbortSignal) => req<Rule[]>(`/rules?scenario_id=${scenarioId}`, { signal }),
   createRule: (b: RuleBody) => req<Rule>("/rules", { method: "POST", body: JSON.stringify(b) }),
   updateRule: (id: number, b: RuleBody) =>
     req<Rule>(`/rules/${id}`, { method: "PUT", body: JSON.stringify(b) }),

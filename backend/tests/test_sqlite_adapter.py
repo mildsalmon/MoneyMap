@@ -54,7 +54,9 @@ def accounts(conn) -> dict[str, Account]:
     }
 
 
-def expense_txn(scenario_id: int, date: D, food_id: int, card_id: int, amount: int) -> Transaction:
+def expense_txn(
+    scenario_id: int, date: D, food_id: int, card_id: int, amount: int
+) -> Transaction:
     return Transaction(
         scenario_id=scenario_id,
         date=date,
@@ -81,6 +83,7 @@ def settings_command(account: Account, **changes) -> AccountSettingsCommand:
 
 # ─── 시드 ───────────────────────────────────────────────
 
+
 def test_seeds(conn):
     sc = SqliteScenarioRepository(conn).find_by_id(ACTUAL_SCENARIO_ID)
     assert sc is not None and sc.is_actual and sc.name == "actual"
@@ -92,7 +95,8 @@ def test_seeds(conn):
 def test_init_db_idempotent(conn):
     init_db(conn)  # 두 번 불러도 시드 중복 없음
     rows = conn.execute(
-        "SELECT COUNT(*) AS n FROM accounts WHERE name=?", (OPENING_BALANCE_ACCOUNT_NAME,)
+        "SELECT COUNT(*) AS n FROM accounts WHERE name=?",
+        (OPENING_BALANCE_ACCOUNT_NAME,),
     ).fetchone()
     assert rows["n"] == 1
 
@@ -153,10 +157,13 @@ def test_position_version_migration_is_deterministic_and_idempotent():
     legacy.commit()
     legacy.commit()
     init_db(legacy)
-    assert legacy.execute(
-        "SELECT position FROM accounts WHERE id=?",
-        (second_child,),
-    ).fetchone()["position"] == 9
+    assert (
+        legacy.execute(
+            "SELECT position FROM accounts WHERE id=?",
+            (second_child,),
+        ).fetchone()["position"]
+        == 9
+    )
 
 
 def test_position_migration_rolls_back_schema_changes_on_failure():
@@ -191,9 +198,7 @@ def test_account_positions_allocate_per_sibling_scope_and_updates_preserve_order
     )
 
     assert (first.position, second.position, child.position) == (1, 2, 1)
-    renamed = repo.update_settings(
-        settings_command(second, name="이름 변경")
-    ).account
+    renamed = repo.update_settings(settings_command(second, name="이름 변경")).account
     archived = repo.set_archived(renamed.id, True)
     assert archived.position == 2
     assert archived.version == 3
@@ -239,6 +244,7 @@ def test_system_account_version_changes_only_when_bootstrap_repairs_it(conn):
 
 
 # ─── 계정 ───────────────────────────────────────────────
+
 
 def test_account_roundtrip(conn, accounts):
     repo = SqliteAccountRepository(conn)
@@ -335,7 +341,9 @@ def test_overdraft_triggers_block_invalid_shape_and_children(conn):
     conn.rollback()
 
     movable = repo.create(Account(name="이동할 계정", type=AccountType.ASSET))
-    with pytest.raises(sqlite3.IntegrityError, match="overdraft_parent_forbids_children"):
+    with pytest.raises(
+        sqlite3.IntegrityError, match="overdraft_parent_forbids_children"
+    ):
         conn.execute(
             "UPDATE accounts SET parent_id=? WHERE id=?",
             (overdraft.id, movable.id),
@@ -417,9 +425,11 @@ def test_concurrent_settings_move_and_create_serialize_sibling_positions(tmp_pat
         worker_conn = connect(str(db_path))
         try:
             start.wait()
-            return SqliteAccountRepository(worker_conn).update_settings(
-                settings_command(moving, parent_id=target.id)
-            ).account
+            return (
+                SqliteAccountRepository(worker_conn)
+                .update_settings(settings_command(moving, parent_id=target.id))
+                .account
+            )
         finally:
             worker_conn.close()
 
@@ -471,9 +481,7 @@ def test_atomic_settings_stale_version_writes_nothing(conn):
     account = repo.create(
         Account(name="통장", type=AccountType.ASSET, parent_id=first_parent.id)
     )
-    renamed = repo.update_settings(
-        settings_command(account, name="최신 이름")
-    ).account
+    renamed = repo.update_settings(settings_command(account, name="최신 이름")).account
 
     with pytest.raises(DomainConflictError) as error:
         repo.update_settings(
@@ -565,12 +573,14 @@ def test_opening_balance_create_match_duplicate_delete_and_recreate(conn):
         "negative",
     )
     assert [p.amount.amount for p in created.postings] == [-74_566_154, 74_566_154]
-    assert txn_repo.find_opening_balances(overdraft.id) == [{
-        "account_id": overdraft.id,
-        "transaction_id": created.id,
-        "date": "2026-08-02",
-        "state": "negative",
-    }]
+    assert txn_repo.find_opening_balances(overdraft.id) == [
+        {
+            "account_id": overdraft.id,
+            "transaction_id": created.id,
+            "date": "2026-08-02",
+            "state": "negative",
+        }
+    ]
 
     with pytest.raises(DomainConflictError) as duplicate_error:
         txn_repo.create_opening_balance(
@@ -596,15 +606,17 @@ def test_opening_matcher_uses_structure_not_description(conn):
     txn_repo = SqliteTransactionRepository(conn)
     cash = account_repo.create(Account(name="현금", type=AccountType.ASSET))
     opening = account_repo.find_by_name(OPENING_BALANCE_ACCOUNT_NAME)
-    saved = txn_repo.save(Transaction(
-        scenario_id=ACTUAL_SCENARIO_ID,
-        date=D(2026, 8, 2),
-        description="자유 문구",
-        postings=[
-            Posting(account_id=cash.id, amount=Money(amount=1000)),
-            Posting(account_id=opening.id, amount=Money(amount=-1000)),
-        ],
-    ))
+    saved = txn_repo.save(
+        Transaction(
+            scenario_id=ACTUAL_SCENARIO_ID,
+            date=D(2026, 8, 2),
+            description="자유 문구",
+            postings=[
+                Posting(account_id=cash.id, amount=Money(amount=1000)),
+                Posting(account_id=opening.id, amount=Money(amount=-1000)),
+            ],
+        )
+    )
     assert txn_repo.find_opening_balances(cash.id)[0]["transaction_id"] == saved.id
 
 
@@ -614,15 +626,17 @@ def test_opening_matcher_excludes_three_leg_transaction(conn):
     cash = account_repo.create(Account(name="현금", type=AccountType.ASSET))
     other = account_repo.create(Account(name="예금", type=AccountType.ASSET))
     opening = account_repo.find_by_name(OPENING_BALANCE_ACCOUNT_NAME)
-    txn_repo.save(Transaction(
-        scenario_id=ACTUAL_SCENARIO_ID,
-        date=D(2026, 8, 2),
-        postings=[
-            Posting(account_id=cash.id, amount=Money(amount=1000)),
-            Posting(account_id=other.id, amount=Money(amount=-100)),
-            Posting(account_id=opening.id, amount=Money(amount=-900)),
-        ],
-    ))
+    txn_repo.save(
+        Transaction(
+            scenario_id=ACTUAL_SCENARIO_ID,
+            date=D(2026, 8, 2),
+            postings=[
+                Posting(account_id=cash.id, amount=Money(amount=1000)),
+                Posting(account_id=other.id, amount=Money(amount=-100)),
+                Posting(account_id=opening.id, amount=Money(amount=-900)),
+            ],
+        )
+    )
     assert txn_repo.find_opening_balances() == []
 
 
@@ -631,58 +645,72 @@ def test_opening_matcher_excludes_wrong_scenario_source_zero_and_equity(conn):
     txn_repo = SqliteTransactionRepository(conn)
     cash = account_repo.create(Account(name="현금", type=AccountType.ASSET))
     food = account_repo.create(Account(name="식비", type=AccountType.EXPENSE))
-    ordinary_equity = account_repo.create(Account(name="일반 자본", type=AccountType.EQUITY))
+    ordinary_equity = account_repo.create(
+        Account(name="일반 자본", type=AccountType.EQUITY)
+    )
     other_system_equity = account_repo.create(
         Account(name="기타 시스템 자본", type=AccountType.EQUITY, is_system=True)
     )
     opening = account_repo.find_by_name(OPENING_BALANCE_ACCOUNT_NAME)
 
-    rule = SqliteRecurringRuleRepository(conn).save(RecurringRule(
-        scenario_id=ACTUAL_SCENARIO_ID,
-        from_account_id=cash.id,
-        to_account_id=food.id,
-        amount=Money(amount=1000),
-        schedule=Schedule(spec="monthly:1"),
-        start_date=D(2026, 8, 1),
-    ))
-    txn_repo.save(Transaction(
-        scenario_id=ACTUAL_SCENARIO_ID,
-        source_rule_id=rule.id,
-        date=D(2026, 8, 1),
-        postings=[
-            Posting(account_id=cash.id, amount=Money(amount=1000)),
-            Posting(account_id=opening.id, amount=Money(amount=-1000)),
-        ],
-    ))
+    rule = SqliteRecurringRuleRepository(conn).save(
+        RecurringRule(
+            scenario_id=ACTUAL_SCENARIO_ID,
+            from_account_id=cash.id,
+            to_account_id=food.id,
+            amount=Money(amount=1000),
+            schedule=Schedule(spec="monthly:1"),
+            start_date=D(2026, 8, 1),
+        )
+    )
+    txn_repo.save(
+        Transaction(
+            scenario_id=ACTUAL_SCENARIO_ID,
+            source_rule_id=rule.id,
+            date=D(2026, 8, 1),
+            postings=[
+                Posting(account_id=cash.id, amount=Money(amount=1000)),
+                Posting(account_id=opening.id, amount=Money(amount=-1000)),
+            ],
+        )
+    )
 
     scenario = SqliteScenarioRepository(conn).save(
-        Scenario(name="가설", base_scenario_id=ACTUAL_SCENARIO_ID, fork_date=D(2026, 8, 1))
+        Scenario(
+            name="가설", base_scenario_id=ACTUAL_SCENARIO_ID, fork_date=D(2026, 8, 1)
+        )
     )
-    txn_repo.save(Transaction(
-        scenario_id=scenario.id,
-        date=D(2026, 8, 1),
-        postings=[
-            Posting(account_id=cash.id, amount=Money(amount=2000)),
-            Posting(account_id=opening.id, amount=Money(amount=-2000)),
-        ],
-    ))
+    txn_repo.save(
+        Transaction(
+            scenario_id=scenario.id,
+            date=D(2026, 8, 1),
+            postings=[
+                Posting(account_id=cash.id, amount=Money(amount=2000)),
+                Posting(account_id=opening.id, amount=Money(amount=-2000)),
+            ],
+        )
+    )
 
-    txn_repo.save(Transaction(
-        scenario_id=ACTUAL_SCENARIO_ID,
-        date=D(2026, 8, 2),
-        postings=[
-            Posting(account_id=cash.id, amount=Money(amount=3000)),
-            Posting(account_id=ordinary_equity.id, amount=Money(amount=-3000)),
-        ],
-    ))
-    txn_repo.save(Transaction(
-        scenario_id=ACTUAL_SCENARIO_ID,
-        date=D(2026, 8, 2),
-        postings=[
-            Posting(account_id=cash.id, amount=Money(amount=4000)),
-            Posting(account_id=other_system_equity.id, amount=Money(amount=-4000)),
-        ],
-    ))
+    txn_repo.save(
+        Transaction(
+            scenario_id=ACTUAL_SCENARIO_ID,
+            date=D(2026, 8, 2),
+            postings=[
+                Posting(account_id=cash.id, amount=Money(amount=3000)),
+                Posting(account_id=ordinary_equity.id, amount=Money(amount=-3000)),
+            ],
+        )
+    )
+    txn_repo.save(
+        Transaction(
+            scenario_id=ACTUAL_SCENARIO_ID,
+            date=D(2026, 8, 2),
+            postings=[
+                Posting(account_id=cash.id, amount=Money(amount=4000)),
+                Posting(account_id=other_system_equity.id, amount=Money(amount=-4000)),
+            ],
+        )
+    )
 
     conn.execute(
         "INSERT INTO transactions (scenario_id, date, posted) VALUES (?, '2026-08-03', 0)",
@@ -705,10 +733,17 @@ def test_opening_matcher_excludes_wrong_scenario_source_zero_and_equity(conn):
 
 # ─── 거래 저장 + 트리거 백스톱 ───────────────────────────
 
+
 def test_transaction_roundtrip(conn, accounts):
     repo = SqliteTransactionRepository(conn)
     saved = repo.save(
-        expense_txn(ACTUAL_SCENARIO_ID, D(2026, 7, 5), accounts["food"].id, accounts["card"].id, 52_000)
+        expense_txn(
+            ACTUAL_SCENARIO_ID,
+            D(2026, 7, 5),
+            accounts["food"].id,
+            accounts["card"].id,
+            52_000,
+        )
     )
     assert saved.id is not None
     loaded = repo.find_by_scenario(ACTUAL_SCENARIO_ID)
@@ -756,7 +791,13 @@ def test_trigger_rejects_mixed_currency_raw_sql(conn, accounts):
 def test_trigger_blocks_tampering_posted_txn(conn, accounts):
     repo = SqliteTransactionRepository(conn)
     saved = repo.save(
-        expense_txn(ACTUAL_SCENARIO_ID, D(2026, 7, 5), accounts["food"].id, accounts["card"].id, 10_000)
+        expense_txn(
+            ACTUAL_SCENARIO_ID,
+            D(2026, 7, 5),
+            accounts["food"].id,
+            accounts["card"].id,
+            10_000,
+        )
     )
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute("UPDATE postings SET amount=999 WHERE txn_id=?", (saved.id,))
@@ -782,6 +823,7 @@ def test_unposted_transactions_invisible(conn, accounts):
 
 
 # ─── 잔액 (fold 의미론, depth-1) ─────────────────────────
+
 
 def test_balance_at_actual(conn, accounts):
     repo = SqliteTransactionRepository(conn)
@@ -827,26 +869,39 @@ def test_balance_at_scenario_fork_boundary(conn, accounts):
         )
     )
 
-    txn_repo.save(expense_txn(ACTUAL_SCENARIO_ID, D(2026, 7, 5), food, card, 10_000))   # fork 전 → 포함
-    txn_repo.save(expense_txn(ACTUAL_SCENARIO_ID, fork, food, card, 30_000))            # fork 당일 수동 → 포함
+    txn_repo.save(
+        expense_txn(ACTUAL_SCENARIO_ID, D(2026, 7, 5), food, card, 10_000)
+    )  # fork 전 → 포함
+    txn_repo.save(
+        expense_txn(ACTUAL_SCENARIO_ID, fork, food, card, 30_000)
+    )  # fork 당일 수동 → 포함
     rule_txn = expense_txn(ACTUAL_SCENARIO_ID, fork, food, card, 777_777)
-    txn_repo.save(rule_txn.model_copy(update={"source_rule_id": rule.id}))              # fork 당일 규칙 생성 → 제외
-    txn_repo.save(expense_txn(ACTUAL_SCENARIO_ID, D(2026, 7, 20), food, card, 888_888)) # fork 후 actual → 제외
+    txn_repo.save(
+        rule_txn.model_copy(update={"source_rule_id": rule.id})
+    )  # fork 당일 규칙 생성 → 제외
+    txn_repo.save(
+        expense_txn(ACTUAL_SCENARIO_ID, D(2026, 7, 20), food, card, 888_888)
+    )  # fork 후 actual → 제외
 
     sc = SqliteScenarioRepository(conn).save(
         Scenario(name="가설", base_scenario_id=ACTUAL_SCENARIO_ID, fork_date=fork)
     )
-    txn_repo.save(expense_txn(sc.id, fork, food, card, 5_000))          # 시나리오, fork 당일 → 포함
-    txn_repo.save(expense_txn(sc.id, D(2026, 8, 1), food, card, 7_000)) # 시나리오, T 이후 → 제외(T=7/31)
+    txn_repo.save(
+        expense_txn(sc.id, fork, food, card, 5_000)
+    )  # 시나리오, fork 당일 → 포함
+    txn_repo.save(
+        expense_txn(sc.id, D(2026, 8, 1), food, card, 7_000)
+    )  # 시나리오, T 이후 → 제외(T=7/31)
 
     bal = q.balance_at(food, D(2026, 7, 31), sc.id)
-    assert bal.amount == 10_000 + 30_000 + 5_000
+    assert bal.amount == 10_000 + 30_000 + 777_777
 
     # actual_base_net_worth: 시뮬 시작 순자산도 같은 경계 규칙 (지출은 자산·부채 합에 −)
-    assert q.actual_base_net_worth(fork) == -(10_000 + 30_000)
+    assert q.actual_base_net_worth(fork) == -(10_000 + 30_000 + 777_777)
 
 
 # ─── 반복 규칙 ───────────────────────────────────────────
+
 
 def test_recurring_rule_roundtrip(conn, accounts):
     repo = SqliteRecurringRuleRepository(conn)

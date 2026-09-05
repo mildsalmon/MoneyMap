@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ValidationError
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from moneymap.dependencies import repos, request_connection
 from moneymap.domain import (
@@ -22,7 +23,7 @@ class PostingIn(BaseModel):
 
 
 class TransactionIn(BaseModel):
-    scenario_id: int = ACTUAL_SCENARIO_ID
+    model_config = ConfigDict(extra="forbid")
     date: datetime.date
     description: str = ""
     postings: list[PostingIn]
@@ -34,7 +35,9 @@ def list_opening_balances(request: Request):
 
 
 @router.get("/api/transactions")
-def list_transactions(request: Request, scenario_id: int = ACTUAL_SCENARIO_ID):
+def list_transactions(
+    request: Request, scenario_id: int = Query(default=1, ge=1, le=1)
+):
     return [
         t.model_dump() for t in repos(request)["txns"].find_by_scenario(scenario_id)
     ]
@@ -44,7 +47,7 @@ def list_transactions(request: Request, scenario_id: int = ACTUAL_SCENARIO_ID):
 def create_transaction(body: TransactionIn, request: Request):
     try:
         txn = Transaction(
-            scenario_id=body.scenario_id,
+            scenario_id=ACTUAL_SCENARIO_ID,
             date=body.date,
             description=body.description,
             postings=[
@@ -60,7 +63,7 @@ def create_transaction(body: TransactionIn, request: Request):
 
 @router.delete("/api/transactions/{txn_id}")
 def delete_transaction(txn_id: int, request: Request):
-    ok = repos(request)["txns"].delete(txn_id)
+    ok = repos(request)["txns"].delete(txn_id, scenario_id=ACTUAL_SCENARIO_ID)
     if not ok:
         raise HTTPException(
             status_code=404,

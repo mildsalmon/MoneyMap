@@ -9,6 +9,9 @@ from moneymap.adapters.sqlite.transactions import ScenarioTransactionWriter
 class SqliteUnitOfWork:
     def __init__(self, conn):
         self.conn = conn
+        from .accounts import SqliteAccountRepository
+
+        self.accounts = SqliteAccountRepository(conn)
         self.scenarios = ScenarioWriter(conn)
         self.rules = ScenarioRuleWriter(conn)
         self.transactions = ScenarioTransactionWriter(conn)
