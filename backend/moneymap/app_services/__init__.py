@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import datetime
 
+from moneymap.domain.account_order import AccountReorderCommand, AccountReorderResult
+
 from moneymap.domain.account import (
     AccountSettingsCommand,
     AccountSettingsResult,
@@ -17,6 +19,10 @@ from moneymap.domain.ports import (
     TransactionRepository,
 )
 from moneymap.domain.transaction import Transaction
+
+
+def reorder_accounts(command: AccountReorderCommand, account_repo: AccountRepository) -> AccountReorderResult:
+    return account_repo.reorder(command)
 
 
 def update_account_settings(

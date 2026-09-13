@@ -61,6 +61,12 @@ def test_single_posting_rejected():
         txn([Posting(account_id=1, amount=Money(amount=0))])
 
 
+def test_legacy_zero_posting_can_be_loaded_without_opening_live_input():
+    posting = Posting(account_id=1, amount=Money(amount=0), legacy_zero=True)
+    assert posting.amount.amount == 0
+    assert "legacy_zero" not in posting.model_dump()
+
+
 def test_n_leg_transaction_accepted():
     # 월급 300만 = Toss 270만 입금 + 세금 30만 (N-leg도 합이 0이면 유효)
     t = txn(

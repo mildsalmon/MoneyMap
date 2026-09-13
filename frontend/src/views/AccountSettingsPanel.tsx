@@ -24,6 +24,7 @@ interface Props {
   accounts: Account[];
   onCancel: () => void;
   onSaved: (result: AccountSettingsResult) => Promise<void> | void;
+  onPendingChange?: (pending: boolean) => void;
 }
 
 function accountPath(accounts: Account[], account: Account): string {
@@ -39,7 +40,7 @@ function accountPath(accounts: Account[], account: Account): string {
   return `${TYPE_LABEL[account.type]} / ${parts.join(" / ")}`;
 }
 
-export function AccountSettingsPanel({ account, accounts, onCancel, onSaved }: Props) {
+export function AccountSettingsPanel({ account, accounts, onCancel, onSaved, onPendingChange }: Props) {
   const [baseline] = useState(() => ({
     name: account.name,
     parentId: account.parent_id,
@@ -102,6 +103,7 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved }: P
   const submit = async () => {
     if (!normalizedName || !dirty || pending) return;
     setPending(true);
+    onPendingChange?.(true);
     setError("");
     try {
       const result = await api.updateAccountSettings(account.id, {
@@ -120,6 +122,7 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved }: P
       }
     } finally {
       setPending(false);
+      onPendingChange?.(false);
     }
   };
 

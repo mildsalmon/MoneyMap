@@ -179,10 +179,10 @@ def test_projection_rejects_more_than_3_scenarios(client):
 def test_seed_standard_accounts_builds_tree_and_is_idempotent(client):
     res = client.post("/api/accounts/seed-standard")
     assert res.status_code == 200, res.text
-    assert res.json()["created"] == 30  # 개시잔액은 init_db가 이미 시드
+    assert res.json()["created"] == 106  # 개시잔액은 init_db가 이미 시드
 
     accounts = client.get("/api/accounts").json()
-    assert len(accounts) == 31
+    assert len(accounts) == 107
     by_name = {a["name"]: a for a in accounts}
     for group_name in [
         "입출금통장",
@@ -191,6 +191,7 @@ def test_seed_standard_accounts_builds_tree_and_is_idempotent(client):
         "페이·선불충전",
         "신용카드",
         "대출",
+        "개인채무",
         "식비",
         "교통",
         "문화·여가",
@@ -206,7 +207,7 @@ def test_seed_standard_accounts_builds_tree_and_is_idempotent(client):
 
     again = client.post("/api/accounts/seed-standard").json()
     assert again["created"] == 0
-    assert len(client.get("/api/accounts").json()) == 31
+    assert len(client.get("/api/accounts").json()) == 107
 
 
 def test_seed_standard_accounts_recovers_from_partial_existing_tree(client):

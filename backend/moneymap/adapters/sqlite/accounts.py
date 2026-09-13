@@ -30,6 +30,9 @@ from moneymap.domain.services import (
 from moneymap.domain.standard_accounts import StandardAccount
 
 from .common import _account_write
+from moneymap.domain.account_order import (
+    AccountReorderCommand, AccountReorderEffects, AccountReorderResult, validate_reorder,
+)
 
 
 class SqliteAccountRepository:
@@ -66,6 +69,43 @@ class SqliteAccountRepository:
             return desired.model_copy(
                 update={"id": cur.lastrowid, "position": position, "version": 1}
             )
+
+    def reorder(self, command: AccountReorderCommand) -> AccountReorderResult:
+        # snapshot → temporary slots → preserved slots → invariant read → commit
+        # Temporary writes never increment version; only changed final slots do.
+        with _account_write(self._conn):
+            snapshot = self.find_all()
+            siblings = validate_reorder(command, snapshot)
+            by_id = {a.id: a for a in siblings}
+            desired = [by_id[item.id] for item in command.ordered_accounts]
+            slots = [a.position for a in siblings]
+            changed = [a.id for a, slot in zip(desired, slots) if a.position != slot]
+            if changed:
+                scope = [a for a in snapshot if a.type == command.type and a.parent_id == command.parent_id]
+                maximum = max(a.position for a in scope)
+                if maximum > 9_223_372_036_854_775_807 - len(siblings):
+                    raise DomainInvariantError("계정 위치 범위를 초과했습니다", code="account_position_temp_range_exhausted")
+                for index, account in enumerate(siblings, 1):
+                    cursor = self._conn.execute("UPDATE accounts SET position=? WHERE id=?", (maximum + index, account.id))
+                    if cursor.rowcount != 1:
+                        raise DomainInvariantError("위치 저장에 실패했습니다", code="account_position_invariant")
+                for account, slot in zip(desired, slots):
+                    cursor = self._conn.execute(
+                        "UPDATE accounts SET position=?, version=? WHERE id=?",
+                        (slot, account.version + int(account.position != slot), account.id),
+                    )
+                    if cursor.rowcount != 1:
+                        raise DomainInvariantError("위치 저장에 실패했습니다", code="account_position_invariant")
+            final = {a.id: a for a in self.find_all()}
+            expected = {a.id: a for a in snapshot}
+            for account, slot in zip(desired, slots):
+                expected[account.id] = account.model_copy(update={
+                    "position": slot, "version": account.version + int(account.position != slot),
+                })
+            if final != expected:
+                raise DomainInvariantError("계정 순서 검산에 실패했습니다", code="account_position_invariant")
+            return AccountReorderResult(accounts=[final[a.id] for a in desired],
+                                        effects=AccountReorderEffects(changed_account_ids=changed))
 
     def update_settings(
         self,
@@ -249,7 +289,15 @@ class SqliteAccountRepository:
                 key=lambda item: len(item.path),
             )
             for item in [*roots, *children]:
-                if self._find_id_by_path(item.path, item.type) is not None:
+                existing_id = self._find_id_by_path(item.path, item.type)
+                if existing_id is not None:
+                    if item.is_group:
+                        self._conn.execute(
+                            "UPDATE accounts SET is_placeholder=1, version=version+1 "
+                            "WHERE id=? AND is_placeholder=0 "
+                            "AND NOT EXISTS (SELECT 1 FROM postings WHERE account_id=?)",
+                            (existing_id, existing_id),
+                        )
                     skipped += 1
                     continue
                 parent_id = None

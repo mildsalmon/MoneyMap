@@ -2,6 +2,36 @@
 
 All notable changes to MoneyMap are documented in this file.
 
+## [Unreleased]
+
+### Added
+- Edit a transaction in place from history, including imported transactions, generated rule occurrences, opening balances, split postings, multiline memos and tags. Preserve transaction/posting identity and original import provenance.
+- Detect stale transaction edits and resolve uncertain saves without replaying the write. Keep drafts on failure, protect unsaved navigation, and restore the history tag filter, scroll and focus.
+- Reorder sibling accounts with desktop drag handles or accessible up/down buttons, with immediate saving and a latest-change undo. The saved order is shared by account trees and rule account pickers.
+- Recover uncertain account-order saves from the server and keep a persistent retry action when confirmation is unavailable, without changing transactions or balances.
+- Attach several reusable tags to a transaction, select existing tags during entry, and display or filter them in transaction history.
+- Import the reviewed legacy CSV one source row at a time with source-file fingerprinting, row-level provenance, dry-run reconciliation, and duplicate prevention.
+- Add the approved detailed expense hierarchy, including rental-car costs, housing, travel, health, clothing, personal care, education, digital tools, taxes, insurance, and financial costs.
+
+### Changed
+- Share the transaction form between creation and editing. Changing an item or receiving an unavailable/failed account suggestion no longer clears selected accounts; suggestions fill empty sides only. Editing never invokes account recall.
+- Keep zero-valued legacy opening-balance placeholders readable without allowing new zero-valued transaction input.
+- Preserve refunds and settlements as independent source transactions instead of inferring or merging relationships during import.
+- Restore `OK저축은행` as an everyday bank account, keep `한마을아파트` as an independent top-level asset, and group `갚을돈` under personal debt during legacy import.
+- Keep legacy USD purchases in their original expense account until the ledger can preserve both foreign-currency units and their KRW valuation.
+- Remove the unused `외화 > USD` leaf account from the standard account seed while multi-currency support remains deferred.
+
+### Migration
+- Schema version 6 adds opaque transaction edit revisions, writer-invalidation triggers and minimal request-result receipts. Existing ledgers use the backup/rollback upgrade path at startup; no historical transaction amounts or import provenance are rewritten by this migration.
+- Backed up the empty pre-import ledger and imported 7,677 transactions with 15,354 balanced postings from the reviewed CSV. The two Lotte cards remain separate accounts.
+
+### Fixed
+- Preserve edited split postings when reimporting the same CSV, including runs mixing existing and newly imported rows.
+- Keep private memo corrections in ignored, source-hash-scoped local configuration instead of publishable source code. Existing ledger memos and raw import provenance are unchanged.
+- Apply the transaction request-body limit to edit and result-confirmation endpoints; rejected saves retain an editable draft.
+- Reject expense, income and equity targets when moving a legacy zero opening balance.
+- Report account recall only for sides filled by the current lookup, restore the actual history scroll container, wrap long conflict memos on mobile, and ignore equivalent amount formatting in dirty checks and mode changes.
+
 ## [0.6.0.0] - 2026-09-05
 
 ### Added

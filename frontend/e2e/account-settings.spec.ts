@@ -60,7 +60,7 @@ test("이름·상위 그룹·마이너스통장을 한 번에 저장하고 되�
 
   await page.goto("/");
   await nav(page, "계정·개시잔액").click();
-  await accountRow(page, child.name).getByRole("button", { name: "설정" }).click();
+  await accountRow(page, child.name).getByRole("button", { name: "설정", exact: true }).click();
 
   await page.getByLabel(`${child.name} 이름`).fill("설정-E2E-기업");
   await selectParent(page, child.name, "자산 / 입출금통장");
@@ -70,7 +70,7 @@ test("이름·상위 그룹·마이너스통장을 한 번에 저장하고 되�
   const movedRow = accountRow(page, "설정-E2E-기업");
   await expect(page.locator(".toast")).toContainText("입출금통장");
   await expect(movedRow).toContainText("마이너스통장");
-  await expect(movedRow.getByRole("button", { name: "설정" })).toBeFocused();
+  await expect(movedRow.getByRole("button", { name: "설정", exact: true })).toBeFocused();
 
   let snapshot = await accounts(request);
   const moved = snapshot.find((account) => account.id === child.id)!;
@@ -82,7 +82,7 @@ test("이름·상위 그룹·마이너스통장을 한 번에 저장하고 되�
 
   await page.reload();
   await nav(page, "계정·개시잔액").click();
-  await movedRow.getByRole("button", { name: "설정" }).click();
+  await movedRow.getByRole("button", { name: "설정", exact: true }).click();
   await expect(page.getByLabel("설정-E2E-기업 상위 그룹")).toHaveValue(String(target.id));
 
   await page.getByLabel("설정-E2E-기업 이름").fill(child.name);
@@ -94,7 +94,7 @@ test("이름·상위 그룹·마이너스통장을 한 번에 저장하고 되�
   );
   await page.getByRole("form", { name: "설정-E2E-기업 계정 설정" }).getByRole("button", { name: "변경 저장" }).click();
   expect((await restoredResponse).ok()).toBe(true);
-  await expect(accountRow(page, child.name).getByRole("button", { name: "설정" })).toBeFocused();
+  await expect(accountRow(page, child.name).getByRole("button", { name: "설정", exact: true })).toBeFocused();
 
   snapshot = await accounts(request);
   expect(snapshot.find((account) => account.id === child.id)).toMatchObject({
@@ -111,7 +111,7 @@ test("중복·stale 오류는 초안을 지키고 저장 중 중복 제출을 �
 
   await page.goto("/");
   await nav(page, "계정·개시잔액").click();
-  await accountRow(page, first.name).getByRole("button", { name: "설정" }).click();
+  await accountRow(page, first.name).getByRole("button", { name: "설정", exact: true }).click();
   const firstForm = page.getByRole("form", { name: `${first.name} 계정 설정` });
   const firstName = page.getByLabel(`${first.name} 이름`);
   await firstName.fill(duplicate.name);
@@ -120,8 +120,8 @@ test("중복·stale 오류는 초안을 지키고 저장 중 중복 제출을 �
   await expect(firstName).toHaveValue(duplicate.name);
 
   await firstName.press("Escape");
-  await expect(accountRow(page, first.name).getByRole("button", { name: "설정" })).toBeFocused();
-  await accountRow(page, first.name).getByRole("button", { name: "설정" }).click();
+  await expect(accountRow(page, first.name).getByRole("button", { name: "설정", exact: true })).toBeFocused();
+  await accountRow(page, first.name).getByRole("button", { name: "설정", exact: true }).click();
   const draftName = "설정-E2E-사용자초안";
   await page.getByLabel(`${first.name} 이름`).fill(draftName);
 
@@ -146,7 +146,7 @@ test("중복·stale 오류는 초안을 지키고 저장 중 중복 제출을 �
   await page.reload();
   await nav(page, "계정·개시잔액").click();
   const latestName = "설정-E2E-다른탭최신값";
-  await accountRow(page, latestName).getByRole("button", { name: "설정" }).click();
+  await accountRow(page, latestName).getByRole("button", { name: "설정", exact: true }).click();
 
   let settingsRequests = 0;
   let releaseRequest = () => {};
@@ -174,14 +174,14 @@ test("중복·stale 오류는 초안을 지키고 저장 중 중복 제출을 �
   } finally {
     releaseRequest();
   }
-  await expect(accountRow(page, finalName).getByRole("button", { name: "설정" })).toBeFocused();
+  await expect(accountRow(page, finalName).getByRole("button", { name: "설정", exact: true })).toBeFocused();
   expect(settingsRequests).toBe(1);
   await page.unroute(settingsRoute);
 
-  await accountRow(page, finalName).getByRole("button", { name: "설정" }).click();
+  await accountRow(page, finalName).getByRole("button", { name: "설정", exact: true }).click();
   await page.getByLabel(`${finalName} 이름`).fill("설정-E2E-취소할초안");
   await page.getByLabel(`${finalName} 이름`).press("Escape");
-  await expect(accountRow(page, finalName).getByRole("button", { name: "설정" })).toBeFocused();
+  await expect(accountRow(page, finalName).getByRole("button", { name: "설정", exact: true })).toBeFocused();
   await expect(page.getByText("설정-E2E-취소할초안")).toHaveCount(0);
 });
 
@@ -194,13 +194,13 @@ test("보관 계정은 복원만 제공하고 좁은 화면의 설정 패널은 
   await nav(page, "계정·개시잔액").click();
   await accountRow(page, child.name).getByRole("button", { name: "보관" }).click();
   const archivedRow = page.locator(".archived-ledger tr").filter({ hasText: child.name });
-  await expect(archivedRow.getByRole("button", { name: "설정" })).toHaveCount(0);
+  await expect(archivedRow.getByRole("button", { name: "설정", exact: true })).toHaveCount(0);
   await expect(archivedRow.getByRole("button", { name: "복원" })).toBeVisible();
   await archivedRow.getByRole("button", { name: "복원" }).click();
-  await expect(accountRow(page, child.name).getByRole("button", { name: "설정" })).toBeVisible();
+  await expect(accountRow(page, child.name).getByRole("button", { name: "설정", exact: true })).toBeVisible();
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await accountRow(page, child.name).getByRole("button", { name: "설정" }).click();
+  await accountRow(page, child.name).getByRole("button", { name: "설정", exact: true }).click();
   const panel = page.getByRole("form", { name: `${child.name} 계정 설정` });
   const path = panel.locator(".settings-parent-path");
   await expect(path).toContainText(parent.name);
@@ -242,7 +242,7 @@ test("설정 저장 후 계정 갱신 실패는 기존 행과 재시도 경로�
 
   await page.goto("/");
   await nav(page, "계정·개시잔액").click();
-  await accountRow(page, account.name).getByRole("button", { name: "설정" }).click();
+  await accountRow(page, account.name).getByRole("button", { name: "설정", exact: true }).click();
 
   const renamed = "설정-E2E-갱신후이름";
   await page.getByLabel(`${account.name} 이름`).fill(renamed);

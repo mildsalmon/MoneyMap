@@ -9,6 +9,7 @@
 - 시나리오 승인 설계(PR 1~4): [scenario-lifecycle.md](docs/designs/scenario-lifecycle.md)
 - v0.2.0.0 구현 범위·검증·저장소 운영 계약: [scenario-foundation.md](docs/verification/scenario-foundation.md). PR1(T1~T4)은 릴리스되었다. PR2(T5~T7)의 live-additive 전망·수명주기·legacy 전환·라우팅 구현과 검증은 [scenario-lifecycle.md](docs/verification/scenario-lifecycle.md)를 참고한다. PR3(T8~T9)의 복제·예정 거래 CRUD 구현과 검증은 [scenario-assumptions.md](docs/verification/scenario-assumptions.md)를 참고한다. PR4(T10~T12)의 현금성 계정 설정·현금 전망·부족 진단 구현과 검증은 [scenario-liquidity.md](docs/verification/scenario-liquidity.md)를 참고한다.
 - 거래 입력·마지막 계정 조합·메모: [transaction-input.md](docs/designs/transaction-input.md), [구현 검증](docs/verification/transaction-input.md)
+- 거래 직접 수정·충돌/응답 유실 보호·신규 입력 계정 유지: [transaction-editing.md](docs/designs/transaction-editing.md), [구현 검증](docs/verification/transaction-editing.md). 개발서버 자동 재시작으로 v6 스키마가 적용됐고 기존 거래 값은 보존됐다. 통화·태그 선택 UI·계정 시간 이력은 TODO로 유지한다.
 - 진행 상태: 로컬 `WORKING.md`가 있을 때 참고
 
 ## Design System

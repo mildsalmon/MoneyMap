@@ -21,7 +21,7 @@ test.beforeEach(async ({ page }) => {
   await expect(group(page).getByRole("radio", { name: "비용 > 식비 > 기타", exact: true })).toBeAttached();
 });
 
-test("clicking an automatic selection locks only that side for the next item", async ({ page }) => {
+test("clicking an automatic selection marks it manual and both sides survive next item", async ({ page }) => {
   await item(page).fill("점심");
   const debit = group(page).getByRole("radio", { name: "비용 > 식비 > 기타", exact: true });
   await expect(debit).toBeChecked();
@@ -31,7 +31,17 @@ test("clicking an automatic selection locks only that side for the next item", a
   await item(page).fill("새 아이템");
   await expect(page.locator(".txn-recall")).toContainText("처음 입력");
   await expect(debit).toBeChecked();
-  await expect(group(page, "대변").getByRole("radio", { name: "부채 > 카드", exact: true })).not.toBeChecked();
+  await expect(group(page, "대변").getByRole("radio", { name: "부채 > 카드", exact: true })).toBeChecked();
+});
+
+test("new recall does not claim to apply a pair when prior automatic choices are retained", async ({ page }) => {
+  await item(page).fill("점심");
+  await expect(page.locator(".txn-recall")).toHaveText("마지막으로 저장한 계정을 선택했습니다.");
+  await page.route("**/api/transaction-input/last-pair?*", r => r.fulfill({ json: { ...pair, item_key: "이동", debit_account_id: 202, credit_account_id: 103 } }));
+  await item(page).fill("이동");
+  await expect(page.locator(".txn-recall")).toHaveText("선택한 계정을 유지합니다.");
+  await expect(group(page).getByRole("radio", { name: "비용 > 식비 > 기타", exact: true })).toBeChecked();
+  await expect(group(page, "대변").getByRole("radio", { name: "부채 > 카드", exact: true })).toBeChecked();
 });
 
 for (const balance of [0, 500, "error"] as const) {

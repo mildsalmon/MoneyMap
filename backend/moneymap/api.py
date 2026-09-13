@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -33,8 +34,11 @@ class TransactionBodyLimitMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if not (
             scope["type"] == "http"
-            and scope.get("method") == "POST"
-            and scope.get("path") == "/api/transactions"
+            and (
+                (scope.get("method") == "POST" and scope.get("path", "").rstrip("/") == "/api/transactions")
+                or (scope.get("method") == "PUT" and re.fullmatch(r"/api/transactions/[^/]+/?", scope.get("path", "")))
+                or (scope.get("method") == "POST" and re.fullmatch(r"/api/transactions/[^/]+/edit-result/?", scope.get("path", "")))
+            )
         ):
             await self.app(scope, receive, send)
             return

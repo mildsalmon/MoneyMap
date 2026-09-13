@@ -4,6 +4,7 @@ import { BarChart3, FolderTree, GitBranch, PenLine, Repeat, ScrollText } from "l
 import { api } from "./api";
 import { Dashboard } from "./views/Dashboard";
 import { TxnInput } from "./views/TxnInput";
+import { TxnEdit } from "./views/TxnEdit";
 import { History } from "./views/History";
 import { Accounts } from "./views/Accounts";
 import { Rules } from "./views/Rules";
@@ -30,7 +31,7 @@ export function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const paths: Record<View, string> = { dashboard: "/", input: "/transactions/new", history: "/transactions", accounts: "/accounts", rules: "/rules", scenarios: "/scenarios" };
-  const view = location.pathname.startsWith("/scenarios") ? "scenarios" : (Object.keys(paths) as View[]).find(key => paths[key] === location.pathname);
+  const view = location.pathname.startsWith("/scenarios") ? "scenarios" : /^\/transactions\/\d+\/edit$/.test(location.pathname) ? "history" : (Object.keys(paths) as View[]).find(key => paths[key] === location.pathname);
   const setView = (next: View) => navigate(paths[next]);
   const [online, setOnline] = useState(true);
   const [status, setStatus] = useState<Awaited<ReturnType<typeof api.status>> | null>(null);
@@ -65,8 +66,9 @@ export function App() {
   }, [refresh]);
 
   const showToast = useCallback((msg: string, undo?: () => Promise<void>) => {
-    setToast({ msg, undo });
-    setTimeout(() => setToast((cur) => (cur?.msg === msg ? null : cur)), 6_000);
+    const next = { msg, undo };
+    setToast(next);
+    setTimeout(() => setToast((cur) => (cur === next ? null : cur)), 6_000);
   }, []);
 
   const viewProps = { gen, refresh, showToast, go: setView };
@@ -133,6 +135,7 @@ export function App() {
         <Routes>
           <Route path="/" element={<Dashboard {...viewProps} />} />
           <Route path="/transactions/new" element={<TxnInput {...viewProps} />} />
+          <Route path="/transactions/:id/edit" element={<TxnEdit {...viewProps} />} />
           <Route path="/transactions" element={<History {...viewProps} />} />
           <Route path="/accounts" element={<Accounts {...viewProps} />} />
           <Route path="/rules" element={<Rules {...viewProps} />} />

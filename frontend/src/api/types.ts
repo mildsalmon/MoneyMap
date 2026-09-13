@@ -1,5 +1,15 @@
 export type AccountType = "asset" | "liability" | "income" | "expense" | "equity";
 
+export interface AccountReorderCommand {
+  type: AccountType;
+  parent_id: number | null;
+  ordered_accounts: { id: number; version: number }[];
+}
+export interface AccountReorderResult {
+  accounts: Account[];
+  effects: { changed_account_ids: number[] };
+}
+
 export interface Account {
   id: number;
   name: string;
@@ -31,12 +41,50 @@ export interface Posting {
 
 export interface Txn {
   memo: string;
+  tags: string[];
   id: number;
   scenario_id: number;
   date: string;
   description: string;
   source_rule_id: number | null;
   postings: Posting[];
+}
+
+export interface EditPosting {
+  posting_id: number;
+  account_id: number;
+  amount: number;
+  currency: string;
+}
+export interface TransactionDetail {
+  id: number;
+  version: string;
+  date: string;
+  description: string;
+  memo: string;
+  tags: string[];
+  source_rule_id: number | null;
+  entry_origin: string;
+  postings: EditPosting[];
+  kind: "regular" | "opening" | "legacy_opening_zero";
+  opening_system_id: number | null;
+  editable: boolean;
+}
+export interface TransactionEditBody {
+  expected_version: string;
+  request_id: string;
+  date: string;
+  description: string;
+  memo: string;
+  tags: string[];
+  postings?: { posting_id?: number; account_id: number; amount: number }[];
+  opening?: { account_id: number; signed_amount: number };
+}
+export interface TransactionEditResult {
+  request_id: string;
+  outcome: "applied" | "not_applied";
+  result_version: string | null;
+  transaction: TransactionDetail | null;
 }
 
 export interface Rule {

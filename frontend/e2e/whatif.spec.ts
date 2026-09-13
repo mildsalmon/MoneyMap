@@ -128,12 +128,12 @@ test("마이너스통장 개시잔액은 대시보드에서만 부채로 보고�
   await createChildCategory(page, "입출금통장", "케이뱅크");
 
   const row = page.locator("tr.account-row", { hasText: "케이뱅크" });
-  await row.getByRole("button", { name: "설정" }).click();
+  await row.getByRole("button", { name: "설정", exact: true }).click();
   const settingsRow = page.getByLabel("케이뱅크 마이너스통장").locator("xpath=ancestor::tr");
   await page.getByLabel("케이뱅크 마이너스통장").check();
   await settingsRow.getByRole("button", { name: "저장" }).click();
   await expect(row).toContainText("마이너스통장");
-  await expect(row.getByRole("button", { name: "설정" })).toBeFocused();
+  await expect(row.getByRole("button", { name: "설정", exact: true })).toBeFocused();
 
   await page.reload();
   await nav(page, "계정·개시잔액").click();
@@ -151,7 +151,7 @@ test("마이너스통장 개시잔액은 대시보드에서만 부채로 보고�
     await route.continue();
   });
   await row.getByRole("button", { name: "기록", exact: true }).click();
-  await expect(row.getByRole("button", { name: "설정" })).toBeDisabled();
+  await expect(row.getByRole("button", { name: "설정", exact: true })).toBeDisabled();
   await expect(row.getByRole("button", { name: "기록 중…" })).toBeDisabled();
   await expect(row).toContainText("기록됨");
   await page.unroute("**/api/accounts/*/opening-balance");
@@ -209,7 +209,7 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
   await expect(page.locator('tr:has-text("Toss뱅크")').getByRole("button", { name: "기록", exact: true })).toHaveCount(0);
 
   // Escape는 수정을 취소하고 기존 이름을 유지한다
-  await page.locator('tr:has-text("Toss뱅크")').getByRole("button", { name: "설정" }).click();
+  await page.locator('tr:has-text("Toss뱅크")').getByRole("button", { name: "설정", exact: true }).click();
   await page.getByLabel("Toss뱅크 이름").fill("임시 이름");
   await page.getByLabel("Toss뱅크 이름").press("Escape");
   await expect(page.locator('tr:has-text("Toss뱅크")')).toBeVisible();
@@ -227,7 +227,7 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
 
   // 계정 이름 수정 — 기존 거래·반복 규칙의 account_id는 그대로 유지된다
   await nav(page, "계정·개시잔액").click();
-  await page.locator('tr:has-text("Toss뱅크")').getByRole("button", { name: "설정" }).click();
+  await page.locator('tr:has-text("Toss뱅크")').getByRole("button", { name: "설정", exact: true }).click();
   await page.getByLabel("Toss뱅크 이름").fill("토스뱅크");
   await page.getByLabel("Toss뱅크 이름").press("Enter");
   await expect(page.locator(".toast")).toContainText('"Toss뱅크" → "토스뱅크" 이름 변경됨');

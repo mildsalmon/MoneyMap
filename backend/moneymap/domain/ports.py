@@ -21,9 +21,14 @@ from moneymap.domain.recurring_rule import RecurringRule
 from moneymap.domain.scenario import Scenario
 from moneymap.domain.standard_accounts import StandardAccount
 from moneymap.domain.transaction import Transaction
+from moneymap.domain.transaction_edit import TransactionDetail, TransactionEdit
+
+
+from .account_order import AccountReorderCommand, AccountReorderResult
 
 
 class AccountRepository(Protocol):
+    def reorder(self, command: AccountReorderCommand) -> AccountReorderResult: ...
     def create(self, account: Account) -> Account: ...
     def update_settings(
         self, command: AccountSettingsCommand
@@ -37,6 +42,9 @@ class AccountRepository(Protocol):
 
 
 class TransactionRepository(Protocol):
+    def find_edit_detail(self, txn_id: int) -> TransactionDetail | None: ...
+    def update(self, txn_id: int, command: TransactionEdit) -> dict: ...
+    def resolve_edit(self, txn_id: int, command: TransactionEdit) -> dict: ...
     def save(self, txn: Transaction) -> Transaction: ...
     def find_by_scenario(
         self,

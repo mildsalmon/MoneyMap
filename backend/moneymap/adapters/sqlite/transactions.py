@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 import datetime
+import json
 import sqlite3
+import unicodedata
 from itertools import groupby
 
 from moneymap.domain.account import (
@@ -32,6 +34,39 @@ from .opening_balances import V4_OPENING_BALANCES_SQL
 
 from .accounts import SqliteAccountRepository
 from .common import _D, _iso, _translate_integrity_error
+
+
+def _tag_key(name: str) -> str:
+    return unicodedata.normalize("NFC", name).strip().casefold()
+
+
+def _replace_tags(conn: sqlite3.Connection, txn_id: int, tags: list[str]) -> None:
+    conn.execute("DELETE FROM transaction_tags WHERE txn_id=?", (txn_id,))
+    for name in tags:
+        key = _tag_key(name)
+        conn.execute(
+            "INSERT INTO tags(name,name_key) VALUES(?,?) "
+            "ON CONFLICT(name_key) DO NOTHING",
+            (name.strip(), key),
+        )
+        tag_id = conn.execute(
+            "SELECT id FROM tags WHERE name_key=?", (key,)
+        ).fetchone()["id"]
+        conn.execute(
+            "INSERT INTO transaction_tags(txn_id,tag_id) VALUES(?,?)",
+            (txn_id, tag_id),
+        )
+
+
+def _load_tags(conn: sqlite3.Connection, txn_id: int) -> list[str]:
+    return [
+        row["name"]
+        for row in conn.execute(
+            "SELECT g.name FROM tags g JOIN transaction_tags tt ON tt.tag_id=g.id "
+            "WHERE tt.txn_id=? ORDER BY g.name_key",
+            (txn_id,),
+        )
+    ]
 
 
 def _entry_origin(conn: sqlite3.Connection, txn: Transaction) -> str:
@@ -69,6 +104,7 @@ def _insert_txn(conn: sqlite3.Connection, txn: Transaction) -> int:
         ],
     )
     conn.execute("UPDATE transactions SET posted=1 WHERE id=?", (txn_id,))
+    _replace_tags(conn, txn_id, txn.tags)
     return txn_id
 
 
@@ -76,10 +112,22 @@ class SqliteTransactionRepository:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
+    def find_edit_detail(self, txn_id: int):
+        from .transaction_edit import find_detail
+        return find_detail(self._conn, txn_id)
+
+    def update(self, txn_id: int, command):
+        from .transaction_edit import update_transaction
+        return update_transaction(self._conn, txn_id, command)
+
+    def resolve_edit(self, txn_id: int, command):
+        from .transaction_edit import resolve_edit
+        return resolve_edit(self._conn, txn_id, command)
+
     def save(self, txn: Transaction) -> Transaction:
         """거래 1건을 단일 SQL 트랜잭션으로 저장. 실패 시 전체 롤백."""
         if txn.id is not None:
-            raise NotImplementedError("v1: 거래 수정은 삭제 후 재입력으로 처리")
+            raise NotImplementedError("기존 거래는 버전 검증을 포함한 update()를 사용하세요")
         try:
             self._conn.execute("BEGIN IMMEDIATE")
             accounts = SqliteAccountRepository(self._conn).find_all()
@@ -194,8 +242,7 @@ class SqliteTransactionRepository:
     def delete(self, txn_id: int, *, scenario_id: int | None = None) -> bool:
         """거래 삭제. 확정 거래는 먼저 un-post해서 변조 차단 트리거를 통과시킨다.
 
-        (트리거는 posted=1 거래의 postings 변조를 막지만, posted 0→ 되돌림은
-        삭제 경로로만 쓰이며 같은 트랜잭션 안에서 행 전체가 사라진다.)
+        수정도 같은 un-post 경계를 사용하지만, 삭제는 행 전체를 제거한다.
         반환: 실제로 삭제됐으면 True.
         """
         try:
@@ -236,6 +283,7 @@ class SqliteTransactionRepository:
                 Posting(
                     account_id=p["account_id"],
                     amount=Money(amount=p["amount"], currency=p["currency"]),
+                    legacy_zero=p["amount"] == 0,
                 )
                 for p in self._conn.execute(
                     "SELECT * FROM postings WHERE txn_id=? ORDER BY id", (row["id"],)
@@ -248,6 +296,7 @@ class SqliteTransactionRepository:
                     date=_D(row["date"]),
                     description=row["description"],
                     memo=row["memo"],
+                    tags=_load_tags(self._conn, row["id"]),
                     source_rule_id=row["source_rule_id"],
                     postings=postings,
                 )
@@ -270,7 +319,10 @@ class ScenarioTransactionWriter:
 
     def list_owned(self, sid: int) -> list[Transaction]:
         rows = self._conn.execute(
-            "SELECT t.id,t.date,t.description,p.account_id,p.amount,p.currency "
+            "SELECT t.id,t.date,t.description,t.memo,p.account_id,p.amount,p.currency,"
+            "(SELECT json_group_array(name) FROM ("
+            "SELECT g.name AS name FROM tags g JOIN transaction_tags tt ON tt.tag_id=g.id "
+            "WHERE tt.txn_id=t.id ORDER BY g.name_key)) AS tags_json "
             "FROM transactions t JOIN postings p ON p.txn_id=t.id "
             "WHERE t.scenario_id=? AND t.source_rule_id IS NULL AND t.posted=1 "
             "ORDER BY t.date,t.id,p.id",
@@ -285,10 +337,13 @@ class ScenarioTransactionWriter:
                     scenario_id=sid,
                     date=_D(items[0]["date"]),
                     description=items[0]["description"],
+                    memo=items[0]["memo"],
+                    tags=json.loads(items[0]["tags_json"] or "[]"),
                     postings=[
                         Posting(
                             account_id=p["account_id"],
                             amount=Money(amount=p["amount"], currency=p["currency"]),
+                            legacy_zero=p["amount"] == 0,
                         )
                         for p in items
                     ],
@@ -310,8 +365,8 @@ class ScenarioTransactionWriter:
             )
         self._conn.execute("DELETE FROM postings WHERE txn_id=?", (txn.id,))
         self._conn.execute(
-            "UPDATE transactions SET date=?,description=? WHERE id=?",
-            (_iso(txn.date), txn.description, txn.id),
+            "UPDATE transactions SET date=?,description=?,memo=?,item_key=? WHERE id=?",
+            (_iso(txn.date), txn.description, txn.memo, normalize_item_key(txn.description), txn.id),
         )
         self._conn.executemany(
             "INSERT INTO postings(txn_id,account_id,amount,currency) VALUES(?,?,?,?)",
@@ -321,4 +376,5 @@ class ScenarioTransactionWriter:
             ],
         )
         self._conn.execute("UPDATE transactions SET posted=1 WHERE id=?", (txn.id,))
+        _replace_tags(self._conn, txn.id, txn.tags)
         return txn

@@ -18,12 +18,25 @@ const save=(page:Page)=>page.getByRole("button",{name:"저장 (Enter)",exact:tru
 const group=(page:Page,side="차변")=>page.getByRole("group",{name:`${side} 계정`,exact:true});
 async function start(page:Page) {
   await page.route("**/api/accounts",r=>r.fulfill({json:accounts}));
+  await page.route("**/api/tags",r=>r.fulfill({json:["데이트","엄마"]}));
   await page.route("**/api/transaction-input/recent?*",r=>r.fulfill({json:[]}));
   await page.route("**/api/transaction-input/last-pair?*",r=>r.fulfill({json:{...matched(new URL(r.request().url()).searchParams.get("item")!),status:"none",debit_account_id:null,credit_account_id:null}}));
   await page.goto("/transactions/new");
   await expect(page.locator(".side .health")).not.toContainText("상태 확인 중…");
   await expect(group(page).locator("input[data-account=\"102\"]")).toBeAttached();
 }
+
+test("reuses multiple tags, adds a new tag, and clears them after save",async({page})=>{
+  await start(page);const payloads:any[]=[];
+  await page.route("**/api/transactions",async r=>{if(r.request().method()!=="POST")return r.continue();payloads.push(r.request().postDataJSON());await r.fulfill({status:201,json:{id:701,...payloads.at(-1)}});});
+  await selectPair(page);await amount(page).fill("12000");
+  await page.getByRole("checkbox",{name:"데이트",exact:true}).check();
+  await page.getByLabel("태그 (선택·여러 개)",{exact:true}).fill("여행");
+  await page.getByLabel("태그 (선택·여러 개)",{exact:true}).press("Enter");
+  await save(page).click();await expect.poll(()=>payloads.length).toBe(1);
+  expect(payloads[0].tags).toEqual(["데이트","여행"]);
+  await expect(page.getByLabel("선택한 태그")).toHaveCount(0);
+});
 async function selectPair(page:Page) {
   await group(page).getByLabel("차변 계정 검색").fill("점심비");
   await group(page).getByRole("radio",{name:/점심비$/}).check();
@@ -54,7 +67,7 @@ test("late response fills untouched side, item changes and memo never recall amo
   await held!.fulfill({json:matched()});
   await expect(group(page).getByRole("radio",{name:/저축$/})).toBeChecked(); await expect(group(page,"대변").getByRole("radio",{name:/카드$/})).toBeChecked();
   await expect(amount(page)).toHaveValue("500"); await expect(memo(page)).toHaveValue("이번만");
-  await item(page).fill("다른 아이템"); await expect(group(page,"대변").getByRole("radio",{name:/카드$/})).not.toBeChecked(); await expect(group(page).getByRole("radio",{name:/저축$/})).toBeChecked();
+  await item(page).fill("다른 아이템"); await expect(group(page,"대변").getByRole("radio",{name:/카드$/})).toBeChecked(); await expect(group(page).getByRole("radio",{name:/저축$/})).toBeChecked();
 });
 
 test("old item response and IME do not apply or submit",async({page})=>{
@@ -144,9 +157,9 @@ test("real save, reload, last-pair recall, undo fallback and multiline memo hist
   const saved=page.waitForResponse(r=>r.url()===`${base}/transactions`&&r.request().method()==="POST"&&r.ok());await save(page).click();const first=await(await saved).json(); created.push(first.id);
   await expect(amount(page)).toHaveValue("");await page.reload();await item(page).fill(description);await expect(group(page,"대변").getByRole("radio",{name:new RegExp(`지갑${suffix}$`)})).toBeChecked();await expect(memo(page)).toHaveValue("");
   await amount(page).fill("1700");await group(page,"대변").getByRole("radio",{name:new RegExp(`카드${suffix}$`)}).check();const secondSaved=page.waitForResponse(r=>r.url()===`${base}/transactions`&&r.request().method()==="POST"&&r.ok());await save(page).click();const second=await(await secondSaved).json(); created.push(second.id);
-  await expect(page.locator(".txn-recall")).toContainText("마지막으로 저장한 계정");
+  await expect(page.locator(".txn-recall")).toContainText("선택한 계정을 유지");
   const deleted=page.waitForResponse(r=>r.url()===`${base}/transactions/${second.id}`&&r.request().method()==="DELETE"&&r.ok());await page.locator(".toast").getByRole("button",{name:/실행취소/}).click();await deleted;
-  await expect(group(page,"대변").getByRole("radio",{name:new RegExp(`지갑${suffix}$`)})).toBeChecked();
+  await expect(group(page,"대변").getByRole("radio",{name:new RegExp(`카드${suffix}$`)})).toBeChecked();
   const history=await(await request.get(`${base}/transactions`)).json();expect(history.find((t:any)=>t.id===first.id)).toMatchObject({description,memo:text});expect(history.some((t:any)=>t.id===second.id)).toBe(false);
   await page.goto("/transactions");const row=page.getByRole("row").filter({hasText:`회식&? ${suffix}`});await row.getByText("메모 보기",{exact:true}).click();await expect(row.locator("details p")).toHaveText(text);await expect(row.locator("details em")).toHaveCount(0);
   } finally {
@@ -154,12 +167,12 @@ test("real save, reload, last-pair recall, undo fallback and multiline memo hist
   }
 });
 
-test("failed refresh clears obsolete automatic pair and manual recovery stays savable",async({page})=>{
+test("failed recall keeps automatic pair and the existing draft stays savable",async({page})=>{
   await start(page);let calls=0;
   await page.route("**/api/transaction-input/recent?*",r=>r.fulfill({json:[{id:9,date:"2026-09-05",description:"점심",amount:100,posting_count:2,debit_account_id:102,credit_account_id:104}]}));
   await page.route("**/api/transaction-input/last-pair?*",r=>++calls===1?r.fulfill({json:matched()}):r.fulfill({status:503,json:{detail:"lookup failed"}}));
   await page.reload();await item(page).fill("점심");await amount(page).fill("100");await expect(group(page,"대변").getByRole("radio",{name:/카드$/})).toBeChecked();await expect(save(page)).toBeEnabled();
-  await page.locator(".txn-recent").getByRole("button",{name:"점심",exact:true}).click();await expect(page.locator(".txn-recall")).toContainText("불러오지 못했습니다");await expect(save(page)).toBeDisabled();await expect(group(page,"대변").getByRole("radio",{name:/카드$/})).not.toBeChecked();
+  await page.locator(".txn-recent").getByRole("button",{name:"점심",exact:true}).click();await expect(page.locator(".txn-recall")).toContainText("불러오지 못했습니다");await expect(save(page)).toBeEnabled();await expect(group(page,"대변").getByRole("radio",{name:/카드$/})).toBeChecked();
   await selectPair(page);await expect(save(page)).toBeEnabled();
 });
 
@@ -199,7 +212,7 @@ test("failed undo keeps its recovery message visible and does not refresh recall
   await page.route("**/api/transaction-input/last-pair?*",r=>{calls++;return r.fulfill({json:matched()});});
   await page.route("**/api/transactions",r=>r.request().method()==="POST"?r.fulfill({status:201,json:{id:700}}):r.continue());
   await page.route("**/api/transactions/700",r=>r.fulfill({status:503,json:{detail:"삭제 실패"}}));
-  await item(page).fill("점심");await amount(page).fill("100");await expect(save(page)).toBeEnabled();await save(page).click();await expect(page.locator(".txn-recall")).toContainText("마지막으로 저장한 계정");
+  await item(page).fill("점심");await amount(page).fill("100");await expect(save(page)).toBeEnabled();await save(page).click();await expect(page.locator(".txn-recall")).toContainText("선택한 계정을 유지");
   const before=calls;await page.locator(".toast").getByRole("button",{name:"실행취소",exact:true}).click();await expect(page.locator(".toast")).toContainText("삭제하지 못했습니다");expect(calls).toBe(before);
 });
 

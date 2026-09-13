@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, isPostable, type Account, type Rule, type RuleBody } from "../api";
+import { api, accountTree, isPostable, type Account, type Rule, type RuleBody } from "../api";
 import { commaInput, fmtWon, todayIso } from "../format";
 import type { ViewProps } from "../App";
 import { useQuery } from "./scenarios/useQuery";
@@ -60,12 +60,12 @@ export function RuleForm({
       <div className="field"><label htmlFor={`${idPrefix}-from`}>어디서 (from)</label>
         <select id={`${idPrefix}-from`} value={from} onChange={(e) => setFrom(Number(e.target.value))}>
           <option value="">선택</option>
-          {accounts.filter((a) => !a.is_system && isPostable(accounts, a)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          {accountTree(accounts).map(row => row.account).filter((a) => !a.is_system && isPostable(accounts, a)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select></div>
       <div className="field"><label htmlFor={`${idPrefix}-to`}>어디로 (to)</label>
         <select id={`${idPrefix}-to`} value={to} onChange={(e) => setTo(Number(e.target.value))}>
           <option value="">선택</option>
-          {accounts.filter((a) => !a.is_system && isPostable(accounts, a)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+          {accountTree(accounts).map(row => row.account).filter((a) => !a.is_system && isPostable(accounts, a)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select></div>
       <div className="field"><label htmlFor={`${idPrefix}-amount`}>금액/회</label>
         <input id={`${idPrefix}-amount`} className="num rule-amount" value={amount} placeholder="0"

@@ -13,8 +13,9 @@
 from __future__ import annotations
 
 import datetime
+import unicodedata
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from moneymap.domain.errors import MixedCurrencyError, UnbalancedTransactionError
 from moneymap.domain.money import Money
@@ -25,10 +26,11 @@ class Posting(BaseModel):
 
     account_id: int
     amount: Money  # 양수=차변, 음수=대변
+    legacy_zero: bool = Field(default=False, exclude=True, repr=False)
 
     @model_validator(mode="after")
     def _nonzero(self) -> "Posting":
-        if self.amount.amount == 0:
+        if self.amount.amount == 0 and not self.legacy_zero:
             raise ValueError("0원 posting은 허용되지 않습니다")
         return self
 
@@ -39,10 +41,29 @@ class Transaction(BaseModel):
     date: datetime.date
     description: str = ""
     memo: str = ""
+    tags: list[str] = Field(default_factory=list, max_length=20)
     postings: list[Posting] = Field(min_length=2)
     # 반복 규칙이 자동 생성한 거래는 출처를 추적한다 (UI badge용, D10).
     # 생성 후 규칙과 독립 — 규칙 수정은 이 거래를 건드리지 않는다 (D9).
     source_rule_id: int | None = None
+
+    @field_validator("tags")
+    @classmethod
+    def _normalize_tags(cls, values: list[str]) -> list[str]:
+        result: list[str] = []
+        keys: set[str] = set()
+        for value in values:
+            name = unicodedata.normalize("NFC", value).strip()
+            if not name:
+                raise ValueError("빈 태그는 허용되지 않습니다")
+            if len(name) > 50:
+                raise ValueError("태그는 50자 이하여야 합니다")
+            key = name.casefold()
+            if key in keys:
+                continue
+            keys.add(key)
+            result.append(name)
+        return result
 
     @model_validator(mode="after")
     def _enforce_invariants(self) -> "Transaction":
