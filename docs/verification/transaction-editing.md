@@ -1,9 +1,11 @@
 # Transaction editing — implementation verification
 
 Date: 2026-09-12
-Status: DONE — implemented and verified; local development server auto-reloaded, no release/commit
+Status: implementation verified; v0.7.0.0 branch committed and pushed on 2026-09-13; merge and release deployment pending.
 
 Review follow-up (2026-09-13): all eight confirmed findings were fixed with regression coverage. Final backend **458 passed**, frontend **139 passed**, build and diff check passed. See [review fixes and evidence](transaction-editing-review.md) and [private import correction setup](legacy-local-corrections.md). No additional schema migration or real transaction edit/reimport was performed.
+
+Ship verification (2026-09-13): backend **478 passed**, frontend **139 passed**, and frontend build passed after adding 20 synthetic import guard, rollback and backup checks. Tag checkbox sizing and wrapping were also corrected in both transaction forms. These results supersede the earlier run totals below; the earlier dated verification remains a historical record. No private CSV or live ledger was used for ship QA.
 
 ## Delivered behavior
 
@@ -53,6 +55,8 @@ Backup: `backend/backups/migration-v5-to-v6-08910dffe0c54118ad59e4fdc324f5a1.db`
 
 The design's 30 groups are requirements, not an assertion of exhaustive branch coverage or 30 test functions.
 
+Ship audit limitation: the detail-query test establishes three queries and posting-index use for one fixture; it does not compare increasing dataset sizes or verify every planned index. The account-ordering test limitations are recorded in [its verification report](account-ordering.md).
+
 | Groups | Evidence |
 |---|---|
 | B01–B02/B08 | Full-field real API edits, retained/new/deleted posting IDs, basic/split round trips and validation |
@@ -79,4 +83,4 @@ The design's 30 groups are requirements, not an assertion of exhaustive branch c
 - KRW editing only. Foreign transactions remain protected/read-only; no conversion or reclassification of historical USD purchases.
 - Tag-selector redesign, account action history/SCD Type 2 and multi-currency work remain in TODOS.md. Edit history/undo, bulk editing and full-list pagination are not added.
 - Browser automation uses Chromium, not physical mobile devices or separate Safari/Firefox verification. The shared form's existing tag UI remains; it was not redesigned.
-- No real transaction edit/import request, commit, push, release deployment, new dependency installation or gstack upgrade was performed. The local schema upgrade caused by the existing auto-reload server is documented above; it must not be confused with an unchanged database schema.
+- During the 2026-09-12 implementation verification, no real transaction edit/import request, commit, push, release deployment, new dependency installation or gstack upgrade was performed. The later ship run committed and pushed the release branch; merge and deployment remain separate. The local schema upgrade caused by the existing auto-reload server is documented above; it must not be confused with an unchanged database schema.

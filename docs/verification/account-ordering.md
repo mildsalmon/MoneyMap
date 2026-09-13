@@ -2,6 +2,8 @@
 
 Date: 2026-09-12
 
+Ship follow-up (2026-09-13): the combined v0.7.0.0 branch passed **478 backend tests**, **139 frontend tests** and the frontend build. The branch is committed and pushed; merge and deployment remain pending. The counts below describe the original ordering implementation run.
+
 ## Delivered behavior
 
 - Desktop: drag the dedicated handle within the same sibling group. A group moves with its displayed descendants; its hierarchy does not change.
@@ -25,4 +27,6 @@ Date: 2026-09-12
 
 - This is sibling ordering, not reparenting or per-screen preferences.
 - Browser automation runs Chromium; other browsers and physical touch devices were not separately tested.
+- The backend ordering tests do not cover the full concurrent create/archive/reparent/reorder matrix or persistence across a backend process restart.
+- The consumer E2E restores the original order with undo before checking the actual rule picker. Comparing a changed order across transaction input, actual rules and scenario rules, plus exhaustive coarse-pointer and descendant-collision variants, remains outside the executed test coverage.
 - Existing npm audit findings in unrelated toolchain dependencies were not changed in this feature.

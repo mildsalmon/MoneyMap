@@ -6,6 +6,8 @@
 - 설계서(source of truth): [DESIGN.md](DESIGN.md)
 - 릴리스 변경: [CHANGELOG.md](CHANGELOG.md), 후속 작업: [TODOS.md](TODOS.md)
 - 계정 설정·이동 설계: [account-reparenting.md](docs/designs/account-reparenting.md)
+- 계정 형제 순서 변경·드래그·실행 취소: [account-ordering.md](docs/designs/account-ordering.md), [구현 검증](docs/verification/account-ordering.md)
+- 과거 CSV 이관·거래 태그: [이관 설계](docs/designs/legacy-transaction-migration-and-tags.md), [이관 CLI](backend/scripts/import_legacy_csv.py), [로컬 메모 교정 설정](docs/verification/legacy-local-corrections.md)
 - 시나리오 승인 설계(PR 1~4): [scenario-lifecycle.md](docs/designs/scenario-lifecycle.md)
 - v0.2.0.0 구현 범위·검증·저장소 운영 계약: [scenario-foundation.md](docs/verification/scenario-foundation.md). PR1(T1~T4)은 릴리스되었다. PR2(T5~T7)의 live-additive 전망·수명주기·legacy 전환·라우팅 구현과 검증은 [scenario-lifecycle.md](docs/verification/scenario-lifecycle.md)를 참고한다. PR3(T8~T9)의 복제·예정 거래 CRUD 구현과 검증은 [scenario-assumptions.md](docs/verification/scenario-assumptions.md)를 참고한다. PR4(T10~T12)의 현금성 계정 설정·현금 전망·부족 진단 구현과 검증은 [scenario-liquidity.md](docs/verification/scenario-liquidity.md)를 참고한다.
 - 거래 입력·마지막 계정 조합·메모: [transaction-input.md](docs/designs/transaction-input.md), [구현 검증](docs/verification/transaction-input.md)
