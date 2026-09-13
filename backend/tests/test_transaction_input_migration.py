@@ -75,5 +75,5 @@ def test_migration_four_failure_restores_schema_data_and_version_then_retries(v3
     assert v3.execute('PRAGMA user_version').fetchone()[0] == 3
     assert snapshot(v3) == before
     init_db(v3)
-    assert v3.execute('PRAGMA user_version').fetchone()[0] == 4
+    assert v3.execute('PRAGMA user_version').fetchone()[0] == len(database.MIGRATIONS)
     assert v3.execute('SELECT count(*) FROM transactions WHERE memo=""').fetchone()[0] == 5

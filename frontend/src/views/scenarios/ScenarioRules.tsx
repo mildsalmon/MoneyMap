@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   api,
+  accountTree,
   isPostable,
   type Scenario,
   type Rule,
@@ -94,7 +95,7 @@ function RuleEditor({
             }
           >
             <option value="">선택</option>
-            {accounts
+            {accountTree(accounts).map(row => row.account)
               .filter((a) => !a.is_system && isPostable(accounts, a))
               .map((a) => (
                 <option key={a.id} value={a.id}>

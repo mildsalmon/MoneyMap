@@ -12,9 +12,14 @@ from moneymap.domain import (
     AccountSettingsCommand,
     AccountType,
 )
+from moneymap.domain.account_order import AccountReorderCommand
 from moneymap.domain.standard_accounts import STANDARD_ACCOUNTS
 
 router = APIRouter(dependencies=[Depends(request_connection)])
+
+@router.put("/api/accounts/reorder")
+def reorder_accounts(body: AccountReorderCommand, request: Request):
+    return app_services.reorder_accounts(body, repos(request)["accounts"]).model_dump()
 
 
 class AccountIn(BaseModel):

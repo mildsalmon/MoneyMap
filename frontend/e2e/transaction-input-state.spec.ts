@@ -8,15 +8,15 @@ test("late lookup protects each manual side and discards other item/mode epochs"
   let d = editField(newDraft("2026-09-05"), "item", "점심"); const token = lookupToken(d);
   d = chooseAccount(d, "debit", 3); d = applyPair(d, token, pair);
   expect(d.debit.account).toBe(3); expect(d.credit.account).toBe(2);
-  expect(applyPair(editField(d, "item", "저녁"), token, pair).credit.account).toBeNull();
+  expect(applyPair(editField(d, "item", "저녁"), token, pair).credit.account).toBe(2);
   expect(applyPair(switchMode(d).draft, token, pair).mode).toBe("split");
   expect(applyPair(d, token, { ...pair, item_key: "저녁" })).toEqual(d);
 });
-test("manual choices survive item changes, saved choices unlock and next item clears", () => {
+test("manual and saved choices survive item changes while other fields clear after save", () => {
   const d = ready(); expect(editField(d, "item", "저녁").debit.account).toBe(1);
   const saved = clearSavedDraft(editField(d,"memo","다음 줄\n메모"), editField(d,"memo","다음 줄\n메모"));
   expect(saved.memo).toBe(""); expect(saved.amount).toBe(""); expect(saved.debit.source).toBe("retained");
-  expect(editField(saved,"item","저녁").debit.account).toBeNull();
+  expect(editField(saved,"item","저녁").debit.account).toBe(1);
 });
 test("pending save preserves later edits and invalidates earlier responses", () => {
   const submitted = ready(); const changed = editField(submitted,"memo","다음 거래");
@@ -34,7 +34,7 @@ test("split mode is lossless and rejects extra, unequal and partially filled row
   }
   expect(validateDraft({...split, rows:[...split.rows,{id:3,account:null,amount:"",debit:true}]},new Set([1,2])).postings).toHaveLength(2);
 });
-test("legacy confirmation is explicit, unavailable clears only automatic selections", () => {
+test("legacy confirmation is explicit and unavailable results keep all selections", () => {
   let d = editField(newDraft("2026-09-05"),"item","점심"); const token=lookupToken(d);
   const legacy:LastPair={...pair,status:"legacy_confirmation_required"};
   expect(applyPair(d,token,legacy).debit.account).toBeNull();

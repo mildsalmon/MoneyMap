@@ -16,6 +16,8 @@ import { fmtWon, todayIso } from "../format";
 import type { ViewProps } from "../App";
 import { AccountSettingsPanel } from "./AccountSettingsPanel";
 import { OpeningBalanceControl } from "./OpeningBalanceControl";
+import { useAccountOrdering } from "./useAccountOrdering";
+import { AccountOrderControls, AccountOrderProvider } from "./AccountOrderControls";
 
 const TYPE_LABEL: Record<AccountType, string> = {
   asset: "자산",
@@ -60,6 +62,9 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   const [childDraft, setChildDraft] = useState<ChildDraft | null>(null);
   const [settingsAccountId, setSettingsAccountId] = useState<number | null>(null);
   const [reclassTargets, setReclassTargets] = useState<Record<number, number | "">>({});
+  const [mutationPending, setMutationPending] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [settingsFocusId, setSettingsFocusId] = useState<number | null>(null);
   const inlineRef = useRef<HTMLInputElement>(null);
 
   const accountRequest = useRef<AbortController | null>(null);
@@ -72,7 +77,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     accountRequest.current = controller;
     setAccountsError("");
     try {
-      const result = await api.accounts(controller.signal);
+      const result = await api.accounts(AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]));
       if (controller.signal.aborted) return undefined;
       setAccounts(result);
       return result;
@@ -126,7 +131,11 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     inlineRef.current?.focus();
   }, [rootDraft?.type, childDraft?.parentId]);
 
-  const accountList = accounts ?? [];
+  const ordering = useAccountOrdering({ accounts, setAccounts, loadAccounts,
+    cancelRead: () => accountRequest.current?.abort(), showToast,
+    blocked: mutationPending || Object.values(rowTasks).some(Boolean) || !!rootDraft || !!childDraft || settingsAccountId !== null || !!name.trim(),
+  });
+  const accountList = ordering.display;
   const visible = accountList.filter((account) => !account.is_system && !account.archived);
   const archivedList = accountList.filter((account) => !account.is_system && account.archived);
   const balanceOf = (id: number) => balances?.find((balance) => balance.account_id === id);
@@ -162,7 +171,8 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
 
   const create = async () => {
     const draftName = name.trim();
-    if (!draftName) return;
+    if (!draftName || mutationPending || ordering.locked || dragging) return;
+    setMutationPending(true);
     setPageError("");
     try {
       await api.createAccount({
@@ -178,11 +188,15 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
       showToast(`계정 "${draftName}" 생성됨`);
     } catch (error) {
       setPageError((error as Error).message);
+    } finally {
+      setMutationPending(false);
     }
   };
 
   const createRoot = async (rootType: AccountType) => {
     if (!rootDraft || rootDraft.type !== rootType || !rootDraft.name.trim()) return;
+    if (mutationPending || ordering.locked || dragging) return;
+    setMutationPending(true);
     const draftName = rootDraft.name.trim();
     setPageError("");
     try {
@@ -197,11 +211,15 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
       showToast(`${TYPE_LABEL[rootType]} "${draftName}" 생성됨`);
     } catch (error) {
       setPageError((error as Error).message);
+    } finally {
+      setMutationPending(false);
     }
   };
 
   const createChild = async (parent: Account) => {
     if (!childDraft || childDraft.parentId !== parent.id || !childDraft.name.trim()) return;
+    if (mutationPending || ordering.locked || dragging) return;
+    setMutationPending(true);
     const draftName = childDraft.name.trim();
     setPageError("");
     try {
@@ -216,10 +234,14 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
       showToast(`"${parent.name}" 아래 "${draftName}" 생성됨`);
     } catch (error) {
       setPageError((error as Error).message);
+    } finally {
+      setMutationPending(false);
     }
   };
 
   const seedStandard = async () => {
+    if (mutationPending || ordering.locked || dragging) return;
+    setMutationPending(true);
     setPageError("");
     try {
       const seeded = await api.seedStandardAccounts();
@@ -231,6 +253,8 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
       );
     } catch (error) {
       setPageError((error as Error).message);
+    } finally {
+      setMutationPending(false);
     }
   };
 
@@ -243,12 +267,17 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   };
 
   const returnFocusToSettings = (id: number) => {
-    requestAnimationFrame(() => {
-      const button = document.getElementById(`account-settings-${id}`);
-      button?.scrollIntoView({ block: "nearest", inline: "nearest" });
-      button?.focus();
-    });
+    setSettingsFocusId(id);
   };
+
+  useEffect(() => {
+    if (settingsFocusId === null || mutationPending || settingsAccountId !== null) return;
+    const button = document.getElementById(`account-settings-${settingsFocusId}`);
+    if (!button || button.matches(":disabled")) return;
+    button.scrollIntoView({ block: "nearest", inline: "nearest" });
+    button.focus();
+    setSettingsFocusId(null);
+  }, [settingsFocusId, mutationPending, settingsAccountId, accounts]);
 
   const cancelSettings = (id: number) => {
     setSettingsAccountId(null);
@@ -315,6 +344,8 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   };
 
   const toggleGroup = async (account: Account) => {
+    if (mutationPending || ordering.locked || dragging) return;
+    setMutationPending(true);
     setPageError("");
     try {
       await api.setPlaceholder(account.id, !account.is_placeholder);
@@ -326,12 +357,16 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
       );
     } catch (error) {
       setPageError((error as Error).message);
+    } finally {
+      setMutationPending(false);
     }
   };
 
   const reclassifyDirect = async (account: Account) => {
     const target = reclassTargets[account.id];
     if (target === undefined || target === "") return;
+    if (mutationPending || ordering.locked || dragging) return;
+    setMutationPending(true);
     setPageError("");
     try {
       const result = await api.reclassifyDirect(account.id, target);
@@ -340,6 +375,8 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
       showToast(`"${account.name}" 미분류 ${result.moved_postings}건 이동됨`);
     } catch (error) {
       setPageError((error as Error).message);
+    } finally {
+      setMutationPending(false);
     }
   };
 
@@ -493,7 +530,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     const targets = visible.filter((candidate) => candidate.parent_id === account.id && isPostable(accountList, candidate));
     const target = reclassTargets[account.id] ?? "";
     return (
-      <tr key={`unclassified-${account.id}`} className="muted-row">
+      <tr key={`unclassified-${account.id}`} className="muted-row" data-order-row={account.id}>
         <td style={{ paddingLeft: 8 + (depth + 1) * 20 }}>
           <span className="tree-guide">└ </span>(미분류)
         </td>
@@ -550,13 +587,17 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
 
     return (
       <Fragment key={account.id}>
-        <tr className={`account-row${group ? " group-row" : ""}${editing ? " settings-open" : ""}`}>
-          <td style={{ paddingLeft: 8 + depth * 20 }}>
+        <tr data-order-row={account.id} className={`account-row${group ? " group-row" : ""}${editing ? " settings-open" : ""}`}>
+          <td className="order-name-cell" style={{ paddingLeft: 8 + depth * 20 }}>
+            <div className="order-account-label">
+            <AccountOrderControls account={account} />
             {depth > 0 && <span className="tree-guide">└ </span>}
             <span className="account-name" title={account.name} aria-label={account.name}>{account.name}</span>
             {group && (
               <span className="badge group-badge">{hasChildren ? "그룹 · 합산" : "그룹"}</span>
             )}
+            {ordering.operation?.owner.id === account.id && <small className="order-row-status">{ordering.operation.phase === "saving" ? "순서 저장 중…" : ordering.operation.phase === "undoing" ? "실행 취소 중…" : "순서 확인 중…"}</small>}
+            </div>
           </td>
           <td>
             <span className="badge">{TYPE_LABEL[account.type]}</span>
@@ -632,6 +673,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
           <AccountSettingsPanel
             account={account}
             accounts={accountList}
+            onPendingChange={setMutationPending}
             onCancel={() => cancelSettings(account.id)}
             onSaved={(result) => settingsSaved(account, result)}
           />
@@ -684,8 +726,15 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   const advancedOverdraftEligible = type === "asset" && !selectedParent?.is_overdraft;
 
   return (
+    <AccountOrderProvider accounts={accountList} save={ordering.save} onDragging={setDragging}
+      disabled={ordering.locked || mutationPending || Object.values(rowTasks).some(Boolean) || !!rootDraft || !!childDraft || settingsAccountId !== null || !!name.trim()}>
     <div>
-      <h1>계정 · 개시잔액</h1>
+      <h1 id="accounts-title" tabIndex={-1}>계정 · 개시잔액</h1>
+      {ordering.notice && <div className="banner order-status" role="status">
+        {ordering.notice}
+        {ordering.operation?.phase === "refresh-required" && <button type="button" className="btn sm secondary" onClick={() => void ordering.retry()}>다시 불러오기</button>}
+      </div>}
+      <fieldset className="account-mutation-fields" disabled={ordering.locked || dragging || mutationPending || Object.values(rowTasks).some(Boolean)}>
 
       <div className="accounts-toolbar">
         <button className="btn secondary" onClick={() => void seedStandard()}>표준 계정과목 추가</button>
@@ -818,6 +867,8 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
           </div>
         </div>
       )}
+      </fieldset>
     </div>
+    </AccountOrderProvider>
   );
 }

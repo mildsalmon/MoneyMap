@@ -473,3 +473,32 @@ textarea:focus-visible,
 
 .shortage-maximum { display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; }
 .shortage-maximum .num { margin-left: auto; }
+
+/* Account ordering: handle-only drag; table rows remain in normal layout. */
+.account-mutation-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.account-row td { padding-top: 0; padding-bottom: 0; }
+.order-handle, .order-move { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); color: var(--muted); vertical-align: middle; }
+.order-handle { cursor: grab; touch-action: none; margin-right: 4px; }
+.order-handle:disabled, .order-move:disabled { opacity: .45; cursor: default; }
+.order-spacer { display: inline-block; width: 36px; }
+.order-name-cell { min-width: 230px; }
+.order-account-label { display: flex; align-items: center; flex-wrap: wrap; gap: 2px; }
+.order-mobile { display: none; }
+.order-panel { position: fixed; z-index: 40; width: 280px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto; padding: 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 4px; }
+.order-panel p { overflow-wrap: anywhere; margin-bottom: 8px; }
+.order-panel button + button { margin-left: 8px; }
+.order-drag-overlay { position: fixed; padding: 6px 10px; max-width: 280px; overflow-wrap: anywhere; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 4px; font-size: 13px; }
+.order-drag-overlay:empty { display: none; }
+.order-drop-target { pointer-events: none; }
+.order-insertion { position: fixed; height: 2px; background: var(--accent); pointer-events: none; z-index: 35; }
+.order-status { border-color: var(--line-strong); background: var(--surface); }
+.order-row-status { flex-basis: 100%; color: var(--muted); font-size: 12px; }
+@media (max-width: 720px), (pointer: coarse) {
+  .order-handle, .order-spacer { display: none; }
+  .order-mobile { display: flex; gap: 8px; margin-top: 4px; }
+  .order-name-cell { display: table-cell; }
+  .order-name-cell .account-name { white-space: normal; overflow-wrap: anywhere; }
+  .order-mobile { order: 10; flex-basis: 100%; }
+  .order-mobile ~ .tree-guide { display: none; }
+  .order-move { width: 44px; height: 44px; }
+}

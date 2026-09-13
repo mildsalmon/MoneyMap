@@ -1,7 +1,10 @@
 import { req } from "./core";
-import type { AccountType, Account, AccountSettingsResult } from "./types";
+import type { AccountType, Account, AccountSettingsResult, AccountReorderCommand, AccountReorderResult } from "./types";
 
 export const accountsApi = {
+  reorderAccounts: (body: AccountReorderCommand) => req<AccountReorderResult>("/accounts/reorder", {
+    method: "PUT", body: JSON.stringify(body), signal: AbortSignal.timeout(15_000),
+  }),
   accounts: (signal?: AbortSignal) => req<Account[]>("/accounts", { signal }),
   createAccount: (b: {
     name: string;

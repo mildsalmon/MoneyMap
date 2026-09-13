@@ -97,3 +97,37 @@ def run_migration_backup(
     finally:
         os.close(directory)
     return final
+
+
+def run_import_backup(
+    src: sqlite3.Connection,
+    backup_dir: Path,
+    source_hash: str,
+) -> Path:
+    """Create a verified point-in-time backup immediately before a bulk import."""
+    import hashlib
+    import os
+    import uuid
+
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    name = f"legacy-import-{stamp}-{source_hash[:12]}-{uuid.uuid4().hex[:8]}.db"
+    final = backup_dir / name
+    partial = backup_dir / f"{name}.partial"
+    dest = sqlite3.connect(partial)
+    try:
+        src.backup(dest)
+        if [row[0] for row in dest.execute("PRAGMA integrity_check")] != ["ok"]:
+            raise sqlite3.DatabaseError("Import backup integrity check failed")
+    finally:
+        dest.close()
+    with partial.open("rb") as stream:
+        hashlib.file_digest(stream, "sha256")
+        os.fsync(stream.fileno())
+    os.replace(partial, final)
+    directory = os.open(backup_dir, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+    return final

@@ -4,10 +4,10 @@
 import type { LastPair } from "../api";
 
 export type Side = "debit" | "credit";
-export type Choice = { account: number | null; source: "empty" | "auto" | "manual" | "retained"; revision: number };
-export type SplitRow = { id: number; account: number | null; amount: string; debit: boolean };
+export type Choice = { account: number | null; source: "empty" | "auto" | "manual" | "retained"; revision: number; postingId?: number };
+export type SplitRow = { id: number; account: number | null; amount: string; debit: boolean; postingId?: number };
 export type Draft = {
-  date: string; item: string; memo: string; amount: string;
+  date: string; item: string; memo: string; tags: string[]; amount: string;
   mode: "basic" | "split"; debit: Choice; credit: Choice; rows: SplitRow[];
   epoch: number; revision: number;
 };
@@ -16,7 +16,18 @@ const emptyChoice = (): Choice => ({ account: null, source: "empty", revision: 0
 export const itemKey = (value: string) => value.normalize("NFC").replace(/^[\s\u0085\u001c-\u001f]+|[\s\u0085\u001c-\u001f]+$/g, "");
 
 export function newDraft(date: string): Draft {
-  return { date, item: "", memo: "", amount: "", mode: "basic", debit: emptyChoice(), credit: emptyChoice(), rows: [], epoch: 0, revision: 0 };
+  return { date, item: "", memo: "", tags: [], amount: "", mode: "basic", debit: emptyChoice(), credit: emptyChoice(), rows: [], epoch: 0, revision: 0 };
+}
+
+export function setTags(draft: Draft, tags: string[]): Draft {
+  const normalized: string[] = [];
+  const keys = new Set<string>();
+  for (const raw of tags) {
+    const tag = raw.trim(), key = tag.toLocaleLowerCase("ko-KR");
+    if (!key || keys.has(key)) continue;
+    keys.add(key); normalized.push(tag);
+  }
+  return { ...draft, tags: normalized.slice(0, 20), revision: draft.revision + 1 };
 }
 
 export function amountValue(value: string): number {
@@ -35,15 +46,12 @@ export function editField(draft: Draft, field: "date" | "item" | "memo" | "amoun
   const next = { ...draft, [field]: value, revision: draft.revision + 1 };
   if (field === "item" && itemKey(value) !== itemKey(draft.item)) {
     next.epoch++;
-    for (const side of ["debit", "credit"] as const) {
-      if (draft[side].source !== "manual") next[side] = { ...emptyChoice(), revision: draft[side].revision + 1 };
-    }
   }
   return next;
 }
 
 export function chooseAccount(draft: Draft, side: Side, account: number): Draft {
-  return { ...draft, revision: draft.revision + 1, [side]: { account, source: "manual", revision: draft[side].revision + 1 } };
+  return { ...draft, revision: draft.revision + 1, [side]: { ...draft[side], account, source: "manual", revision: draft[side].revision + 1 } };
 }
 
 export function lookupToken(draft: Draft): LookupToken {
@@ -59,7 +67,7 @@ export function applyPair(draft: Draft, token: LookupToken, pair: LastPair, conf
   const usable = pair.status === "matched" || (confirmed && pair.status === "legacy_confirmation_required");
   let next = draft;
   for (const side of ["debit", "credit"] as const) {
-    if (draft[side].source === "manual" || draft[side].revision !== token[side]) continue;
+    if (draft[side].account !== null || draft[side].source === "manual" || draft[side].revision !== token[side]) continue;
     const account = usable ? pair[`${side}_account_id`] : null;
     const source = account === null ? "empty" : confirmed ? "manual" : "auto";
     if (account !== draft[side].account || source !== draft[side].source) {
@@ -73,20 +81,21 @@ export function switchMode(draft: Draft): { draft: Draft; error?: string } {
   const next = { ...draft, epoch: draft.epoch + 1, revision: draft.revision + 1 };
   if (draft.mode === "basic") {
     return { draft: { ...next, mode: "split", rows: [
-      { id: 1, account: draft.debit.account, amount: draft.amount, debit: true },
-      { id: 2, account: draft.credit.account, amount: draft.amount, debit: false },
+      { id: 1, account: draft.debit.account, amount: draft.amount, debit: true, postingId: draft.debit.postingId },
+      { id: 2, account: draft.credit.account, amount: draft.amount, debit: false, postingId: draft.credit.postingId },
     ] } };
   }
   const blank = draft.rows.every(row => row.account === null && row.amount === "");
   const debits = draft.rows.filter(row => row.debit), credits = draft.rows.filter(row => !row.debit);
   if (!blank && (draft.rows.length !== 2 || debits.length !== 1 || credits.length !== 1
-      || debits[0].amount !== credits[0].amount
+      || amountInput(debits[0].amount) !== amountInput(credits[0].amount)
       || (debits[0].account !== null && debits[0].account === credits[0].account))) {
     return { draft, error: "기본 입력으로 옮기려면 차변·대변 한 행씩, 같은 금액으로 정리하세요. 작성한 내용은 유지했습니다." };
   }
   const choice = (row: SplitRow | undefined, previous: Choice): Choice => ({
     account: blank ? null : row?.account ?? null,
     source: blank || !row?.account ? "empty" : "manual", revision: previous.revision + 1,
+    postingId: row?.postingId,
   });
   return { draft: { ...next, mode: "basic", amount: blank ? "" : debits[0].amount,
     debit: choice(debits[0], draft.debit), credit: choice(credits[0], draft.credit) } };
@@ -94,28 +103,33 @@ export function switchMode(draft: Draft): { draft: Draft; error?: string } {
 
 export function clearSavedDraft(draft: Draft, submitted: Draft): Draft {
   if (draft.revision !== submitted.revision) return { ...draft, epoch: draft.epoch + 1 };
-  return { ...draft, amount: "", memo: "", epoch: draft.epoch + 1, revision: draft.revision + 1,
+  return { ...draft, amount: "", memo: "", tags: [], epoch: draft.epoch + 1, revision: draft.revision + 1,
     debit: { ...draft.debit, source: draft.debit.account ? "retained" : "empty", revision: draft.debit.revision + 1 },
     credit: { ...draft.credit, source: draft.credit.account ? "retained" : "empty", revision: draft.credit.revision + 1 },
     rows: draft.rows.map(row => ({ ...row, amount: "" })),
   };
 }
 
-export function validateDraft(draft: Draft, availableIds: ReadonlySet<number>) {
+export type OriginalRows = ReadonlyMap<number, { account_id: number; amount: number }>;
+
+export function validateDraft(draft: Draft, availableIds: ReadonlySet<number>, originals?: OriginalRows) {
   const rows: SplitRow[] = draft.mode === "split" ? draft.rows : [
-    { id: 1, account: draft.debit.account, amount: draft.amount, debit: true },
-    { id: 2, account: draft.credit.account, amount: draft.amount, debit: false },
+    { id: 1, account: draft.debit.account, amount: draft.amount, debit: true, postingId: draft.debit.postingId },
+    { id: 2, account: draft.credit.account, amount: draft.amount, debit: false, postingId: draft.credit.postingId },
   ];
   const errors: Record<number, string> = {};
-  const postings: { account_id: number; amount: number }[] = [];
+  const postings: { posting_id?: number; account_id: number; amount: number }[] = [];
   for (const row of rows) {
     // Only entirely untouched spare rows may be omitted. "0" is not blank.
-    if (draft.mode === "split" && row.account === null && row.amount === "") continue;
+    if (draft.mode === "split" && row.postingId === undefined && row.account === null && row.amount === "") continue;
+    const previous = row.postingId === undefined ? undefined : originals?.get(row.postingId);
+    const retained = previous?.account_id === row.account;
+    const amount = amountValue(row.amount);
     if (row.account === null) errors[row.id] = "계정을 선택하세요.";
-    else if (!availableIds.has(row.account)) errors[row.id] = "지금 사용할 수 없는 계정입니다. 다시 선택하세요.";
+    else if (!availableIds.has(row.account) && !retained) errors[row.id] = "지금 사용할 수 없는 계정입니다. 다시 선택하세요.";
     else if (!row.amount) errors[row.id] = "금액을 입력하세요.";
-    else if (!(amountValue(row.amount) > 0)) errors[row.id] = "0보다 큰 정수 금액을 입력하세요.";
-    else postings.push({ account_id: row.account, amount: (row.debit ? 1 : -1) * amountValue(row.amount) });
+    else if (!(amount > 0 || (amount === 0 && previous?.amount === 0))) errors[row.id] = "0보다 큰 정수 금액을 입력하세요.";
+    else postings.push({ ...(row.postingId === undefined ? {} : { posting_id: row.postingId }), account_id: row.account, amount: (row.debit ? 1 : -1) * amount });
   }
   const debit = postings.filter(p => p.amount > 0).reduce((sum, p) => sum + p.amount, 0);
   const credit = -postings.filter(p => p.amount < 0).reduce((sum, p) => sum + p.amount, 0);
