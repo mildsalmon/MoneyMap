@@ -2,7 +2,7 @@
 
 All notable changes to MoneyMap are documented in this file.
 
-## [Unreleased]
+## [0.7.0.0] - 2026-09-13
 
 ### Added
 - Edit a transaction in place from history, including imported transactions, generated rule occurrences, opening balances, split postings, multiline memos and tags. Preserve transaction/posting identity and original import provenance.
@@ -26,6 +26,8 @@ All notable changes to MoneyMap are documented in this file.
 - Backed up the empty pre-import ledger and imported 7,677 transactions with 15,354 balanced postings from the reviewed CSV. The two Lotte cards remain separate accounts.
 
 ### Fixed
+- Keep reusable tag checkboxes compact, with readable wrapping labels and mobile-sized click targets in both transaction forms.
+- Verify malformed import inputs, classification precedence, complete rollback and restorable backups with isolated synthetic-data checks.
 - Preserve edited split postings when reimporting the same CSV, including runs mixing existing and newly imported rows.
 - Keep private memo corrections in ignored, source-hash-scoped local configuration instead of publishable source code. Existing ledger memos and raw import provenance are unchanged.
 - Apply the transaction request-body limit to edit and result-confirmation endpoints; rejected saves retain an editable draft.
