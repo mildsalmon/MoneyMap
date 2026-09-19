@@ -67,7 +67,8 @@ test("an old save completing after remount refreshes recent inputs without repla
   await dashboardSave(page).click();
   await expect.poll(() => !!held).toBe(true);
   await page.locator(".side nav").getByRole("button", { name: "거래 내역", exact: true }).click();
-  await expect(page).toHaveURL(/\/transactions$/);
+  await expect(page).toHaveURL(url => url.pathname === "/transactions"
+    && !!url.searchParams.get("start") && !!url.searchParams.get("end") && url.searchParams.get("page") === "1");
   await page.locator(".side nav").getByRole("button", { name: "거래 입력", exact: true }).click();
   await expect(memo(page)).toHaveValue("");
   await fillDraft(page, "새 거래", "456", "재진입 후 작성한 메모");

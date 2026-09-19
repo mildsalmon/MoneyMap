@@ -2,6 +2,19 @@
 
 All notable changes to MoneyMap are documented in this file.
 
+## [Unreleased]
+
+### Added
+- Query transaction history by inclusive dates and tag, defaulting to the recent calendar month. Use recent-month, this-month and last-month shortcuts, with 100-row previous/next pages and shareable query URLs.
+
+### Changed
+- Preserve applied dates, tag, page, unsubmitted filter inputs and the actual scroll position when returning from a transaction edit.
+- Fetch only the requested history page and its postings/tags within one read snapshot. Keep the existing full-list API and all ledger transaction kinds unchanged; no schema migration is required.
+
+### Fixed
+- Keep old results hidden during a new query or query failure, and let tag choices retry independently without resetting the query.
+- Prevent duplicate deletion requests and offer read-only refresh when a deletion response is uncertain. Move to the last valid page when deletion removes the final page.
+
 ## [0.7.0.0] - 2026-09-13
 
 ### Added

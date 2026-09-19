@@ -11,10 +11,18 @@ const save = (page: Page) => page.getByRole("button", { name: "변경사항 저�
 const cancel = (page: Page) => page.getByRole("button", { name: "취소하고 거래 내역으로", exact: true });
 const historyTxn = (detail: TransactionDetail) => ({ ...detail, postings: detail.postings.map(p => ({ account_id: p.account_id, amount: { amount: p.amount, currency: p.currency } })) });
 
+function historyPage(list: ReturnType<typeof historyTxn>[], url: string) {
+  const params = new URL(url).searchParams;
+  const items = list.filter(t => t.date >= params.get("start")! && t.date <= params.get("end")! && (!params.get("tag") || t.tags.includes(params.get("tag")!)))
+    .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
+  const total_pages = Math.max(1, Math.ceil(items.length / 100)), page = Math.min(Number(params.get("page") ?? 1), total_pages);
+  return { items: items.slice((page - 1) * 100, page * 100), total: items.length, page, total_pages, page_size: 100 };
+}
+
 async function mockEditor(page: Page, original = makeDetail(), goto = true) {
   await page.route("**/api/accounts", r => r.fulfill({ json: editAccounts }));
   await page.route("**/api/tags", r => r.fulfill({ json: ["데이트", "엄마"] }));
-  await page.route("**/api/transactions?*", r => r.fulfill({ json: [historyTxn(original)] }));
+  await page.route("**/api/transaction-history?*", r => r.fulfill({ json: historyPage([historyTxn(original)], r.request().url()) }));
   await page.route(`**/api/transactions/${original.id}`, r => r.request().method() === "GET"
     ? r.fulfill({ json: original }) : r.fulfill({ json: applied(original, r.request().postDataJSON()) }));
   if (goto) {
@@ -40,7 +48,7 @@ test("real edit saves every field without replacing transaction, restores filter
   const { txn, expense, cash, other } = await realTransaction(request);
   const original = await (await request.get(`${base}/transactions/${txn.id}`)).json();
   try {
-    await page.goto(`/transactions?tag=${encodeURIComponent(txn.tags[0])}`);
+    await page.goto(`/transactions?start=2026-01-01&end=2026-12-31&tag=${encodeURIComponent(txn.tags[0])}`);
     await page.getByRole("row").filter({ hasText: txn.description }).getByRole("button", { name: "수정", exact: true }).click();
     await expect(item(page)).toHaveValue(txn.description);
     await page.getByLabel("날짜", { exact: true }).fill("2026-02-03");
@@ -51,10 +59,10 @@ test("real edit saves every field without replacing transaction, restores filter
     await page.getByLabel("태그 (선택·여러 개)", { exact: true }).fill("새 태그");
     await page.getByRole("button", { name: "추가", exact: true }).click();
     await save(page).click();
-    await expect(page).toHaveURL(new RegExp(`/transactions\\?tag=${encodeURIComponent(txn.tags[0])}$`));
-    await expect(page.getByText("저장했습니다. 변경된 태그가 현재 필터와 달라 목록에 표시되지 않습니다.")).toBeVisible();
+    await expect(page).toHaveURL(url => url.pathname === "/transactions" && url.searchParams.get("tag") === txn.tags[0] && url.searchParams.get("start") === "2026-01-01" && url.searchParams.get("end") === "2026-12-31");
+    await expect(page.getByText("수정한 거래가 현재 조회 조건에 해당하지 않아 목록에 표시되지 않습니다.")).toBeVisible();
     await expect(page.getByLabel("태그", { exact: true })).toHaveValue(txn.tags[0]);
-    await expect(page.getByRole("heading", { name: "거래 내역", exact: true })).toBeFocused();
+    await expect(page.locator("#history-result-title")).toBeFocused();
     const saved = await (await request.get(`${base}/transactions/${txn.id}`)).json();
     expect(saved).toMatchObject({ id: txn.id, date: "2026-02-03", description: "수정된 내역", memo: "첫 줄\n<strong>그대로</strong> ☕", tags: ["새 태그"], entry_origin: original.entry_origin });
     expect(saved.postings.map((p: any) => p.posting_id)).toEqual(original.postings.map((p: any) => p.posting_id));
@@ -77,7 +85,7 @@ test("real basic-to-split edit persists an added row and reloads losslessly", as
     await picker.getByLabel("3행 계정 검색").fill(other.name); await picker.getByRole("radio").click();
     await expect(page.getByRole("button", { name: /3행 계정/ })).toContainText(other.name);
     await page.getByLabel("3행 금액", { exact: true }).fill("40");
-    await save(page).click(); await expect(page).toHaveURL(/\/transactions$/);
+    await save(page).click(); await expect(page).toHaveURL(url => url.pathname === "/transactions" && !!url.searchParams.get("start") && !!url.searchParams.get("end") && url.searchParams.has("page"));
     await page.goto(`/transactions/${txn.id}/edit`);
     await expect(page.getByLabel("3행 금액", { exact: true })).toHaveValue("40");
     expect((await (await request.get(`${base}/transactions/${txn.id}`)).json()).postings).toHaveLength(3);
@@ -93,7 +101,7 @@ test("real opening edit fixes the system counterpart and keeps one transaction",
     await expect(page.getByText("개시잔액 시스템 상대계정 · 금액은 자동 계산됩니다.")).toBeVisible();
     await expect(page.getByRole("button", { name: "분할 입력", exact: true })).toHaveCount(0);
     await amount(page).fill("200"); await memo(page).fill("잔액 수정"); await save(page).click();
-    await expect(page).toHaveURL(/\/transactions$/);
+    await expect(page).toHaveURL(url => url.pathname === "/transactions" && !!url.searchParams.get("start") && !!url.searchParams.get("end") && url.searchParams.has("page"));
     const saved = await (await request.get(`${base}/transactions/${txn.id}`)).json();
     expect(saved.kind).toBe("opening"); expect(saved.postings.map((p: any) => p.amount).sort((a: number, b: number) => a - b)).toEqual([-200, 200]);
   } finally { await request.delete(`${base}/transactions/${txn.id}`); }
@@ -113,7 +121,7 @@ test("real generated transaction changes only this occurrence, not its rule or w
     await page.goto(`/transactions/${generated.id}/edit`); await expect(save(page)).toBeEnabled();
     await expect(page.getByText("이 거래 한 건만 변경되며 반복 규칙과 다음 거래는 바뀌지 않습니다.")).toBeVisible();
     await amount(page).fill("125"); await memo(page).fill("이번 회차만 변경"); await save(page).click();
-    await expect(page).toHaveURL(/\/transactions$/);
+    await expect(page).toHaveURL(url => url.pathname === "/transactions" && !!url.searchParams.get("start") && !!url.searchParams.get("end") && url.searchParams.has("page"));
     const saved = await (await request.get(`${base}/transactions/${generated.id}`)).json();
     expect(saved).toMatchObject({ id: generated.id, source_rule_id: rule.id, entry_origin: "rule", memo: "이번 회차만 변경" });
     expect(await (await request.get(`${base}/rules`)).json()).toEqual(rulesBefore);
@@ -155,7 +163,7 @@ test("imported fields and archived zero rows hydrate without recall or identity 
   await mockEditor(page, original);
   await page.route("**/api/transactions/71", r => { submitted = r.request().postDataJSON(); return r.fulfill({ json: applied(original, submitted!) }); });
   await item(page).fill("내역만 고침"); await memo(page).fill("메모만 수정"); await save(page).click();
-  await expect(page).toHaveURL(/\/transactions$/);
+  await expect(page).toHaveURL(url => url.pathname === "/transactions" && !!url.searchParams.get("start") && !!url.searchParams.get("end") && url.searchParams.has("page"));
   expect(recalls).toBe(0); expect(submitted?.postings).toEqual(original.postings.map(({ currency, ...p }) => p));
 });
 
@@ -206,7 +214,7 @@ for (const response of ["lost", "malformed", "not_applied"] as const) {
         await expect(page.getByText("저장되지 않은 것을 확인했습니다. 작성 내용을 확인하고 다시 저장하세요.")).toBeVisible();
         await expect(memo(page)).toHaveValue("응답 복구"); await expect(save(page)).toBeEnabled();
       } else {
-        await expect(page).toHaveURL(/\/transactions$/);
+        await expect(page).toHaveURL(url => url.pathname === "/transactions" && !!url.searchParams.get("start") && !!url.searchParams.get("end") && url.searchParams.has("page"));
         expect((await (await request.get(`${base}/transactions/${txn.id}`)).json()).memo).toBe("응답 복구");
       }
       expect(puts).toBe(1); expect(resolves).toBe(1);
@@ -244,9 +252,9 @@ test("pending save blocks duplicate Enter, confirms exit, and late response cann
 
 test("cancel and native Back protect dirty draft and restore filter, scroll, focus", async ({ page }) => {
   await mockEditor(page, makeDetail(), false);
-  const list = Array.from({ length: 70 }, (_, i) => historyTxn(makeDetail({ id: 71 + i, description: `거래 ${i}` })));
-  await page.route("**/api/transactions?*", r => r.fulfill({ json: list }));
-  await page.goto("/transactions?tag=데이트");
+  const list = Array.from({ length: 170 }, (_, i) => historyTxn(makeDetail({ id: 71 + i, description: `거래 ${i}` })));
+  await page.route("**/api/transaction-history?*", r => r.fulfill({ json: historyPage(list, r.request().url()) }));
+  await page.goto("/transactions?start=2026-01-01&end=2026-12-31&tag=데이트&page=2");
   const button = page.locator("#edit-transaction-71"); await button.scrollIntoViewIfNeeded();
   const scroll = await page.locator(".main").evaluate(e => e.scrollTop);
   expect(scroll).toBeGreaterThan(0);
@@ -267,9 +275,9 @@ test("cancel and native Back protect dirty draft and restore filter, scroll, foc
 
 test("saved edit restores actual long-list scroll and focus", async ({ page }) => {
   await mockEditor(page, makeDetail(), false);
-  const list = Array.from({ length: 70 }, (_, i) => historyTxn(makeDetail({ id: 71 + i, description: `거래 ${i}` })));
-  await page.route("**/api/transactions?*", r => r.fulfill({ json: list }));
-  await page.goto("/transactions?tag=데이트");
+  const list = Array.from({ length: 170 }, (_, i) => historyTxn(makeDetail({ id: 71 + i, description: `거래 ${i}` })));
+  await page.route("**/api/transaction-history?*", r => r.fulfill({ json: historyPage(list, r.request().url()) }));
+  await page.goto("/transactions?start=2026-01-01&end=2026-12-31&tag=데이트&page=2");
   const button = page.locator("#edit-transaction-71"); await button.scrollIntoViewIfNeeded();
   const scroll = await page.locator(".main").evaluate(e => e.scrollTop);
   expect(scroll).toBeGreaterThan(0);
@@ -309,7 +317,7 @@ test("reverting an amount removes leave protection despite comma formatting", as
   await amount(page).fill("1000"); await expect(amount(page)).toHaveValue("1,000");
   await expect.poll(prevented).toBe(false);
   let dialogs = 0; page.on("dialog", d => { dialogs++; return d.dismiss(); });
-  await cancel(page).click(); await expect(page).toHaveURL(/\/transactions$/);
+  await cancel(page).click(); await expect(page).toHaveURL(url => url.pathname === "/transactions" && !!url.searchParams.get("start") && !!url.searchParams.get("end") && url.searchParams.has("page"));
   expect(dialogs).toBe(0);
 });
 
@@ -333,9 +341,9 @@ test("foreign currency is visibly unsupported and never silently converted", asy
 });
 
 test("successful save remains successful when the refreshed history fails", async ({ page }) => {
-  await mockEditor(page); await page.route("**/api/transactions?*", r => r.fulfill({ status: 500, json: { detail: "목록 실패" } }));
+  await mockEditor(page); await page.route("**/api/transaction-history?*", r => r.fulfill({ status: 500, json: { detail: "목록 실패" } }));
   await memo(page).fill("확정된 수정"); await save(page).click();
-  await expect(page).toHaveURL(/\/transactions$/); await expect(page.getByRole("alert")).toContainText("거래 내역을 불러오지 못했습니다");
+  await expect(page).toHaveURL(url => url.pathname === "/transactions" && !!url.searchParams.get("start") && !!url.searchParams.get("end") && url.searchParams.has("page")); await expect(page.getByRole("alert")).toContainText("거래 내역을 불러오지 못했습니다");
   await expect(page.getByRole("status").filter({ hasText: "거래를 수정했습니다." })).toBeVisible();
 });
 

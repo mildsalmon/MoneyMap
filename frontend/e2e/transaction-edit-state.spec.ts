@@ -77,6 +77,6 @@ test("detail validation refuses malformed IDs, amounts, fields, currency and pro
     { postings: original.postings.map(p => ({ ...p, currency: "USD" })) }]) expect(isTransactionDetail({ ...original, ...patch }, 71)).toBe(false);
 });
 test("return state is bounded to list UI state, not financial drafts", () => {
-  expect(historyReturn({ tagFilter: "데이트", scrollY: -100, scrollLeft: Infinity, focusId: "71", memo: "secret" })).toEqual({ tagFilter: "데이트", scrollY: 0, scrollLeft: 0, focusId: null });
-  expect(historyReturn(undefined)).toEqual({ tagFilter: "", scrollY: 0, scrollLeft: 0, focusId: null });
+  expect(historyReturn({ tagFilter: "데이트", scrollY: -100, scrollLeft: Infinity, focusId: "71", memo: "secret" })).toEqual({ tagFilter: "데이트", scrollY: 0, scrollLeft: 0, focusId: null, query: null, draft: null });
+  expect(historyReturn(undefined)).toEqual({ tagFilter: "", scrollY: 0, scrollLeft: 0, focusId: null, query: null, draft: null });
 });

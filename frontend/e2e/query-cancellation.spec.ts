@@ -11,7 +11,7 @@ async function waitForStartup(page: Page) {
 
 const screens = [
   { nav: "대시보드", path: "/", loading: "장부 정보 확인 중…", error: "장부 정보를 불러오지 못했습니다.", retry: "다시 불러오기" },
-  { nav: "거래 내역", path: "/transactions", loading: "거래 내역 확인 중…", error: "거래 내역을 불러오지 못했습니다.", retry: "다시 불러오기" },
+  { nav: "거래 내역", path: "/transactions", loading: "거래 내역을 조회하고 있습니다…", error: "거래 내역을 불러오지 못했습니다.", retry: "다시 조회" },
   { nav: "반복 규칙", path: "/rules", loading: "반복 규칙 확인 중…", error: "반복 규칙을 불러오지 못했습니다.", retry: "다시 불러오기" },
   { nav: "계정·개시잔액", path: "/accounts", loading: "계정 확인 중…", error: "계정을 불러오지 못했습니다.", retry: "다시 시도" },
   { nav: "거래 입력", path: "/transactions/new", loading: "계정 확인 중…", error: "계정을 불러오지 못했습니다.", retry: "계정 다시 불러오기" },
@@ -47,7 +47,7 @@ for (const screen of screens) {
     const alert = page.getByRole("alert").filter({ hasText: screen.error });
     await expect(alert).toContainText("조회 재시도 확인");
     await expect(page.getByText(screen.loading, { exact: true })).toBeHidden();
-    if (screen.path === "/transactions") await expect(page.getByText("아직 거래가 없습니다.", { exact: true })).toBeHidden();
+    if (screen.path === "/transactions") await expect(page.getByText("선택한 기간과 태그에 해당하는 거래가 없습니다.", { exact: true })).toBeHidden();
     if (screen.path === "/rules") await expect(page.getByText("규칙이 없습니다.", { exact: true })).toBeHidden();
     if (screen.path === "/transactions/new") await page.getByLabel("금액", { exact: true }).fill("9876");
     await page.unroute("**/api/accounts");

@@ -50,6 +50,14 @@ export interface Txn {
   postings: Posting[];
 }
 
+export interface HistoryPage {
+  items: Txn[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
 export interface EditPosting {
   posting_id: number;
   account_id: number;
