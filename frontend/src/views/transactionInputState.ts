@@ -65,16 +65,27 @@ export function isCurrentLookup(draft: Draft, token: LookupToken) {
 export function applyPair(draft: Draft, token: LookupToken, pair: LastPair, confirmed = false): Draft {
   if (!isCurrentLookup(draft, token) || pair.item_key !== token.key) return draft;
   const usable = pair.status === "matched" || (confirmed && pair.status === "legacy_confirmation_required");
+  if (!usable || !Number.isSafeInteger(pair.debit_account_id) || !Number.isSafeInteger(pair.credit_account_id)
+    || pair.debit_account_id! <= 0 || pair.credit_account_id! <= 0) return draft;
   let next = draft;
   for (const side of ["debit", "credit"] as const) {
-    if (draft[side].account !== null || draft[side].source === "manual" || draft[side].revision !== token[side]) continue;
-    const account = usable ? pair[`${side}_account_id`] : null;
-    const source = account === null ? "empty" : confirmed ? "manual" : "auto";
+    if (draft[side].source === "manual" || draft[side].revision !== token[side]) continue;
+    const account = pair[`${side}_account_id`]!;
+    const source = confirmed ? "manual" : "auto";
     if (account !== draft[side].account || source !== draft[side].source) {
       next = { ...next, [side]: { ...draft[side], account, source }, revision: draft.revision + 1 };
     }
   }
   return next;
+}
+
+/** Shared by the render and submit paths; evaluate against the latest draft. */
+export function inputSaveGate(draft: Draft, lookup: { token: LookupToken; phase: string } | undefined,
+  valid: boolean, saving: boolean, composing: boolean) {
+  const pending = draft.mode === "basic" && !!itemKey(draft.item)
+    && (!lookup || !isCurrentLookup(draft, lookup.token) || lookup.phase === "loading");
+  const waitingForRecall = pending && (draft.debit.source !== "manual" || draft.credit.source !== "manual");
+  return { waitingForRecall, canSave: valid && !saving && !composing && !waitingForRecall };
 }
 
 export function switchMode(draft: Draft): { draft: Draft; error?: string } {

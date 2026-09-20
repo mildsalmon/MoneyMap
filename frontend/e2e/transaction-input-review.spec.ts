@@ -34,14 +34,14 @@ test("clicking an automatic selection marks it manual and both sides survive nex
   await expect(group(page, "대변").getByRole("radio", { name: "부채 > 카드", exact: true })).toBeChecked();
 });
 
-test("new recall does not claim to apply a pair when prior automatic choices are retained", async ({ page }) => {
+test("new recall replaces automatic choices and reports the applied pair", async ({ page }) => {
   await item(page).fill("점심");
   await expect(page.locator(".txn-recall")).toHaveText("마지막으로 저장한 계정을 선택했습니다.");
   await page.route("**/api/transaction-input/last-pair?*", r => r.fulfill({ json: { ...pair, item_key: "이동", debit_account_id: 202, credit_account_id: 103 } }));
   await item(page).fill("이동");
-  await expect(page.locator(".txn-recall")).toHaveText("선택한 계정을 유지합니다.");
-  await expect(group(page).getByRole("radio", { name: "비용 > 식비 > 기타", exact: true })).toBeChecked();
-  await expect(group(page, "대변").getByRole("radio", { name: "부채 > 카드", exact: true })).toBeChecked();
+  await expect(page.locator(".txn-recall")).toHaveText("마지막으로 저장한 계정을 선택했습니다.");
+  await expect(group(page).getByRole("radio", { name: "비용 > 교통 > 기타", exact: true })).toBeChecked();
+  await expect(group(page, "대변").getByRole("radio", { name: "자산 > 현금", exact: true })).toBeChecked();
 });
 
 for (const balance of [0, 500, "error"] as const) {

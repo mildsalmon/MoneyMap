@@ -157,7 +157,7 @@ test("real save, reload, last-pair recall, undo fallback and multiline memo hist
   const saved=page.waitForResponse(r=>r.url()===`${base}/transactions`&&r.request().method()==="POST"&&r.ok());await save(page).click();const first=await(await saved).json(); created.push(first.id);
   await expect(amount(page)).toHaveValue("");await page.reload();await item(page).fill(description);await expect(group(page,"대변").getByRole("radio",{name:new RegExp(`지갑${suffix}$`)})).toBeChecked();await expect(memo(page)).toHaveValue("");
   await amount(page).fill("1700");await group(page,"대변").getByRole("radio",{name:new RegExp(`카드${suffix}$`)}).check();const secondSaved=page.waitForResponse(r=>r.url()===`${base}/transactions`&&r.request().method()==="POST"&&r.ok());await save(page).click();const second=await(await secondSaved).json(); created.push(second.id);
-  await expect(page.locator(".txn-recall")).toContainText("선택한 계정을 유지");
+  await expect(page.locator(".txn-recall")).toContainText("마지막으로 저장한 계정을 선택했습니다.");
   const deleted=page.waitForResponse(r=>r.url()===`${base}/transactions/${second.id}`&&r.request().method()==="DELETE"&&r.ok());await page.locator(".toast").getByRole("button",{name:/실행취소/}).click();await deleted;
   await expect(group(page,"대변").getByRole("radio",{name:new RegExp(`카드${suffix}$`)})).toBeChecked();
   const history=await(await request.get(`${base}/transactions`)).json();expect(history.find((t:any)=>t.id===first.id)).toMatchObject({description,memo:text});expect(history.some((t:any)=>t.id===second.id)).toBe(false);
@@ -212,7 +212,7 @@ test("failed undo keeps its recovery message visible and does not refresh recall
   await page.route("**/api/transaction-input/last-pair?*",r=>{calls++;return r.fulfill({json:matched()});});
   await page.route("**/api/transactions",r=>r.request().method()==="POST"?r.fulfill({status:201,json:{id:700}}):r.continue());
   await page.route("**/api/transactions/700",r=>r.fulfill({status:503,json:{detail:"삭제 실패"}}));
-  await item(page).fill("점심");await amount(page).fill("100");await expect(save(page)).toBeEnabled();await save(page).click();await expect(page.locator(".txn-recall")).toContainText("선택한 계정을 유지");
+  await item(page).fill("점심");await amount(page).fill("100");await expect(save(page)).toBeEnabled();await save(page).click();await expect(page.locator(".txn-recall")).toContainText("마지막으로 저장한 계정을 선택했습니다.");
   const before=calls;await page.locator(".toast").getByRole("button",{name:"실행취소",exact:true}).click();await expect(page.locator(".toast")).toContainText("삭제하지 못했습니다");expect(calls).toBe(before);
 });
 

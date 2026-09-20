@@ -2,6 +2,13 @@
 
 All notable changes to MoneyMap are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- Reapply the last account pair when changing a transaction item or entering the next transaction after saving. Preserve each manually selected side and keep existing selections when no usable recommendation is available.
+- Prevent saving stale automatic accounts while recall is pending; end the wait after five seconds with an explicit read-only retry.
+- Keep draft account selections unchanged when undoing a saved transaction, including after leaving and returning to the input screen.
+
 ## [0.7.0.0] - 2026-09-13
 
 ### Added
