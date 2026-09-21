@@ -75,3 +75,34 @@ test("mixed manual and recommended same account fails validation", () => {
   expect(validateDraft({ ...d, amount: "100" }, new Set([1, 2, 3, 4])).valid).toBe(false);
   expect(d.credit.source).toBe("manual");
 });
+
+test("either malformed account ID rejects the entire recommendation atomically", () => {
+  const d = auto(), token = lookupToken(d);
+  for (const side of ["debit_account_id", "credit_account_id"] as const) {
+    for (const id of [null, undefined, 0, -1, 1.5, Infinity, Number.MAX_SAFE_INTEGER + 1, "3"]) {
+      const response = { ...pair("A", 3, 4), [side]: id } as LastPair;
+      expect(applyPair(d, token, response)).toBe(d);
+      expect(applyPair(d, token, { ...response, status: "legacy_confirmation_required" }, true)).toBe(d);
+    }
+  }
+});
+
+test("unchanged automatic pair keeps draft identity while equal retained values become automatic", () => {
+  const d = auto();
+  expect(applyPair(d, lookupToken(d), pair("A"))).toBe(d);
+  const retained = clearSavedDraft(d, d);
+  const refreshed = applyPair(retained, lookupToken(retained), pair("A"));
+  expect([refreshed.debit.account, refreshed.credit.account]).toEqual([1, 2]);
+  expect([refreshed.debit.source, refreshed.credit.source]).toEqual(["auto", "auto"]);
+  expect(refreshed.revision).toBe(retained.revision + 1);
+});
+
+test("confirmed lookup releases only its current valid draft and whitespace needs no recall", () => {
+  const d = auto(), confirmed = { token: lookupToken(d), phase: "confirmed" };
+  expect(inputSaveGate(d, confirmed, true, false, false)).toEqual({ waitingForRecall: false, canSave: true });
+  expect(inputSaveGate(d, confirmed, false, false, false).canSave).toBe(false);
+  const newer = { ...d, epoch: d.epoch + 1 };
+  expect(inputSaveGate(newer, confirmed, true, false, false)).toEqual({ waitingForRecall: true, canSave: false });
+  expect(inputSaveGate(editField(d, "item", " \u0085 "), undefined, true, false, false))
+    .toEqual({ waitingForRecall: false, canSave: true });
+});
