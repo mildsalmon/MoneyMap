@@ -38,8 +38,12 @@ export function App() {
   const [banner, setBanner] = useState<{ id: number; date: string; description: string }[]>([]);
   const [toast, setToast] = useState<Toast | null>(null);
   const [gen, setGen] = useState(0); // 데이터 변경 세대 — 뷰 리프레시 트리거
+  // Undo callbacks outlive routes. Invalidate pending recalls synchronously,
+  // including before React renders the new refresh generation.
+  const inputUndoVersion = useRef(0);
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback((reason?: "input-undo") => {
+    if (reason === "input-undo") inputUndoVersion.current++;
     setGen((g) => g + 1);
     api.health().then(() => setOnline(true)).catch(() => setOnline(false));
     api.status().then(setStatus).catch(() => {});
@@ -71,7 +75,7 @@ export function App() {
     setTimeout(() => setToast((cur) => (cur === next ? null : cur)), 6_000);
   }, []);
 
-  const viewProps = { gen, refresh, showToast, go: setView };
+  const viewProps = { gen, refresh, inputUndoVersion, showToast, go: setView };
 
   return (
     <div className="shell">
@@ -169,7 +173,8 @@ export function App() {
 
 export interface ViewProps {
   gen: number;
-  refresh: () => void;
+  refresh: (reason?: "input-undo") => void;
+  inputUndoVersion?: { readonly current: number };
   showToast: (msg: string, undo?: () => Promise<void>) => void;
   go: (v: View) => void;
 }

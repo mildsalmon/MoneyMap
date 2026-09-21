@@ -28,6 +28,11 @@ async function account(request: APIRequestContext, type = "asset") {
   const result = await request.post(`${base}/accounts`, { data: { name, type } });
   expect(result.ok()).toBeTruthy(); return result.json();
 }
+async function openHistory(page: Page) {
+  await page.goto("/transactions?tag=데이트");
+  // Startup materialization refreshes history and replaces its initial rows.
+  await expect(page.locator(".side .health")).not.toContainText("상태 확인 중…");
+}
 async function realTransaction(request: APIRequestContext) {
   const expense = await account(request, "expense"), cash = await account(request), other = await account(request);
   const result = await request.post(`${base}/transactions`, { data: { date: "2026-01-02", description: `실제 수정 ${cash.id}`, memo: "이전 메모", tags: [`편집-${cash.id}`],
@@ -246,7 +251,7 @@ test("cancel and native Back protect dirty draft and restore filter, scroll, foc
   await mockEditor(page, makeDetail(), false);
   const list = Array.from({ length: 70 }, (_, i) => historyTxn(makeDetail({ id: 71 + i, description: `거래 ${i}` })));
   await page.route("**/api/transactions?*", r => r.fulfill({ json: list }));
-  await page.goto("/transactions?tag=데이트");
+  await openHistory(page);
   const button = page.locator("#edit-transaction-71"); await button.scrollIntoViewIfNeeded();
   const scroll = await page.locator(".main").evaluate(e => e.scrollTop);
   expect(scroll).toBeGreaterThan(0);
@@ -269,7 +274,7 @@ test("saved edit restores actual long-list scroll and focus", async ({ page }) =
   await mockEditor(page, makeDetail(), false);
   const list = Array.from({ length: 70 }, (_, i) => historyTxn(makeDetail({ id: 71 + i, description: `거래 ${i}` })));
   await page.route("**/api/transactions?*", r => r.fulfill({ json: list }));
-  await page.goto("/transactions?tag=데이트");
+  await openHistory(page);
   const button = page.locator("#edit-transaction-71"); await button.scrollIntoViewIfNeeded();
   const scroll = await page.locator(".main").evaluate(e => e.scrollTop);
   expect(scroll).toBeGreaterThan(0);
@@ -278,6 +283,27 @@ test("saved edit restores actual long-list scroll and focus", async ({ page }) =
   await expect(button).toBeFocused();
   await expect(page.getByLabel("태그", { exact: true })).toHaveValue("데이트");
   await expect.poll(() => page.locator(".main").evaluate(e => e.scrollTop)).toBe(scroll);
+});
+
+test("history setup waits for startup refresh before exposing rows to scroll tests", async ({ page }) => {
+  await mockEditor(page, makeDetail(), false);
+  let startup: Route | undefined;
+  await page.route("**/api/materialize", route => { startup = route; });
+  let ready = false;
+  const opening = openHistory(page).then(() => { ready = true; });
+  const button = page.locator("#edit-transaction-71");
+  await expect(button).toBeVisible();
+  await expect.poll(() => !!startup).toBe(true);
+  const initialButton = await button.elementHandle();
+  const readyBeforeRefresh = ready;
+  await startup!.fulfill({ json: { created: 0, transactions: [] } });
+  await opening;
+  await expect.poll(() => initialButton!.evaluate(element => element.isConnected)).toBe(false);
+  await expect(button).toBeVisible();
+  expect(readyBeforeRefresh).toBe(false);
+  await button.scrollIntoViewIfNeeded();
+  await button.click();
+  await expect(save(page)).toBeEnabled();
 });
 
 test("conflict recovery wraps long memo text on mobile", async ({ page }) => {

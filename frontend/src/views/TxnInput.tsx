@@ -5,12 +5,12 @@ import type { ViewProps } from "../App";
 import { useQuery } from "./scenarios/useQuery";
 import { accountPickerModel } from "./TransactionAccountPicker";
 import { TransactionForm, netWorthDelta } from "./TransactionForm";
-import { amountInput, applyPair, clearSavedDraft, editField, isCurrentLookup, itemKey, lookupToken, newDraft, validateDraft, type Draft, type LookupToken } from "./transactionInputState";
+import { amountInput, applyPair, clearSavedDraft, editField, inputSaveGate, isCurrentLookup, itemKey, lookupToken, newDraft, validateDraft, type Draft, type LookupToken } from "./transactionInputState";
 import "./transaction-input.css";
 
-type Lookup = { token: LookupToken; phase: "loading" | "ready" | "error" | "confirmed"; pair?: LastPair; filled?: ("debit" | "credit")[] };
+type Lookup = { token: LookupToken; gen: number; undo: number; phase: "loading" | "ready" | "error" | "timeout" | "preserved" | "confirmed"; pair?: LastPair; filled?: ("debit" | "credit")[] };
 
-export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
+export function TxnInput({ gen, refresh, inputUndoVersion, showToast, go }: ViewProps) {
   const accountQuery = useQuery(`input-accounts:${gen}`, signal => api.accounts(signal));
   const recentQuery = useQuery(`input-recent:${gen}`, signal => api.recentInputs(signal));
   const tagsQuery = useQuery(`input-tags:${gen}`, signal => api.tags(signal));
@@ -23,6 +23,12 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
   const alive = useRef(true);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const [lookup, setLookup] = useState<Lookup>();
+  const lookupRef = useRef<Lookup | undefined>(undefined);
+  const updateLookup = (value: Lookup) => { lookupRef.current = value; setLookup(value); };
+  const seenUndo = useRef(inputUndoVersion?.current ?? 0);
+  const preserved = useRef<LookupToken | undefined>(undefined);
+  const generation = useRef(gen);
+  generation.current = gen;
   const composingRef = useRef(false);
   const [composing, setComposing] = useState(false);
   const savingRef = useRef(false);
@@ -35,30 +41,48 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
   const amountRef = useRef<HTMLInputElement>(null);
   const key = itemKey(draft.item);
   useEffect(() => {
+    const token = lookupToken(current.current), undo = inputUndoVersion?.current ?? 0;
+    if (seenUndo.current !== undo) {
+      seenUndo.current = undo;
+      preserved.current = token;
+    }
     if (draft.mode !== "basic" || !key || composing) return;
-    const token = lookupToken(current.current), controller = new AbortController();
-    setLookup({ token, phase: "loading" });
+    const base = { token, gen, undo };
+    if (preserved.current && isCurrentLookup(current.current, preserved.current)) {
+      updateLookup({ ...base, phase: "preserved" });
+      return;
+    }
+    preserved.current = undefined;
+    const controller = new AbortController();
+    const ownsRequest = () => !controller.signal.aborted && alive.current
+      && generation.current === gen && (inputUndoVersion?.current ?? 0) === undo
+      && isCurrentLookup(current.current, token);
+    updateLookup({ ...base, phase: "loading" });
+    let deadline: ReturnType<typeof setTimeout> | undefined;
     const timer = setTimeout(() => {
+      deadline = setTimeout(() => {
+        if (!ownsRequest()) return;
+        controller.abort();
+        updateLookup({ ...base, phase: "timeout" });
+      }, 5000);
       api.lastPair(key, controller.signal).then(pair => {
-        if (controller.signal.aborted || !alive.current || !isCurrentLookup(current.current, token)) return;
+        if (!ownsRequest()) return;
         const before = current.current;
         const next = applyPair(before, token, pair);
-        const filled = (["debit", "credit"] as const).filter(s => before[s].account === null && next[s].account !== null);
-        change(() => next); setLookup({ token, phase: "ready", pair, filled });
+        const filled = (["debit", "credit"] as const).filter(s => next[s] !== before[s] && next[s].source === "auto");
+        change(() => next); updateLookup({ ...base, phase: "ready", pair, filled });
       }).catch(() => {
-        if (!controller.signal.aborted && alive.current && isCurrentLookup(current.current, token)) {
-          change(d => applyPair(d, token, { item_key: token.key, status: "none", source_transaction_id: null, debit_account_id: null, credit_account_id: null, unavailable_reason: null }));
-          setLookup({ token, phase: "error" });
-        }
-      });
+        if (ownsRequest()) updateLookup({ ...base, phase: "error" });
+      }).finally(() => clearTimeout(deadline));
     }, 200);
-    return () => { clearTimeout(timer); controller.abort(); };
-  }, [key, draft.mode, draft.epoch, composing, gen]);
-  const activeLookup = lookup && isCurrentLookup(draft, lookup.token) ? lookup : undefined;
+    return () => { clearTimeout(timer); clearTimeout(deadline); controller.abort(); };
+  }, [key, draft.mode, draft.epoch, composing, gen, inputUndoVersion]);
+  const currentLookup = (value: Lookup | undefined, d: Draft) => value && value.gen === gen
+    && value.undo === (inputUndoVersion?.current ?? 0) && isCurrentLookup(d, value.token) ? value : undefined;
+  const activeLookup = currentLookup(lookup, draft);
   const lookupPending = draft.mode === "basic" && !!key && (!activeLookup || activeLookup.phase === "loading");
   const validation = validateDraft(draft, model.available);
-  const hasPair = draft.debit.account !== null && draft.credit.account !== null;
-  const canSave = validation.valid && !saving && !composing && (!lookupPending || hasPair);
+  const { canSave, waitingForRecall } = inputSaveGate(draft, activeLookup, validation.valid, saving, composing);
   const name = (id: number | null) => id === null ? "계정을 선택하세요" : model.byId.get(id)?.name ?? `#${id}`;
   const accountPath = (id: number | null) => id === null ? name(id) : model.paths.get(id) ?? name(id);
   const field = (which: "date" | "item" | "memo" | "amount", value: string) => {
@@ -68,14 +92,14 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
   const save = async (thenDashboard = false) => {
     if (savingRef.current || composingRef.current) return;
     const submitted = current.current, checked = validateDraft(submitted, model.available);
-    if (!checked.valid || (lookupPending && (submitted.debit.account === null || submitted.credit.account === null))) return;
+    if (!inputSaveGate(submitted, currentLookup(lookupRef.current, submitted), checked.valid, savingRef.current, composingRef.current).canSave) return;
     savingRef.current = true; setSaving(true); setError("");
     try {
       const txn = await api.createTransaction({ date: submitted.date, description: submitted.item, memo: submitted.memo, tags: submitted.tags, postings: checked.postings });
       refresh();
       const delta = netWorthDelta(checked.postings, model.byId);
       showToast(`${submitted.item || "거래"} · ${fmtWon(checked.debit)} 저장됨${delta ? ` · 순자산 ${fmtDelta(delta)} 반영` : ""}`, async () => {
-        try { await api.deleteTransaction(txn.id); refresh(); if (alive.current) change(d => ({ ...d, epoch: d.epoch + 1 })); }
+        try { await api.deleteTransaction(txn.id); refresh("input-undo"); }
         catch { showToast("삭제하지 못했습니다. 거래 내역을 확인해 주세요."); }
       });
       if (!alive.current) return;
@@ -106,25 +130,34 @@ export function TxnInput({ gen, refresh, showToast, go }: ViewProps) {
   const recallText = () => {
     if (draft.mode === "split") return "분할 입력에서는 계정을 직접 선택합니다.";
     if (!key) return "아이템을 입력하면 마지막으로 저장한 계정을 불러옵니다. 비워 두어도 저장할 수 있습니다.";
-    if (lookupPending) return "지난 계정을 확인하는 중…";
-    if (activeLookup?.phase === "error") return "지난 계정을 불러오지 못했습니다. 계정을 직접 선택해 주세요.";
+    if (lookupPending) return waitingForRecall ? "계정 추천을 확인하고 있습니다." : "계정 추천 확인 중입니다. 직접 선택한 계정으로 저장할 수 있습니다.";
+    if (activeLookup?.phase === "error") return "지난 계정을 불러오지 못했습니다. 현재 선택은 유지했습니다.";
+    if (activeLookup?.phase === "timeout") return "시간이 초과되었습니다. 현재 선택은 유지했습니다.";
+    if (activeLookup?.phase === "preserved") return "거래를 취소했습니다. 현재 선택한 계정은 유지했습니다.";
     if (activeLookup?.phase === "confirmed") return "기존 기록을 확인했습니다. 이번 거래를 저장하면 다음부터 자동 선택합니다.";
     const pair = activeLookup?.pair;
     if (pair?.status === "legacy_confirmation_required") return `입력 출처를 확인할 수 없는 이전 기록입니다. 계정을 확인한 뒤 불러와 주세요: ${accountPath(pair.debit_account_id)} → ${accountPath(pair.credit_account_id)}`;
     if (pair?.status === "unavailable") return pair.unavailable_reason === "split" ? "마지막 기록은 분할 거래입니다. 계정을 직접 선택하거나 분할 입력을 사용하세요." : "마지막 기록의 계정 조합을 사용할 수 없습니다. 계정을 직접 선택해 주세요.";
     if (pair?.status === "none") return "처음 입력하는 아이템입니다. 계정을 직접 선택해 주세요.";
     const automatic = (activeLookup?.filled ?? []).filter(s => draft[s].source === "auto" && draft[s].account === pair?.[`${s}_account_id`]);
-    return automatic.length === 2 ? "마지막으로 저장한 계정을 선택했습니다." : automatic.length === 1
-      ? `${automatic[0] === "debit" ? "차변" : "대변"}만 자동 선택했습니다. 기존 선택은 유지합니다.` : "선택한 계정을 유지합니다.";
+    if (automatic.length === 2) return "마지막으로 저장한 계정을 선택했습니다.";
+    if (automatic.length === 1) {
+      const other = automatic[0] === "debit" ? "credit" : "debit";
+      return `${automatic[0] === "debit" ? "차변" : "대변"}만 자동 선택했습니다. ${draft[other].source === "manual" ? "직접 선택한" : "기존"} ${other === "debit" ? "차변" : "대변"}은 유지했습니다.`;
+    }
+    return "선택한 계정을 유지합니다.";
   };
   return <TransactionForm title="거래 입력" intro="아이템을 적고, 왼쪽과 오른쪽 계정을 선택하세요."
     draft={draft} change={change} field={field} model={model} validation={validation} onSave={() => void save()}
     canSave={canSave} saving={saving} amountRef={amountRef} tags={tagsQuery.data ?? []}
+    saveHint={waitingForRecall ? "계정 추천 확인 후 저장할 수 있습니다." : undefined}
     onComposingChange={value => { composingRef.current = value; setComposing(value); }}
     recall={<div className="txn-recall" role="status">{recallText()}
       {activeLookup?.phase === "ready" && activeLookup.pair?.status === "legacy_confirmation_required" && <button type="button" className="btn secondary" onClick={() => {
-        change(d => applyPair(d, activeLookup.token, activeLookup.pair!, true)); setLookup({ ...activeLookup, phase: "confirmed" });
+        change(d => applyPair(d, activeLookup.token, activeLookup.pair!, true)); updateLookup({ ...activeLookup, phase: "confirmed" });
       }}>이전 기록 확인 후 불러오기</button>}
+      {activeLookup && ["error", "timeout", "preserved"].includes(activeLookup.phase) && <button type="button" className="btn secondary"
+        onClick={() => change(d => ({ ...d, epoch: d.epoch + 1 }))}>계정 추천 다시 조회</button>}
     </div>}
     accountStatus={<>
       {accountQuery.error && <p role="alert">계정을 불러오지 못했습니다. {accountQuery.error} <button type="button" className="btn secondary" onClick={accountQuery.reload}>계정 다시 불러오기</button></p>}
