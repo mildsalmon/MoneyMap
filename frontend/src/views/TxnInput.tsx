@@ -140,8 +140,12 @@ export function TxnInput({ gen, refresh, inputUndoVersion, showToast, go }: View
     if (pair?.status === "unavailable") return pair.unavailable_reason === "split" ? "마지막 기록은 분할 거래입니다. 계정을 직접 선택하거나 분할 입력을 사용하세요." : "마지막 기록의 계정 조합을 사용할 수 없습니다. 계정을 직접 선택해 주세요.";
     if (pair?.status === "none") return "처음 입력하는 아이템입니다. 계정을 직접 선택해 주세요.";
     const automatic = (activeLookup?.filled ?? []).filter(s => draft[s].source === "auto" && draft[s].account === pair?.[`${s}_account_id`]);
-    return automatic.length === 2 ? "마지막으로 저장한 계정을 선택했습니다." : automatic.length === 1
-      ? `${automatic[0] === "debit" ? "차변" : "대변"}만 자동 선택했습니다. 직접 선택한 ${automatic[0] === "debit" ? "대변" : "차변"}은 유지했습니다.` : "선택한 계정을 유지합니다.";
+    if (automatic.length === 2) return "마지막으로 저장한 계정을 선택했습니다.";
+    if (automatic.length === 1) {
+      const other = automatic[0] === "debit" ? "credit" : "debit";
+      return `${automatic[0] === "debit" ? "차변" : "대변"}만 자동 선택했습니다. ${draft[other].source === "manual" ? "직접 선택한" : "기존"} ${other === "debit" ? "차변" : "대변"}은 유지했습니다.`;
+    }
+    return "선택한 계정을 유지합니다.";
   };
   return <TransactionForm title="거래 입력" intro="아이템을 적고, 왼쪽과 오른쪽 계정을 선택하세요."
     draft={draft} change={change} field={field} model={model} validation={validation} onSave={() => void save()}

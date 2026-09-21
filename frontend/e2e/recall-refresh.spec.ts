@@ -47,6 +47,24 @@ test("successive recalls and next saved draft refresh, current manual side stays
   await expect(radio(page, "차변", "비용 > 교통")).toBeChecked();
 });
 
+for (const unchanged of ["debit", "credit"] as const) {
+  test(`shared ${unchanged} stays automatic without a manual-preservation claim`, async ({ page }) => {
+    await item(page).fill("A");
+    await expect(status(page)).toHaveText("마지막으로 저장한 계정을 선택했습니다.");
+    await page.route("**/api/transaction-input/last-pair?*", r => {
+      const key = new URL(r.request().url()).searchParams.get("item")!;
+      return r.fulfill({ json: { ...pair(key, true), ...(key === "B" ? { [unchanged + "_account_id"]: unchanged === "debit" ? 101 : 104 } : {}) } });
+    });
+    await item(page).fill("B");
+    await expect(status(page)).toContainText(`기존 ${unchanged === "debit" ? "차변" : "대변"}은 유지했습니다.`);
+    await expect(status(page)).not.toContainText("직접 선택");
+    await expect(page.locator(".txn-selected").nth(unchanged === "debit" ? 0 : 1)).toContainText("자동 선택");
+    await item(page).fill("C");
+    await expect(radio(page, "차변", "비용 > 교통")).toBeChecked();
+    await expect(radio(page, "대변", "자산 > 현금")).toBeChecked();
+  });
+}
+
 test("debounce and pending block both save buttons and direct submit; both manual release gate", async ({ page }) => {
   await item(page).fill("A"); await amount(page).fill("100");
   await expect(save(page)).toBeEnabled();
