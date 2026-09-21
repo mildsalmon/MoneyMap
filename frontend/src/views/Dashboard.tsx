@@ -91,12 +91,13 @@ export function Dashboard({ gen, go }: ViewProps) {
     );
   }
 
-  // 보관 계정은 잔액이 남아 있을 때만 표시 (0원이면 숨김 — D23)
-  const archivedIds = new Set(accounts.filter((a) => a.archived).map((a) => a.id));
+  // 목록만 활성 계정으로 제한한다. 전체 순자산은 보관 계정까지 포함한 API 값을 유지한다.
+  // 계정 상태 조회 전/실패 시에는 활성 여부가 확인되지 않은 행을 노출하지 않는다.
+  const activeIds = new Set(accounts.filter((a) => !a.archived).map((a) => a.id));
   const acctBalances = (balances?.accounts ?? []).filter(
     (b) =>
       (b.type === "asset" || b.type === "liability") &&
-      (!archivedIds.has(b.account_id) || b.balance !== 0),
+      activeIds.has(b.account_id),
   );
 
   return (
@@ -170,7 +171,7 @@ export function Dashboard({ gen, go }: ViewProps) {
                 </tr>
               )}
               <tr className="sum">
-                <td>순자산 (검산 일치)</td>
+                <td>전체 순자산 (보관 계정 포함)</td>
                 <td className="num">{balances ? fmtWon(balances.net_worth) : "…"}</td>
               </tr>
             </tbody>
