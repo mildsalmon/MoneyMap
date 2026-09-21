@@ -4,6 +4,11 @@ All notable changes to MoneyMap are documented in this file.
 
 ## [Unreleased]
 
+## [0.8.2.0] - 2026-09-21
+
+### Changed
+- Hide archived accounts from the dashboard balance list regardless of remaining balance. Keep them in total net worth and label that total explicitly; show account rows only after their active status is known.
+
 ## [0.8.1.0] - 2026-09-21
 
 ### Fixed
