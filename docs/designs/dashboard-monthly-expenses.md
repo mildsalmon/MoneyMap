@@ -25,7 +25,7 @@ Repo: mildsalmon/MoneyMap
 
 ## 구현 경계
 
-현재 Dashboard.tsx는 실제 원장 거래를 조회하고 todayIso()의 YYYY-MM과 거래 날짜를 비교한다. 비용 분개를 account_id별로 누적한 뒤 금액 내림차순 정렬과 slice(0, 5)를 적용한다.
+설계 당시 기준 코드(origin/main 0ccb83e)는 실제 원장 거래를 조회하고 todayIso()의 YYYY-MM과 거래 날짜를 비교했다. 비용 분개를 account_id별로 누적한 뒤 금액 내림차순 정렬과 slice(0, 5)를 적용했다.
 
 표시 제한만 제거한다. 필요하면 topExpense를 expenseByAccount 등 의미에 맞는 이름으로 바꾼다. 같은 금액은 기존 안정 정렬의 입력 순서를 유지한다. 날짜·원장·통화·기장 유형 판정 및 원화 표기를 변경하지 않는다. 백엔드·DB·API 계약 변경과 데이터 마이그레이션은 없다.
 
@@ -48,11 +48,11 @@ Repo: mildsalmon/MoneyMap
 8. 상단 월 지출 합계·계정 잔액·순자산·전망 차트 관련 기존 회귀를 통과한다.
 9. 격리된 테스트 DB/포트로 backend pytest와 frontend E2E 전체, 프론트 빌드를 실행한다. 실제 가계부 DB는 수정하지 않는다.
 
-## 다음 작업과 완료 조건
+## 구현 상태와 완료 조건
 
 문서 검토: 독립 리뷰 1회 PASS (9.5/10), 필수 수정 0건. 선택적 의견인 시안의 영구 보관을 반영했다.
 
-문서 승인 후 최신 main 기반 별도 작업 브랜치에서 표시 제한·제목과 회귀 테스트를 수정한다. 기존 워크트리의 미커밋 파일은 보존한다. 검증 후 TODO 완료 처리와 변경 기록을 갱신한다. 푸시·PR·머지는 별도 요청에 따른다.
+승인 범위를 별도 작업 브랜치에 구현하고 코드 리뷰·자동 검증·브라우저 QA를 완료했다. 기존 워크트리의 미커밋 파일은 보존했다. 구현 commit은 e8cd4ea, v0.8.3.0 릴리스 기록 commit은 d535c6c이며 원격 브랜치에 푸시했다. [검증 결과와 한계](../verification/dashboard-monthly-expenses-results.md)를 참고한다. main 머지는 별도 단계다.
 
 사용 확인 과제: 구현 후 대시보드에서 예전 5번째 이후에 가려졌던 작은 지출까지 확인하고 페이지 길이가 실제 사용에 괜찮은지 확인한다.
 
@@ -60,7 +60,7 @@ Repo: mildsalmon/MoneyMap
 
 사용자는 전체 구성 확인(B)을 선택한 뒤 범위를 집계 방식 변경으로 넓히지 않고 기존 표 전체 표시(A)를 선택했다. 따라서 이 작업은 분석 기능 확장이 아니라 이미 계산된 항목을 가리지 않는 작은 UI 변경이다.
 
-## 기술 검토 (2026-09-27)
+## 기술 검토 (2026-09-27, 구현 전 기록)
 
 대상은 이 승인 설계서이며 현재 브랜치 전체 diff가 아니다. 최신 origin/main 0ccb83e에서 Dashboard.tsx, transactions API, useQuery, 테스트 설정 및 기존 E2E를 대조했다.
 
@@ -89,14 +89,16 @@ Repo: mildsalmon/MoneyMap
 - 계층 집계·별도 통계·통화 정책: 별도 요구사항이며 계산 의미론을 변경하지 않는다.
 - 기존 history-date-query 작업 정리·머지: 사용자의 다른 변경을 이 작업에 섞지 않는다.
 
-### Implementation Tasks
+### Implementation Tasks (2026-09-27 완료 상태)
 
-- [ ] T1 (P1, human ~20분 / agent ~5분): Dashboard.tsx의 표시 제한 제거·제목 변경과 whatif.spec.ts 기존 선택자 수정. 검증: 신규 전체 행 검증 및 기존 저장→대시보드 흐름. 근거: 기존 제목 선택자 영향 및 승인 범위.
-- [ ] T2 (P1, human ~2시간 / agent ~25분): dashboard-expenses.spec.ts에 검증 계획 T1~T4 구현. 12개 이상 정확한 합계·순서, 환불·보관 계정, 빈 월·실패 복구, 모바일·긴 이름 검증. 기존 제한 상태에서 실패를 확인한 후 구현과 함께 통과시킨다.
-- [ ] T3 (P1, human ~30분 / agent ~10분, 환경에 따라 변동): 별도 워크트리·테스트 포트로 백엔드 전체 pytest, 프론트 전체 E2E, build 및 diff 검증. 새 금융 데이터 변경 없이 회귀를 확인한다.
+- [x] T1 (P1, human ~20분 / agent ~5분): Dashboard.tsx의 표시 제한 제거·제목 변경과 whatif.spec.ts 기존 선택자 수정. 검증: 신규 전체 행 검증 및 기존 저장→대시보드 흐름. 근거: 기존 제목 선택자 영향 및 승인 범위.
+- [x] T2 (P1, human ~2시간 / agent ~25분): dashboard-expenses.spec.ts에 검증 계획 T1~T4 구현. 12개 이상 정확한 합계·순서, 환불·보관 계정, 빈 월·실패 복구, 모바일·긴 이름 검증. 기존 제한 상태에서 실패를 확인한 후 구현과 함께 통과시켰다.
+- [x] T3 (P1, human ~30분 / agent ~10분, 환경에 따라 변동): 별도 워크트리·테스트 포트로 백엔드 전체 pytest, 프론트 전체 E2E, build 및 diff 검증. 실제 가계부 데이터 변경 없이 회귀를 확인했다.
 - 아키텍처·성능 검토에서 추가 구현 과제 없음.
 
 ## GSTACK REVIEW REPORT
+
+아래 표와 판정은 구현 전 계획 검토 기록이다. 이후 코드 리뷰·테스트·QA 결과는 [구현 검증](../verification/dashboard-monthly-expenses-results.md)에 기록했다.
 
 | Review | Runs | Status | Findings |
 |---|---:|---|---|
