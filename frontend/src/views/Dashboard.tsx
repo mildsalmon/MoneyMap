@@ -26,7 +26,7 @@ export function Dashboard({ gen, go }: ViewProps) {
   const month = todayIso().slice(0, 7);
   const typeOf = useMemo(() => new Map(accounts.map((a) => [a.id, a.type])), [accounts]);
 
-  const { income, expense, topExpense } = useMemo(() => {
+  const { income, expense, expensesByAccount } = useMemo(() => {
     let income = 0, expense = 0;
     const byExpense = new Map<number, number>();
     for (const t of txns) {
@@ -40,8 +40,8 @@ export function Dashboard({ gen, go }: ViewProps) {
         }
       }
     }
-    const topExpense = [...byExpense.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5);
-    return { income, expense, topExpense };
+    const expensesByAccount = [...byExpense.entries()].sort((a, b) => b[1] - a[1]);
+    return { income, expense, expensesByAccount };
   }, [txns, month, typeOf]);
 
   // 온보딩 (D11): 3단계 완료 전에는 빈 차트를 보여주지 않는다
@@ -179,15 +179,15 @@ export function Dashboard({ gen, go }: ViewProps) {
         </div>
         <div>
           <table className="ledger">
-            <thead><tr><th>이번 달 지출 상위</th><th className="num">₩</th></tr></thead>
+            <thead><tr><th>이번 달 지출</th><th className="num">₩</th></tr></thead>
             <tbody>
-              {topExpense.map(([id, amt]) => (
+              {expensesByAccount.map(([id, amt]) => (
                 <tr key={id}>
                   <td>{accounts.find((a) => a.id === id)?.name ?? id}</td>
                   <td className="num">{amt.toLocaleString("ko-KR")}</td>
                 </tr>
               ))}
-              {supportQuery.data && topExpense.length === 0 && (
+              {supportQuery.data && expensesByAccount.length === 0 && (
                 <tr><td colSpan={2} style={{ color: "var(--muted)" }}>이번 달 지출 기록이 없습니다</td></tr>
               )}
             </tbody>
