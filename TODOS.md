@@ -90,18 +90,6 @@
 **Priority:** P2
 **Depends on:** 루트 계정과 미분류 계정의 표시 규칙 확정
 
-### 이번 달 지출 상위 노출 항목 확대
-
-**What:** 대시보드의 `이번 달 지출 상위`에 표시되는 항목 수를 현재 5개보다 늘린다.
-
-**Why:** 주요 지출처가 5개를 넘는 달에도 소비 구성을 충분히 살펴볼 수 있게 한다.
-
-**Context:** 데스크톱과 모바일에서 대시보드가 과도하게 길어지지 않는 기본 노출 개수를 정하고, 필요하면 나머지 항목을 펼쳐보는 방식을 함께 검토한다.
-
-**Effort:** S
-**Priority:** P2
-**Depends on:** 기본 노출 개수와 모바일 표시 방식 확정
-
 ## 계정·원장
 
 ### 계정 행위·상태의 시간 이력과 시점별 사용 가능 여부
@@ -256,6 +244,9 @@
 **Depends on:** 두 번째 cross-repository 원자성 유스케이스 또는 transaction 경계 중복의 관측
 
 ## Completed
+
+- 2026-09-27: 대시보드 ‘이번 달 지출’에서 거래가 있는 모든 비용 계정을 추가 클릭 없이 표시한다. 기존 월별 합산·금액 내림차순·환불·보관 비용 계정을 유지하며, 0원·음수 합계도 표시한다.
+  **Completed:** v0.8.3.0 (2026-09-27) — main 머지 전. [설계](docs/designs/dashboard-monthly-expenses.md), [검증 계획](docs/verification/dashboard-monthly-expenses-test-plan.md). 회귀 테스트: `frontend/e2e/dashboard-expenses.spec.ts`.
 
 - 2026-09-21: 대시보드 계정 잔액 목록에서 보관 계정을 잔액과 무관하게 숨긴다. 계정 상태 확인 전·조회 실패 시 행을 노출하지 않고, 복원 후 다시 표시한다. 전체 순자산은 보관 계정을 포함한 기존 계산을 유지하며 표 합계에 이를 명시한다.
   **Completed:** v0.8.2.0 (2026-09-21) — PR 준비, main 머지 전. 회귀 검증: `frontend/e2e/dashboard-balances.spec.ts`.

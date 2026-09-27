@@ -119,7 +119,7 @@ test("표준 시드 후 그룹 아래 소분류를 추가하고 그 소분류로
 
   await nav(page, "대시보드").click();
   await expect(page.locator(".strip")).toContainText("₩12,345");
-  await expect(page.locator("table.ledger", { hasText: "이번 달 지출 상위" })).toContainText("야식");
+  await expect(page.locator("table.ledger", { hasText: "이번 달 지출" })).toContainText("야식");
 });
 
 test("마이너스통장 개시잔액은 대시보드에서만 부채로 보고된다", async ({ page }) => {
