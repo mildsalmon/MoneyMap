@@ -2,7 +2,7 @@
 
 All notable changes to MoneyMap are documented in this file.
 
-## [Unreleased]
+## [0.8.3.0] - 2026-09-27
 
 ### Changed
 - Show every expense account with activity this month on the dashboard instead of only the top five. Keep descending net expense totals, including archived accounts and zero or negative totals after refunds, and rename the table to ‘이번 달 지출’.

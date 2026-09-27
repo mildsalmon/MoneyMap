@@ -246,7 +246,7 @@
 ## Completed
 
 - 2026-09-27: 대시보드 ‘이번 달 지출’에서 거래가 있는 모든 비용 계정을 추가 클릭 없이 표시한다. 기존 월별 합산·금액 내림차순·환불·보관 비용 계정을 유지하며, 0원·음수 합계도 표시한다.
-  **Completed:** 구현 완료, Unreleased — main 머지 전. [설계](docs/designs/dashboard-monthly-expenses.md), [검증 계획](docs/verification/dashboard-monthly-expenses-test-plan.md). 회귀 테스트: `frontend/e2e/dashboard-expenses.spec.ts`.
+  **Completed:** v0.8.3.0 (2026-09-27) — main 머지 전. [설계](docs/designs/dashboard-monthly-expenses.md), [검증 계획](docs/verification/dashboard-monthly-expenses-test-plan.md). 회귀 테스트: `frontend/e2e/dashboard-expenses.spec.ts`.
 
 - 2026-09-21: 대시보드 계정 잔액 목록에서 보관 계정을 잔액과 무관하게 숨긴다. 계정 상태 확인 전·조회 실패 시 행을 노출하지 않고, 복원 후 다시 표시한다. 전체 순자산은 보관 계정을 포함한 기존 계산을 유지하며 표 합계에 이를 명시한다.
   **Completed:** v0.8.2.0 (2026-09-21) — PR 준비, main 머지 전. 회귀 검증: `frontend/e2e/dashboard-balances.spec.ts`.
