@@ -302,10 +302,10 @@
 
 
 - 2026-09-27: 대시보드 ‘이번 달 지출’에서 거래가 있는 모든 비용 계정을 추가 클릭 없이 표시한다. 기존 월별 합산·금액 내림차순·환불·보관 비용 계정을 유지하며, 0원·음수 합계도 표시한다.
-  **Completed:** v0.8.3.0 (2026-09-27) — main 머지 전. [설계](docs/designs/dashboard-monthly-expenses.md), [검증 계획](docs/verification/dashboard-monthly-expenses-test-plan.md). 회귀 테스트: `frontend/e2e/dashboard-expenses.spec.ts`.
+  **Completed:** v0.8.3.0 (2026-09-27) — [PR #11](https://github.com/mildsalmon/MoneyMap/pull/11) main 머지 완료. [설계](docs/designs/dashboard-monthly-expenses.md), [검증 계획](docs/verification/dashboard-monthly-expenses-test-plan.md). 회귀 테스트: `frontend/e2e/dashboard-expenses.spec.ts`.
 
 - 2026-09-21: 대시보드 계정 잔액 목록에서 보관 계정을 잔액과 무관하게 숨긴다. 계정 상태 확인 전·조회 실패 시 행을 노출하지 않고, 복원 후 다시 표시한다. 전체 순자산은 보관 계정을 포함한 기존 계산을 유지하며 표 합계에 이를 명시한다.
-  **Completed:** v0.8.2.0 (2026-09-21) — PR 준비, main 머지 전. 회귀 검증: `frontend/e2e/dashboard-balances.spec.ts`.
+  **Completed:** v0.8.2.0 (2026-09-21) — [PR #10](https://github.com/mildsalmon/MoneyMap/pull/10) main 머지 완료(2026-09-23). 회귀 검증: `frontend/e2e/dashboard-balances.spec.ts`.
 
 - 2026-09-20: 거래입력의 연속 아이템·저장 후 계정 자동 채움 재적용을 구현했다. 직접 선택한 쪽은 보호하고, 조회 실패 시 유지·5초 제한·명시적 재조회·저장 대기 및 화면 재진입 후 실행취소 보호를 포함한다. [설계와 검증 계획](docs/designs/transaction-input-recall-refresh.md)
   **Completed:** v0.8.1.0 (2026-09-21) — [검증 기록](docs/verification/transaction-input-recall-refresh-results.md)
