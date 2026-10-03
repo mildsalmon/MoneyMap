@@ -104,19 +104,6 @@
 **Priority:** P2
 **Depends on:** 이상하게 보이는 실제 데이터 사례 확보
 
-### 계정 잔액을 자산·부채 및 계정 카테고리별로 분리
-
-**Status:** 구현·리뷰·QA 완료, ship/main 반영 대기. `feature/dashboard-balance-groups`. Backend 480개·E2E 173개 및 빌드 통과. [검증 기록](docs/verification/dashboard-balance-groups-results.md). main 반영 전까지 이 항목을 유지한다.
-
-**What:** 한 블록에 섞여 있는 자산과 부채를 별도 블록으로 나누고, 가능하면 계정 관리에서 만든 상위 카테고리 구조대로 계정 잔액을 묶어 표시한다.
-
-**Why:** 자산·부채의 구성과 각 카테고리별 잔액을 한눈에 파악할 수 있게 한다.
-
-**Context:** 자산·부채 구분을 1차 기준으로 삼고 그 안에서는 계정 트리의 상위 그룹과 저장된 순서를 재사용한다. 그룹에 속하지 않은 계정의 표시 방식과 그룹 합계·개별 계정의 중복 집계 방식을 함께 정한다.
-
-**Effort:** M
-**Priority:** P2
-**Depends on:** 해소. 루트 일반 계정은 직접 표시하고 그룹 소계는 해당 표의 활성 계정 직접 잔액만 합산한다. [설계](docs/designs/dashboard-balance-groups.md).
 
 ## 통계
 
@@ -288,6 +275,14 @@
 **Depends on:** 두 번째 cross-repository 원자성 유스케이스 또는 transaction 경계 중복의 관측
 
 ## Completed
+
+### 계정 잔액을 자산·부채 및 계정 카테고리별로 분리
+
+자산·부채 표를 분리하고 저장된 계정 순서와 최상위 그룹을 재사용한다. 중첩 경로, 활성 계정 소계, 그룹 직접 잔액, 마이너스통장 보고 분류를 표시하며 전체 순자산은 보관 계정을 포함한다.
+
+**Completed:** v0.8.5.0 (2026-10-03)
+**Release:** 이 릴리스 PR로 main에 반영한다.
+**Verification:** Backend 480개·E2E 173개 및 빌드 통과, 코드 리뷰·데스크톱/모바일 QA 완료. [설계](docs/designs/dashboard-balance-groups.md), [검증 기록](docs/verification/dashboard-balance-groups-results.md).
 
 ### 거래입력 최근 입력 더보기
 

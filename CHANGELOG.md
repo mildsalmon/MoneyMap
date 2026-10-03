@@ -2,6 +2,12 @@
 
 All notable changes to MoneyMap are documented in this file.
 
+## [0.8.5.0] - 2026-10-03
+
+### Changed
+- Separate dashboard balances into asset and liability tables, grouped by the saved account hierarchy and order. Show nested account paths and subtotals for active accounts without double-counting parent balances.
+- Keep overdrawn accounts in the liability table, hide empty groups, and preserve archived balances in the explicitly labeled total net worth.
+
 ## [0.8.4.0] - 2026-10-03
 
 ### Added
