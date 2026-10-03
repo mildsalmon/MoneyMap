@@ -2,7 +2,7 @@
 
 All notable changes to MoneyMap are documented in this file.
 
-## [Unreleased]
+## [0.8.4.0] - 2026-10-03
 
 ### Added
 - Load five more recent inputs at a time from the transaction input screen. Keep the existing list on read failures, offer retry, show the end of the list, and reset to the latest five after saving or undoing.

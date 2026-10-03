@@ -78,21 +78,6 @@
 **Priority:** P2
 **Depends on:** 태그 사용 패턴 확인과 입력 UI안 비교
 
-### 거래입력 최근 입력 더보기
-
-**What:** 거래입력 화면의 최근 입력을 처음 일부만 보여주고 `더보기`로 이전 거래를 추가 조회할 수 있게 한다.
-
-**Why:** 최근 5건보다 오래된 거래도 입력 참고나 계정 조합 재사용에 활용할 수 있게 한다.
-
-**Context:** 현재 프론트엔드는 최근 입력 5건을 고정 조회한다. 기존 목록을 유지한 채 다음 묶음을 이어 붙이고, 중복·로딩·마지막 페이지 상태를 명확히 표시한다.
-
-**Effort:** S
-**Priority:** P2
-**Status:** 구현·리뷰·QA 완료 (`feature/recent-input-load-more`), 미머지. 머지 시 Completed로 이동한다.
-**Verification:** [검증 결과](docs/verification/recent-input-load-more-results.md)
-**Design:** [최근 입력 더보기](docs/designs/recent-input-load-more.md)
-**Depends on:** 없음. 저장 ID 내림차순 커서로 5건씩 추가 조회한다.
-
 ### 거래내역 초기 조회 제한과 더보기
 
 **What:** 거래내역에 최초 약 100건 또는 기본 일자 범위를 적용하고, 이후 내역은 `더보기`로 추가 조회할 수 있게 한다.
@@ -301,6 +286,23 @@
 **Depends on:** 두 번째 cross-repository 원자성 유스케이스 또는 transaction 경계 중복의 관측
 
 ## Completed
+
+### 거래입력 최근 입력 더보기
+
+**What:** 거래입력 화면의 최근 입력을 처음 일부만 보여주고 `더보기`로 이전 거래를 추가 조회할 수 있게 한다.
+
+**Why:** 최근 5건보다 오래된 거래도 입력 참고나 계정 조합 재사용에 활용할 수 있게 한다.
+
+**Context:** 최초 5건과 더보기 5건씩을 저장 ID 커서로 조회한다. 기존 목록을 유지한 채 이어 붙이고, 실패 재시도·중복 클릭 차단·마지막 페이지 안내를 제공한다. 저장·실행취소 후 최신 5건으로 초기화한다.
+
+**Effort:** S
+**Priority:** P2
+**Status:** 구현·리뷰·QA 완료. v0.8.4.0 PR로 제출하며 main 머지 대기.
+**Completed:** v0.8.4.0 (2026-10-03, 구현 완료·머지 대기)
+**Verification:** [검증 결과](docs/verification/recent-input-load-more-results.md)
+**Design:** [최근 입력 더보기](docs/designs/recent-input-load-more.md)
+**Depends on:** 없음. 저장 ID 내림차순 커서로 5건씩 추가 조회한다.
+
 
 - 2026-09-27: 대시보드 ‘이번 달 지출’에서 거래가 있는 모든 비용 계정을 추가 클릭 없이 표시한다. 기존 월별 합산·금액 내림차순·환불·보관 비용 계정을 유지하며, 0원·음수 합계도 표시한다.
   **Completed:** v0.8.3.0 (2026-09-27) — main 머지 전. [설계](docs/designs/dashboard-monthly-expenses.md), [검증 계획](docs/verification/dashboard-monthly-expenses-test-plan.md). 회귀 테스트: `frontend/e2e/dashboard-expenses.spec.ts`.

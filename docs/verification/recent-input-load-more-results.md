@@ -3,7 +3,7 @@
 - Date: 2026-10-03
 - Base: main 8679a41 (pull --ff-only 완료)
 - Branch: feature/recent-input-load-more
-- Status: DONE, 구현·리뷰·QA 완료. PR/머지/배포는 아직 수행하지 않음.
+- Status: DONE, 구현·리뷰·QA 완료. v0.8.4.0 ship 진행, main 머지·배포 대기.
 
 ## 구현
 
@@ -56,4 +56,4 @@ summary 기준이며, 테스트 전문은 Testing 리뷰어가 별도로 확인�
 원래 fix/input-recall-refresh의 미커밋 작업은
 `preserve-before-main-pull-2026-10-03` stash에 보존했다. 할부 설계와 새 백로그 항목
 (반복 규칙 수정·할부·통계)은 현재 TODO에 선택 복원했다. 오래된 P1 중복 구현과
-거래내역 작업은 이 브랜치에 적용하지 않았다. VERSION은 릴리스 전이므로 유지한다.
+거래내역 작업은 이 브랜치에 적용하지 않았다. ship에서 VERSION을 0.8.4.0으로 올리고 릴리스 변경 기록을 확정한다.
