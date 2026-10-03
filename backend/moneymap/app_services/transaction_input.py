@@ -8,5 +8,5 @@ def last_pair(queries: TransactionInputQueries, item: str) -> LastPair:
     return validate_latest_pair(key, queries.last_candidate(key) if key else None)
 
 
-def recent_inputs(queries: TransactionInputQueries, limit: int) -> list[RecentInput]:
-    return queries.recent(limit)
+def recent_inputs(queries: TransactionInputQueries, limit: int, before_id: int | None = None) -> list[RecentInput]:
+    return queries.recent(limit, before_id)
