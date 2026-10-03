@@ -111,7 +111,7 @@ for (const width of [1440, 390]) {
     expect(boxes[0].right).toBeLessThanOrEqual(boxes[1].left + 1);
     expect(boxes[1].right).toBeLessThanOrEqual(width);
     expect(boxes[0].scrollWidth).toBeLessThanOrEqual(boxes[0].clientWidth + 1);
-    const tables = await page.locator(".two table").evaluateAll(tables => tables.map(t => {
+    const tables = await page.locator(".two > *").evaluateAll(tables => tables.map(t => {
       const r = t.getBoundingClientRect(); return { top: r.top, bottom: r.bottom };
     }));
     if (width > 720) expect(Math.abs(tables[0].top - tables[1].top)).toBeLessThan(1);

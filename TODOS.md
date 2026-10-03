@@ -104,17 +104,6 @@
 **Priority:** P2
 **Depends on:** 이상하게 보이는 실제 데이터 사례 확보
 
-### 계정 잔액을 자산·부채 및 계정 카테고리별로 분리
-
-**What:** 한 블록에 섞여 있는 자산과 부채를 별도 블록으로 나누고, 가능하면 계정 관리에서 만든 상위 카테고리 구조대로 계정 잔액을 묶어 표시한다.
-
-**Why:** 자산·부채의 구성과 각 카테고리별 잔액을 한눈에 파악할 수 있게 한다.
-
-**Context:** 자산·부채 구분을 1차 기준으로 삼고 그 안에서는 계정 트리의 상위 그룹과 저장된 순서를 재사용한다. 그룹에 속하지 않은 계정의 표시 방식과 그룹 합계·개별 계정의 중복 집계 방식을 함께 정한다.
-
-**Effort:** M
-**Priority:** P2
-**Depends on:** 루트 계정과 미분류 계정의 표시 규칙 확정
 
 ## 통계
 
@@ -287,6 +276,14 @@
 
 ## Completed
 
+### 계정 잔액을 자산·부채 및 계정 카테고리별로 분리
+
+자산·부채 표를 분리하고 저장된 계정 순서와 최상위 그룹을 재사용한다. 중첩 경로, 활성 계정 소계, 그룹 직접 잔액, 마이너스통장 보고 분류를 표시하며 전체 순자산은 보관 계정을 포함한다.
+
+**Completed:** v0.8.5.0 (2026-10-03)
+**Release:** 이 릴리스 PR로 main에 반영한다.
+**Verification:** Backend 480개·E2E 173개 및 빌드 통과, 코드 리뷰·데스크톱/모바일 QA 완료. [설계](docs/designs/dashboard-balance-groups.md), [검증 기록](docs/verification/dashboard-balance-groups-results.md).
+
 ### 거래입력 최근 입력 더보기
 
 **What:** 거래입력 화면의 최근 입력을 처음 일부만 보여주고 `더보기`로 이전 거래를 추가 조회할 수 있게 한다.
@@ -305,10 +302,10 @@
 
 
 - 2026-09-27: 대시보드 ‘이번 달 지출’에서 거래가 있는 모든 비용 계정을 추가 클릭 없이 표시한다. 기존 월별 합산·금액 내림차순·환불·보관 비용 계정을 유지하며, 0원·음수 합계도 표시한다.
-  **Completed:** v0.8.3.0 (2026-09-27) — main 머지 전. [설계](docs/designs/dashboard-monthly-expenses.md), [검증 계획](docs/verification/dashboard-monthly-expenses-test-plan.md). 회귀 테스트: `frontend/e2e/dashboard-expenses.spec.ts`.
+  **Completed:** v0.8.3.0 (2026-09-27) — [PR #11](https://github.com/mildsalmon/MoneyMap/pull/11) main 머지 완료. [설계](docs/designs/dashboard-monthly-expenses.md), [검증 계획](docs/verification/dashboard-monthly-expenses-test-plan.md). 회귀 테스트: `frontend/e2e/dashboard-expenses.spec.ts`.
 
 - 2026-09-21: 대시보드 계정 잔액 목록에서 보관 계정을 잔액과 무관하게 숨긴다. 계정 상태 확인 전·조회 실패 시 행을 노출하지 않고, 복원 후 다시 표시한다. 전체 순자산은 보관 계정을 포함한 기존 계산을 유지하며 표 합계에 이를 명시한다.
-  **Completed:** v0.8.2.0 (2026-09-21) — PR 준비, main 머지 전. 회귀 검증: `frontend/e2e/dashboard-balances.spec.ts`.
+  **Completed:** v0.8.2.0 (2026-09-21) — [PR #10](https://github.com/mildsalmon/MoneyMap/pull/10) main 머지 완료(2026-09-23). 회귀 검증: `frontend/e2e/dashboard-balances.spec.ts`.
 
 - 2026-09-20: 거래입력의 연속 아이템·저장 후 계정 자동 채움 재적용을 구현했다. 직접 선택한 쪽은 보호하고, 조회 실패 시 유지·5초 제한·명시적 재조회·저장 대기 및 화면 재진입 후 실행취소 보호를 포함한다. [설계와 검증 계획](docs/designs/transaction-input-recall-refresh.md)
   **Completed:** v0.8.1.0 (2026-09-21) — [검증 기록](docs/verification/transaction-input-recall-refresh-results.md)

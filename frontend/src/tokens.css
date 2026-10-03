@@ -502,3 +502,10 @@ textarea:focus-visible,
   .order-mobile ~ .tree-guide { display: none; }
   .order-move { width: 44px; height: 44px; }
 }
+.dashboard-balances > .ledger + .ledger { margin-top: 20px; }
+.ledger .balance-group th { padding-top: 12px; color: var(--ink); text-align: left; }
+.ledger .balance-child { padding-left: 20px; }
+.dashboard-account-cell, .balance-group th, .balance-subtotal td:first-child { overflow-wrap: anywhere; }
+.ledger .balance-subtotal td { font-size: 12px; color: var(--muted); }
+.balance-empty, .balance-scope { color: var(--muted); font-size: 12px; }
+.balance-scope { margin: 16px 0 8px; }
