@@ -180,7 +180,9 @@ test("마이너스통장 개시잔액은 대시보드에서만 부채로 보고�
   const zeroRow = page.locator("table.ledger tr", { hasText: "케이뱅크" });
   await expect(zeroRow).toContainText("0");
   await expect(zeroRow).not.toContainText("마이너스 사용 중");
-  await expect(page.locator("table.ledger tr", { hasText: "신용카드" })).toContainText("부채");
+  // 빈 그룹은 숨기고, 상환된 마이너스통장은 자산 표에 0원으로 남는다.
+  await expect(page.locator("table.ledger tr", { hasText: "신용카드" })).toHaveCount(0);
+  await expect(page.getByRole("table", { name: "자산 잔액", exact: true }).getByRole("row").filter({ hasText: "케이뱅크" })).toContainText("0");
   await page.request.delete(`${API_BASE}/transactions/${(await repayment.json()).id}`);
 
   // 다음 공유 DB 테스트의 순자산을 변경하지 않도록 개시 거래를 되돌린다.
@@ -321,7 +323,7 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
   // Dashboard는 여러 API를 병렬 로드하므로 실제 잔액이 렌더될 때까지 기다린다.
   // 초기 표 렌더와 온보딩 판정 사이의 짧은 전환을 레이아웃으로 오인하지 않는다.
   await expect(page.locator(".strip .hero")).toHaveText("₩9,935,655");
-  const dashboardTables = page.locator(".two > div");
+  const dashboardTables = page.locator(".two > *");
   await expect(dashboardTables).toHaveCount(2);
   const narrowTableTops = await dashboardTables.evaluateAll(
     (elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)),

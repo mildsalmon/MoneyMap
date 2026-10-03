@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { DashboardBalances } from "./DashboardBalances";
 import { api, chartToggles } from "../api";
 import { fmtWon, todayIso } from "../format";
 import { ProjectionChart } from "../chart/ProjectionChart";
@@ -20,7 +21,6 @@ export function Dashboard({ gen, go }: ViewProps) {
   const txns = supportQuery.data?.[1] ?? [];
   const rulesCount = supportQuery.data?.[2].length ?? 0;
   const balances = balancesQuery.data;
-  const balancesError = balancesQuery.error;
   const series = projectionQuery.data?.series.filter(series => series.points.length > 0);
 
   const month = todayIso().slice(0, 7);
@@ -91,15 +91,6 @@ export function Dashboard({ gen, go }: ViewProps) {
     );
   }
 
-  // 목록만 활성 계정으로 제한한다. 전체 순자산은 보관 계정까지 포함한 API 값을 유지한다.
-  // 계정 상태 조회 전/실패 시에는 활성 여부가 확인되지 않은 행을 노출하지 않는다.
-  const activeIds = new Set(accounts.filter((a) => !a.archived).map((a) => a.id));
-  const acctBalances = (balances?.accounts ?? []).filter(
-    (b) =>
-      (b.type === "asset" || b.type === "liability") &&
-      activeIds.has(b.account_id),
-  );
-
   return (
     <div>
       {supportQuery.error && <p role="alert">장부 정보를 불러오지 못했습니다. {supportQuery.error} <button className="btn secondary" onClick={supportQuery.reload}>다시 불러오기</button></p>}
@@ -145,38 +136,9 @@ export function Dashboard({ gen, go }: ViewProps) {
 
       {/* 하단: 컴팩트 테이블 */}
       <div className="two">
-        <div>
-          <table className="ledger">
-            <thead><tr><th>계정 잔액</th><th className="num">₩</th></tr></thead>
-            <tbody>
-              {acctBalances.map((b) => (
-                <tr key={b.account_id}>
-                  <td className="dashboard-account-cell">
-                    {b.name}
-                    {b.type === "asset" && b.reporting_type === "liability" ? (
-                      <span className="badge account-state-badge">부채 · 마이너스 사용 중</span>
-                    ) : b.reporting_type === "liability" ? (
-                      <span className="badge account-state-badge">부채</span>
-                    ) : null}
-                  </td>
-                  <td className="num">{b.balance.toLocaleString("ko-KR")}</td>
-                </tr>
-              ))}
-              {balancesError && (
-                <tr>
-                  <td colSpan={2} className="cell-error" role="alert">
-                    계정 잔액을 불러오지 못함
-                    <button className="retry-action" type="button" onClick={balancesQuery.reload}>다시 시도</button>
-                  </td>
-                </tr>
-              )}
-              <tr className="sum">
-                <td>전체 순자산 (보관 계정 포함)</td>
-                <td className="num">{balances ? fmtWon(balances.net_worth) : "…"}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        <DashboardBalances accounts={accounts} balances={balances}
+          ready={!!supportQuery.data && !!balances} unavailable={!!supportQuery.error || !!balancesQuery.error}
+          error={balancesQuery.error} reload={balancesQuery.reload} />
         <div>
           <table className="ledger">
             <thead><tr><th>이번 달 지출</th><th className="num">₩</th></tr></thead>

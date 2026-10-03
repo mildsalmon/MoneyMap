@@ -106,6 +106,8 @@
 
 ### 계정 잔액을 자산·부채 및 계정 카테고리별로 분리
 
+**Status:** 구현·리뷰·QA 완료, ship/main 반영 대기. `feature/dashboard-balance-groups`. Backend 480개·E2E 173개 및 빌드 통과. [검증 기록](docs/verification/dashboard-balance-groups-results.md). main 반영 전까지 이 항목을 유지한다.
+
 **What:** 한 블록에 섞여 있는 자산과 부채를 별도 블록으로 나누고, 가능하면 계정 관리에서 만든 상위 카테고리 구조대로 계정 잔액을 묶어 표시한다.
 
 **Why:** 자산·부채의 구성과 각 카테고리별 잔액을 한눈에 파악할 수 있게 한다.
@@ -114,7 +116,7 @@
 
 **Effort:** M
 **Priority:** P2
-**Depends on:** 루트 계정과 미분류 계정의 표시 규칙 확정
+**Depends on:** 해소. 루트 일반 계정은 직접 표시하고 그룹 소계는 해당 표의 활성 계정 직접 잔액만 합산한다. [설계](docs/designs/dashboard-balance-groups.md).
 
 ## 통계
 
