@@ -297,8 +297,8 @@
 
 **Effort:** S
 **Priority:** P2
-**Status:** 구현·리뷰·QA 완료. v0.8.4.0 PR로 제출하며 main 머지 대기.
-**Completed:** v0.8.4.0 (2026-10-03, 구현 완료·머지 대기)
+**Status:** 구현·리뷰·QA 완료. 반영 이력: [PR #12](https://github.com/mildsalmon/MoneyMap/pull/12).
+**Completed:** v0.8.4.0 (2026-10-03)
 **Verification:** [검증 결과](docs/verification/recent-input-load-more-results.md)
 **Design:** [최근 입력 더보기](docs/designs/recent-input-load-more.md)
 **Depends on:** 없음. 저장 ID 내림차순 커서로 5건씩 추가 조회한다.

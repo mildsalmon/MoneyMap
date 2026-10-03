@@ -1,7 +1,7 @@
 # 거래 입력 최근 입력 더보기
 
 - Date: 2026-10-03
-- Status: 구현·리뷰·QA 완료, v0.8.4.0 릴리스 준비 완료·main 머지 대기
+- Status: 구현·리뷰·QA 완료. v0.8.4.0 반영 이력은 [PR #12](https://github.com/mildsalmon/MoneyMap/pull/12)에서 확인한다.
 - Base: main 8679a41 (v0.8.3.0)
 - TODO: 거래입력 최근 입력 더보기 (P2, S)
 

@@ -11,6 +11,12 @@ const data = Array.from({ length: 12 }, (_, i) => record(12 - i));
 const rows = (page: Page) => page.locator(".txn-recent tbody tr");
 const more = (page: Page) => page.getByRole("button", { name: "최근 입력 더보기", exact: true });
 const retry = (page: Page) => page.getByRole("button", { name: "최근 입력 다시 불러오기", exact: true });
+async function openInput(page: Page) {
+  await page.goto("/transactions/new");
+  // Startup materialization refreshes the ledger generation once. Wait for its
+  // status response before replacing routes or asserting the retry interaction.
+  await expect(page.locator(".side .health")).not.toContainText("상태 확인 중");
+}
 const cursor = (route: Route) => Number(new URL(route.request().url()).searchParams.get("before_id") ?? Infinity);
 const reply = (route: Route, entries = data) => route.fulfill({ json: entries.filter(row => row.id < cursor(route)).slice(0, 6) });
 
@@ -25,7 +31,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("five at a time, cursor paging, old item reuse, keyboard and end announcement", async ({ page }) => {
-  await page.goto("/transactions/new");
+  await openInput(page);
   await expect(rows(page)).toHaveCount(5);
   await page.getByLabel("금액", { exact: true }).fill("123");
   await page.getByLabel("메모 (선택)", { exact: true }).fill("유지할 메모");
@@ -46,7 +52,7 @@ test("five at a time, cursor paging, old item reuse, keyboard and end announceme
 });
 
 test("pending page retains rows, blocks double requests, failure retries same cursor", async ({ page }) => {
-  await page.goto("/transactions/new"); await expect(rows(page)).toHaveCount(5);
+  await openInput(page); await expect(rows(page)).toHaveCount(5);
   let held: Route | undefined; const calls: number[] = [];
   await page.route("**/api/transaction-input/recent?*", r => { calls.push(cursor(r)); held = r; });
   await more(page).evaluate(button => { (button as HTMLButtonElement).click(); (button as HTMLButtonElement).click(); });
@@ -63,7 +69,7 @@ test("pending page retains rows, blocks double requests, failure retries same cu
 for (const count of [0, 5]) {
   test(`initial failure can retry an exact ${count}-row final page`, async ({ page }) => {
     await page.route("**/api/transaction-input/recent?*", r => r.abort());
-    await page.goto("/transactions/new"); await expect(retry(page)).toBeVisible();
+    await openInput(page); await expect(retry(page)).toBeVisible();
     await page.route("**/api/transaction-input/recent?*", r => r.fulfill({ json: data.slice(0, count) }));
     await retry(page).click(); await expect(rows(page)).toHaveCount(count);
     await expect(page.locator(".txn-recent [role=status]")).toHaveText(count ? "5건 표시 · 마지막 입력입니다." : "저장한 거래가 여기에 표시됩니다.");
@@ -72,7 +78,7 @@ for (const count of [0, 5]) {
 }
 
 test("save and undo reset the list; old page cannot append after refresh", async ({ page }) => {
-  await page.goto("/transactions/new"); await expect(rows(page)).toHaveCount(5);
+  await openInput(page); await expect(rows(page)).toHaveCount(5);
   let held: Route | undefined; let saved = false;
   await page.route("**/api/transaction-input/recent?*", r => {
     if (Number.isFinite(cursor(r))) { held = r; return; }

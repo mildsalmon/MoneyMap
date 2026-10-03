@@ -3,7 +3,7 @@
 - Date: 2026-10-03
 - Base: main 8679a41 (pull --ff-only 완료)
 - Branch: feature/recent-input-load-more
-- Status: DONE, 구현·리뷰·QA 및 v0.8.4.0 릴리스 준비 완료. main 머지·배포 대기.
+- Status: 구현·리뷰·QA 완료. v0.8.4.0 반영 이력은 [PR #12](https://github.com/mildsalmon/MoneyMap/pull/12)에서 확인한다.
 
 ## 구현
 
@@ -57,3 +57,12 @@ summary 기준이며, 테스트 전문은 Testing 리뷰어가 별도로 확인�
 `preserve-before-main-pull-2026-10-03` stash에 보존했다. 할부 설계와 새 백로그 항목
 (반복 규칙 수정·할부·통계)은 현재 TODO에 선택 복원했다. 오래된 P1 중복 구현과
 거래내역 작업은 이 브랜치에 적용하지 않았다. VERSION 0.8.4.0과 릴리스 변경 기록을 확정했으며 main 머지는 대기 중이다.
+
+## CI 환경의 초기 갱신 경쟁 수정
+
+최초 PR CI에서는 170개가 통과하고 초기 조회 실패 재시도 테스트 1개가 시간 초과됐다.
+Playwright trace에서 앱 초기 materialize 완료에 따른 generation 갱신이 테스트의
+응답 교체와 겹쳐, 재시도 버튼을 누르기 전에 최근 입력이 성공으로 바뀐 것을 확인했다.
+`openInput`에서 상태 조회 완료를 기다린 후 상호작용하도록 테스트만 수정했다.
+임의 지연이나 재시도 횟수를 늘리지 않았으며 제품 코드는 변경하지 않았다.
+최종 CI 결과는 PR #12의 checks를 기준으로 한다.
