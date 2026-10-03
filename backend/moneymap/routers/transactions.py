@@ -137,5 +137,8 @@ def input_last_pair(request: Request, item: str = Query(...)):
 
 
 @router.get("/api/transaction-input/recent", response_model=list[RecentInput])
-def input_recent(request: Request, limit: int = Query(5, ge=1, le=20)):
-    return recent_inputs(SqliteTransactionInputQueries(request.state.conn), limit)
+def input_recent(
+    request: Request, limit: int = Query(5, ge=1, le=20),
+    before_id: int | None = Query(None, ge=1, le=2**63 - 1),
+):
+    return recent_inputs(SqliteTransactionInputQueries(request.state.conn), limit, before_id)

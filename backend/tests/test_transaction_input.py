@@ -206,6 +206,48 @@ def test_recent_limits_and_no_memo_payload(ledger, limit):
     assert all(r.amount == 9000 and r.posting_count == 2 and "memo" not in r.model_dump() for r in rows)
 
 
+def test_recent_cursor_survives_insert_and_deleted_boundary(ledger):
+    conn, ids = ledger
+    repo = SqliteTransactionRepository(conn)
+    saved = [repo.save(transaction(ids, item=f"입력{i}", day="2030-01-01" if i == 0 else "2020-01-01")) for i in range(12)]
+    query = SqliteTransactionInputQueries(conn)
+    first = recent_inputs(query, 6)
+    assert [r.id for r in first] == [t.id for t in reversed(saved[6:])]
+    boundary = first[4].id
+    repo.save(transaction(ids, item="새 입력"))
+    assert repo.delete(boundary, scenario_id=1)
+    second = recent_inputs(query, 6, boundary)
+    assert [r.id for r in second] == [t.id for t in reversed(saved[1:7])]
+    last = recent_inputs(query, 6, second[4].id)
+    assert [r.id for r in last] == [saved[1].id, saved[0].id]
+    assert recent_inputs(query, 6, saved[0].id) == []
+    plan = " ".join(r[3] for r in conn.execute(
+        "EXPLAIN QUERY PLAN SELECT id,date,description FROM transactions "
+        "WHERE scenario_id=1 AND posted=1 AND entry_origin IN ('user','legacy_unknown') "
+        "AND id < ? ORDER BY id DESC LIMIT 6", (boundary,),
+    ))
+    assert "idx_txn_input_recent" in plan and "USE TEMP B-TREE" not in plan
+
+
+def test_recent_cursor_http_contract(tmp_path):
+    with TestClient(create_app(str(tmp_path / "cursor.db"))) as client:
+        for value in ["0", "-1", "abc", "1.5", str(2**63)]:
+            assert client.get(f"/api/transaction-input/recent?before_id={value}").status_code == 422
+        for query in ["", "?before_id=1", f"?before_id={2**63 - 1}&limit=6"]:
+            response = client.get("/api/transaction-input/recent" + query)
+            assert response.status_code == 200 and response.json() == []
+        ids = [client.post("/api/accounts", json={"name": n, "type": t}).json()["id"]
+               for n, t in [("식비", "expense"), ("현금", "asset")]]
+        saved = [client.post("/api/transactions", json={
+            "date": "2026-10-03", "description": f"입력{i}",
+            "postings": [{"account_id": ids[0], "amount": 100}, {"account_id": ids[1], "amount": -100}],
+        }).json()["id"] for i in range(7)]
+        first = client.get("/api/transaction-input/recent").json()
+        assert [r["id"] for r in first] == list(reversed(saved[2:]))
+        second = client.get("/api/transaction-input/recent", params={"before_id": first[-1]["id"]}).json()
+        assert [r["id"] for r in second] == list(reversed(saved[:2]))
+
+
 def test_candidate_and_account_read_share_snapshot(ledger):
     conn, ids = ledger
     saved = SqliteTransactionRepository(conn).save(transaction(ids))

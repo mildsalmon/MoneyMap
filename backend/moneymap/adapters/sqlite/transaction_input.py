@@ -28,12 +28,14 @@ class SqliteTransactionInputQueries:
         ).fetchall()
         return PairCandidate(candidate["id"], candidate["entry_origin"], tuple(CandidateLeg(**dict(r)) for r in rows))
 
-    def recent(self, limit: int) -> list[RecentInput]:
+    def recent(self, limit: int, before_id: int | None = None) -> list[RecentInput]:
+        cursor_clause = "AND id < ? " if before_id is not None else ""
+        params = (ACTUAL_SCENARIO_ID, before_id, limit) if before_id is not None else (ACTUAL_SCENARIO_ID, limit)
         recent = self.conn.execute(
             "SELECT id,date,description FROM transactions "
             "WHERE scenario_id=? AND posted=1 AND entry_origin IN ('user','legacy_unknown') "
-            "ORDER BY id DESC LIMIT ?",
-            (ACTUAL_SCENARIO_ID, limit),
+            + cursor_clause + "ORDER BY id DESC LIMIT ?",
+            params,
         ).fetchall()
         if not recent:
             return []

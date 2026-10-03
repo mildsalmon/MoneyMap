@@ -46,7 +46,7 @@ export const transactionsApi = {
   editTransaction: (id: number, body: TransactionEditBody) => req<TransactionEditResult>(`/transactions/${id}`, { method: "PUT", body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) }),
   resolveTransactionEdit: (id: number, body: TransactionEditBody) => req<TransactionEditResult>(`/transactions/${id}/edit-result`, { method: "POST", body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) }),
   lastPair: (item: string, signal?: AbortSignal) => req<LastPair>(`/transaction-input/last-pair?item=${encodeURIComponent(item)}`, { signal }),
-  recentInputs: (signal?: AbortSignal) => req<RecentInput[]>("/transaction-input/recent?limit=5", { signal }),
+  recentInputs: (signal?: AbortSignal, beforeId?: number, limit = 5) => req<RecentInput[]>(`/transaction-input/recent?limit=${limit}${beforeId === undefined ? "" : `&before_id=${beforeId}`}`, { signal }),
   transactions: (scenarioId = 1, signal?: AbortSignal) => req<Txn[]>(`/transactions?scenario_id=${scenarioId}`, { signal }),
   tags: (signal?: AbortSignal) => req<string[]>("/tags", { signal }),
   openingBalances: (signal?: AbortSignal) => req<OpeningBalanceRecord[]>("/opening-balances", { signal }),

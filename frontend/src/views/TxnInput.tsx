@@ -7,12 +7,12 @@ import { accountPickerModel } from "./TransactionAccountPicker";
 import { TransactionForm, netWorthDelta } from "./TransactionForm";
 import { amountInput, applyPair, clearSavedDraft, editField, inputSaveGate, isCurrentLookup, itemKey, lookupToken, newDraft, validateDraft, type Draft, type LookupToken } from "./transactionInputState";
 import "./transaction-input.css";
+import { RecentInputs } from "./RecentInputs";
 
 type Lookup = { token: LookupToken; gen: number; undo: number; phase: "loading" | "ready" | "error" | "timeout" | "preserved" | "confirmed"; pair?: LastPair; filled?: ("debit" | "credit")[] };
 
 export function TxnInput({ gen, refresh, inputUndoVersion, showToast, go }: ViewProps) {
   const accountQuery = useQuery(`input-accounts:${gen}`, signal => api.accounts(signal));
-  const recentQuery = useQuery(`input-recent:${gen}`, signal => api.recentInputs(signal));
   const tagsQuery = useQuery(`input-tags:${gen}`, signal => api.tags(signal));
   const cachedAccounts = useRef<Account[]>([]);
   if (accountQuery.data) cachedAccounts.current = accountQuery.data;
@@ -174,6 +174,8 @@ export function TxnInput({ gen, refresh, inputUndoVersion, showToast, go }: View
       {debtMessage && <p role="status">{debtMessage}</p>}
       {error && <p role="alert" className="txn-error">{error} <button type="button" className="btn secondary" onClick={() => go("history")}>거래 내역 확인</button></p>}
     </>}
-    footer={<section className="txn-recent"><h2>최근 입력</h2>{recentQuery.error ? <p role="alert">최근 입력을 불러오지 못했습니다. <button className="btn secondary" onClick={recentQuery.reload}>최근 입력 다시 불러오기</button></p> : !recentQuery.data ? <p role="status">최근 입력 확인 중…</p> : !recentQuery.data.length ? <p>저장한 거래가 여기에 표시됩니다.</p> : <table className="ledger"><thead><tr><th>날짜</th><th>아이템</th><th className="recent-pair">계정</th><th className="num">금액</th></tr></thead><tbody>{recentQuery.data.map(t => <tr key={t.id}><td>{t.date}</td><td>{t.description ? <button type="button" className="recent-item" onClick={() => { field("item", t.description); change(d => ({ ...d, epoch: d.epoch + 1 })); }}>{t.description}</button> : "—"}</td><td className="recent-pair">{t.debit_account_id !== null && t.credit_account_id !== null ? `${name(t.debit_account_id)} → ${name(t.credit_account_id)}` : `${t.posting_count}개 행`}</td><td className="num">{fmtWon(t.amount)}</td></tr>)}</tbody></table>}</section>}
+    footer={<RecentInputs key={gen} accountName={name} onSelect={description => {
+      field("item", description); change(d => ({ ...d, epoch: d.epoch + 1 }));
+    }} />}
   />;
 }
