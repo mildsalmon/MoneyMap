@@ -5,7 +5,7 @@ import { api } from "./api";
 import { Dashboard } from "./views/Dashboard";
 import { TxnInput } from "./views/TxnInput";
 import { TxnEdit } from "./views/TxnEdit";
-import { History } from "./views/History";
+import { History, useHistoryDeletion } from "./views/History";
 import { Accounts } from "./views/Accounts";
 import { Rules } from "./views/Rules";
 import { Scenarios } from "./views/Scenarios";
@@ -41,6 +41,7 @@ export function App() {
   // Undo callbacks outlive routes. Invalidate pending recalls synchronously,
   // including before React renders the new refresh generation.
   const inputUndoVersion = useRef(0);
+  const historyDeletion = useHistoryDeletion();
 
   const refresh = useCallback((reason?: "input-undo") => {
     if (reason === "input-undo") inputUndoVersion.current++;
@@ -140,7 +141,7 @@ export function App() {
           <Route path="/" element={<Dashboard {...viewProps} />} />
           <Route path="/transactions/new" element={<TxnInput {...viewProps} />} />
           <Route path="/transactions/:id/edit" element={<TxnEdit {...viewProps} />} />
-          <Route path="/transactions" element={<History {...viewProps} />} />
+          <Route path="/transactions" element={<History {...viewProps} deletion={historyDeletion} />} />
           <Route path="/accounts" element={<Accounts {...viewProps} />} />
           <Route path="/rules" element={<Rules {...viewProps} />} />
           <Route path="/scenarios" element={<Scenarios {...viewProps} />} />

@@ -10,30 +10,36 @@ import { criteriaKey, historyCriteriaError, historyKey, historyPreset, historySe
   type HistoryCriteria, type HistoryPreset, type HistoryQuery } from "./historyQueryState";
 import "./history.css";
 
-export function History(props: ViewProps) {
+// Owned by App so in-flight and uncertain deletions survive route changes.
+export function useHistoryDeletion() {
+  const [deleting, setDeleting] = useState<number | null>(null);
+  const deletingRef = useRef(false);
+  const [uncertainDeletes, setUncertainDeletes] = useState<Record<number, string>>({});
+  return { deleting, setDeleting, deletingRef, uncertainDeletes,
+    onUncertainDelete: (t: Txn) => setUncertainDeletes(previous => ({ ...previous, [t.id]: t.description || `#${t.id}` })) };
+}
+
+export function History(props: ViewProps & { deletion: ReturnType<typeof useHistoryDeletion> }) {
   const location = useLocation();
   const accounts = useQuery(`history-accounts:${props.gen}`, signal => api.accounts(signal));
   const tags = useQuery(`history-tags:${props.gen}`, signal => api.tags(signal));
   const [tagCache, setTagCache] = useState<string[]>([]);
-  const [uncertainDeletes, setUncertainDeletes] = useState<Record<number, string>>({});
   useEffect(() => { if (tags.data) setTagCache(tags.data); }, [tags.data]);
   // URL changes own a fresh draft/request session. Mutation refreshes must not
   // remount it: edit restoration and drafts survive generation changes.
   return <HistorySession key={location.search} {...props} accounts={accounts} tags={tags} tagCache={tagCache}
-    uncertainDeletes={uncertainDeletes} onUncertainDelete={t => setUncertainDeletes(previous => ({ ...previous, [t.id]: t.description || `#${t.id}` }))} />;
+    {...props.deletion} />;
 }
 
-function HistorySession({ gen, refresh, showToast, accounts, tags, tagCache, uncertainDeletes, onUncertainDelete }: ViewProps & {
+function HistorySession({ gen, refresh, showToast, accounts, tags, tagCache, uncertainDeletes, onUncertainDelete, deleting, setDeleting, deletingRef }: ViewProps & ReturnType<typeof useHistoryDeletion> & {
   accounts: ReturnType<typeof useQuery<Account[]>>;
   tags: ReturnType<typeof useQuery<string[]>>;
   tagCache: string[];
-  uncertainDeletes: Record<number, string>;
-  onUncertainDelete: (transaction: Txn) => void;
 }) {
   const location = useLocation(), navigate = useNavigate();
   const parsed = useMemo(() => readHistoryQuery(new URLSearchParams(location.search)), [location.search]);
   const applied = parsed.query, queryId = applied ? historyKey(applied) : "invalid";
-  const restore = useRef(historyReturn(location.state?.restore ?? recalledHistory(location.key))).current;
+  const restore = useRef(historyReturn(recalledHistory(location.key) ?? location.state?.restore)).current;
   const matchesRestore = !!applied && !!restore.query && historyKey(restore.query) === queryId;
   const restoreAllowed = useRef(matchesRestore);
   const [draft, setDraft] = useState<HistoryCriteria>(() => matchesRestore && restore.draft ? restore.draft
@@ -41,8 +47,7 @@ function HistorySession({ gen, refresh, showToast, accounts, tags, tagCache, unc
   const [formError, setFormError] = useState<string>();
   const [attempt, setAttempt] = useState(0);
   const [deleteState, setDeleteState] = useState<string | undefined>(location.state?.deleteState);
-  const [deleting, setDeleting] = useState<number | null>(null);
-  const deletingRef = useRef(false), alive = useRef(true), restored = useRef(false);
+  const alive = useRef(true), restored = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const result = useQuery(`history:${queryId}:${gen}:${attempt}`, signal => applied
     ? api.transactionHistory(historySearch(applied), signal) : Promise.resolve(null));
@@ -118,17 +123,15 @@ function HistorySession({ gen, refresh, showToast, accounts, tags, tagCache, unc
     if (!window.confirm(warnings)) return;
     deletingRef.current = true; setDeleting(t.id); setDeleteState(undefined);
     try {
-      const receipt = await api.deleteTransaction(t.id);
+      const receipt = await api.deleteTransaction(t.id, AbortSignal.timeout(15_000));
       if (receipt?.deleted !== t.id) throw new Error("삭제 응답을 확인할 수 없습니다");
       refresh();
       if (alive.current) { setDeleteState("거래를 삭제했습니다."); showToast("거래를 삭제했습니다"); }
     } catch (err) {
-      if (alive.current) {
-        const rejected = err instanceof ApiError && (err.status < 500 || err.code === "database_busy");
-        if (rejected) setDeleteState(`삭제하지 못했습니다. ${err.message}`);
-        else onUncertainDelete(t);
-      }
-    } finally { deletingRef.current = false; if (alive.current) setDeleting(null); }
+      const rejected = err instanceof ApiError && (err.status < 500 || err.code === "database_busy");
+      if (!rejected) onUncertainDelete(t);
+      else if (alive.current) setDeleteState(`삭제하지 못했습니다. ${err.message}`);
+    } finally { deletingRef.current = false; setDeleting(null); }
   };
   const flow = (t: Txn) => {
     const side = (positive: boolean) => t.postings.filter(p => positive ? p.amount.amount > 0 : p.amount.amount < 0)

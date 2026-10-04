@@ -59,6 +59,6 @@ export const transactionsApi = {
     body: JSON.stringify(b),
   }),
   createTransaction,
-  deleteTransaction: (id: number) => req<{ deleted: number }>(`/transactions/${id}`, { method: "DELETE", signal: AbortSignal.timeout(15_000) }),
+  deleteTransaction: (id: number, signal?: AbortSignal) => req<{ deleted: number }>(`/transactions/${id}`, { method: "DELETE", signal }),
 
 };
