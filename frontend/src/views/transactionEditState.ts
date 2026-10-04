@@ -1,6 +1,7 @@
 import type { TransactionDetail, TransactionEditBody, TransactionEditResult } from "../api";
 import { isTransactionDetail } from "../api/transactionEditResponse";
 import { amountInput, newDraft, type Draft, type OriginalRows, type validateDraft } from "./transactionInputState";
+import { historyCriteriaError, type HistoryCriteria, type HistoryQuery } from "./historyQueryState";
 
 export function originalRows(transaction: TransactionDetail): OriginalRows {
   return new Map(transaction.postings.map(p => [p.posting_id, p]));
@@ -57,10 +58,20 @@ export function draftIdentity(draft: Draft): string {
 
 export interface HistoryReturn {
   tagFilter: string; scrollY: number; scrollLeft: number; focusId: number | null;
+  query: HistoryQuery | null; draft: HistoryCriteria | null;
 }
 export function historyReturn(value: unknown): HistoryReturn {
   const candidate = value as Partial<HistoryReturn> | null;
+  const raw = candidate?.query;
+  const criteria = (v: unknown): HistoryCriteria | null => {
+    const c = v as Partial<HistoryCriteria> | null;
+    return typeof c?.start === "string" && c.start.length <= 10 && typeof c.end === "string" && c.end.length <= 10 && typeof c.tag === "string"
+      ? { start: c.start, end: c.end, tag: c.tag } : null;
+  };
+  const valid = criteria(raw);
   return { tagFilter: typeof candidate?.tagFilter === "string" ? candidate.tagFilter : "",
+    query: valid && !historyCriteriaError(valid) && Number.isSafeInteger(raw?.page) && raw!.page > 0 ? { ...valid, page: raw!.page } : null,
+    draft: criteria(candidate?.draft),
     scrollY: Number.isFinite(candidate?.scrollY) ? Math.max(0, candidate!.scrollY!) : 0,
     scrollLeft: Number.isFinite(candidate?.scrollLeft) ? Math.max(0, candidate!.scrollLeft!) : 0,
     focusId: Number.isSafeInteger(candidate?.focusId) && candidate!.focusId! > 0 ? candidate!.focusId! : null };
