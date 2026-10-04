@@ -2,6 +2,15 @@
 
 All notable changes to MoneyMap are documented in this file.
 
+## [0.9.0.0] - 2026-10-04
+
+### Added
+- Find transactions by recent calendar month, this month, last month, or explicit dates and tags, with 100-row previous/next pages instead of loading the entire ledger.
+- Keep the applied period, tag, page, draft filters, scroll position, and focus when returning from transaction editing. Retry failed queries and tag loading independently.
+
+### Fixed
+- Preserve the latest filter draft through repeated edit/back navigation, and keep pending or uncertain deletion protection when navigating away and returning. Apply the deletion timeout only to transaction history.
+
 ## [0.8.5.0] - 2026-10-03
 
 ### Changed
