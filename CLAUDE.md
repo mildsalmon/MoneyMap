@@ -8,7 +8,7 @@
 - 계정 설정·이동 설계: [account-reparenting.md](docs/designs/account-reparenting.md)
 - 계정 형제 순서 변경·드래그·실행 취소: [account-ordering.md](docs/designs/account-ordering.md), [구현 검증](docs/verification/account-ordering.md)
 - 대시보드 계정 잔액(v0.8.2.0): 보관 계정은 잔액과 무관하게 목록에서 숨기고, 복원 후 다시 표시한다. 계정 상태 확인 전·조회 실패에는 확인되지 않은 행을 표시하지 않는다. 과거 거래와 전체 순자산 계산은 유지하므로 목록 행의 합계와 ‘전체 순자산 (보관 계정 포함)’은 다를 수 있다. [목록·복원·조회 복구 회귀 테스트](frontend/e2e/dashboard-balances.spec.ts).
-- 대시보드 잔액 그룹화(v0.8.5.0 릴리스 준비, main 머지 대기): 자산·부채를 보고 분류별 표로 나누고 저장된 계정 순서·최상위 그룹·중첩 경로를 표시한다. 소계는 표시된 활성 계정의 직접 잔액만 한 번씩 합산하며 전체 순자산은 보관 계정을 포함한다. [설계](docs/designs/dashboard-balance-groups.md), [자동 검증·브라우저 QA 결과](docs/verification/dashboard-balance-groups-results.md).
+- 대시보드 잔액 그룹화(v0.8.5.0, PR #13 main 반영): 자산·부채를 보고 분류별 표로 나누고 저장된 계정 순서·최상위 그룹·중첩 경로를 표시한다. 소계는 표시된 활성 계정의 직접 잔액만 한 번씩 합산하며 전체 순자산은 보관 계정을 포함한다. [설계](docs/designs/dashboard-balance-groups.md), [자동 검증·브라우저 QA 결과](docs/verification/dashboard-balance-groups-results.md).
 - 대시보드 이번 달 지출(v0.8.3.0): 해당 월 거래가 있는 모든 비용 계정을 금액 내림차순으로 표시한다. 보관 계정과 환불 후 0원·음수 합계도 유지한다. 하단 표에서 페이지를 스크롤하면 전체 항목을 볼 수 있다. [설계](docs/designs/dashboard-monthly-expenses.md), [테스트 계획](docs/verification/dashboard-monthly-expenses-test-plan.md), [자동 검증·브라우저 QA 결과](docs/verification/dashboard-monthly-expenses-results.md).
 - 과거 CSV 이관·거래 태그: [이관 설계](docs/designs/legacy-transaction-migration-and-tags.md), [이관 CLI](backend/scripts/import_legacy_csv.py), [로컬 메모 교정 설정](docs/verification/legacy-local-corrections.md)
 - 시나리오 승인 설계(PR 1~4): [scenario-lifecycle.md](docs/designs/scenario-lifecycle.md)
@@ -17,6 +17,7 @@
 - 최근 입력 더보기(v0.8.4.0, PR #12 main 반영): 처음 5건을 표시하고 `최근 입력 더보기`로 5건씩 추가한다. 저장·실행취소 후 최신 5건으로 돌아간다. [설계·조회 계약](docs/designs/recent-input-load-more.md), [검증 결과](docs/verification/recent-input-load-more-results.md).
 - v0.8.1.0 신규 입력 계정 재적용: [현재 정책](docs/designs/transaction-input-recall-refresh.md), [QA 테스트 계획](docs/verification/transaction-input-recall-refresh-test-plan.md), [실행 결과·남은 검증 범위](docs/verification/transaction-input-recall-refresh-results.md). 새 아이템의 유효 추천은 자동/유지 계정을 갱신하고 직접 선택한 쪽은 보호한다. 조회는 5초 후 종료하며 실패·실행취소 뒤에는 ‘계정 추천 다시 조회’로 다시 요청할 수 있다.
 - 거래 직접 수정·충돌/응답 유실 보호·신규 입력 계정 유지: [transaction-editing.md](docs/designs/transaction-editing.md), [구현 검증](docs/verification/transaction-editing.md). 개발서버 자동 재시작으로 v6 스키마가 적용됐고 기존 거래 값은 보존됐다. 통화·태그 선택 UI·계정 시간 이력은 TODO로 유지한다.
+- 거래내역 기간별 조회(v0.9.0.0 릴리스 준비, 이 PR의 main 반영 대기): 최근 한 달 기본, 날짜·태그 조회와 100건 페이지 이동, 수정 복귀 조건·위치 보존. [설계](docs/designs/transaction-history-query.md), [검증](docs/verification/transaction-history-query.md).
 - 진행 상태: 로컬 `WORKING.md`가 있을 때 참고
 
 ## Design System

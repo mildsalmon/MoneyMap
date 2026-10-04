@@ -7,6 +7,7 @@ import { accountPickerModel } from "./TransactionAccountPicker";
 import { useQuery } from "./scenarios/useQuery";
 import { editField, validateDraft, type Draft } from "./transactionInputState";
 import { classifyEditResult, draftIdentity, editBody, editDraft, historyReturn, originalRows, type EditPhase } from "./transactionEditState";
+import { historySearch } from "./historyQueryState";
 
 export function TxnEdit(props: ViewProps) {
   const id = Number(useParams().id);
@@ -69,11 +70,13 @@ function EditSession({ initial, gen, refresh, showToast }: ViewProps & { initial
   };
   const field = (name: "date" | "item" | "memo" | "amount", value: string) => change(d => editField(d, name, value));
   const back = (saved?: TransactionDetail) => {
-    const filtered = saved && returnTo.tagFilter && !saved.tags.includes(returnTo.tagFilter);
-    const notice = saved ? (filtered ? "저장했습니다. 변경된 태그가 현재 필터와 달라 목록에 표시되지 않습니다." : "거래를 수정했습니다.") : undefined;
+    const filter = returnTo.query?.tag ?? returnTo.tagFilter;
+    const filtered = saved && ((filter && !saved.tags.includes(filter))
+      || (returnTo.query && (saved.date < returnTo.query.start || saved.date > returnTo.query.end)));
+    const notice = saved ? (filtered ? "수정한 거래가 현재 조회 조건에 해당하지 않아 목록에 표시되지 않습니다." : "거래를 수정했습니다.") : undefined;
     if (saved) allowExit.current = true;
-    navigate({ pathname: "/transactions", search: returnTo.tagFilter ? `?tag=${encodeURIComponent(returnTo.tagFilter)}` : "" },
-      { replace: true, state: { restore: returnTo, notice } });
+    navigate({ pathname: "/transactions", search: returnTo.query ? historySearch(returnTo.query) : returnTo.tagFilter ? `?tag=${encodeURIComponent(returnTo.tagFilter)}` : "" },
+      { replace: true, state: { restore: returnTo, notice, savedId: saved && !filtered ? saved.id : undefined } });
   };
   const consume = (result: TransactionEditResult, submitted: TransactionEditBody) => {
     const outcome = classifyEditResult(result, original.id, submitted);
