@@ -80,7 +80,7 @@
 
 ### 거래내역 기간별 조회와 100건 페이지 이동
 
-**Status:** 구현 통합 완료 (2026-10-04), `feature/history-query-integration`. 백엔드 500개·E2E 202개·빌드 통과. 코드 리뷰·브라우저 QA 진행 중이며 main 반영 전이다.
+**Status:** 구현 통합 완료 (2026-10-04), `feature/history-query-integration`. 백엔드 500개·E2E 204개·빌드, gstack 코드 리뷰·브라우저 QA 완료. ship·main 반영 대기다.
 
 **What:** 최근 한 달을 기본 조회 범위로 제공하고, 이번 달·지난달·직접 날짜 지정과 100건 단위 이전/다음 페이지 이동을 지원한다.
 
@@ -92,7 +92,7 @@
 
 **Effort:** M
 **Priority:** P2
-**Depends on:** 코드 리뷰·브라우저 QA 완료 후 ship 및 main 반영
+**Depends on:** ship 및 main 반영
 
 
 ## 대시보드

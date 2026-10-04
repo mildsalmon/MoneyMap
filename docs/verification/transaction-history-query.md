@@ -54,4 +54,10 @@ E2E는 전용 포트와 `/tmp/moneymap-e2e-8977`의 합성 DB를 사용했다. �
 - 수정 복귀 E2E는 100건 페이지 조회에 맞추면서 최신 main의 초기 materialize 완료 대기를 유지했다.
 - 전체 backend: **500 passed, 18.08초**. 전체 E2E: **202 passed, 2.9분**. 프런트엔드 production build 성공, `git diff --check` 통과.
 - E2E는 18765/15173과 포트별 임시 DB를 사용했다. 최근 입력 더보기·계정 추천·대시보드 그룹화 회귀 포함.
-- 코드 리뷰와 별도 브라우저 QA는 진행 중이다. PR·main 머지·배포는 아직 진행하지 않았다.
+- 재리뷰에서 반복 수정 왕복의 최신 초안 복원, History 전용 삭제 타임아웃, 화면 이동 후 삭제 진행/미확인 상태 보존을 보완했다. `history-return.regression-1.spec.ts`의 2개 회귀 테스트를 추가했다.
+- **수정 후 최종 전체 검증:** backend **500 passed, 18.24초**, E2E **204 passed, 2.9분**, production build 성공. 7개 분야 전문 리뷰와 Red Team·독립 adversarial 리뷰를 거쳐 수정본을 다시 검토했다. 별도 모델/외부 프로세스 리뷰는 Codex 호스트 중첩 방지로 실행하지 않았다.
+- 별도 브라우저 QA는 18865/15273, `/tmp/moneymap-history-qa-20261004.db` 합성 거래 105건으로 진행했다. 1페이지 100행 → 2페이지 5행, 결과 제목 포커스, 수정 취소 복귀, 두 번째 왕복의 미적용 종료일 보존, 지난달/직접 기간의 0건 표시를 확인했다.
+- 1280×900과 390×844 스크린샷을 직접 확인했다. 모바일 body 390px, 표 영역 366px/내용 640px로 표만 가로 스크롤된다. 정상 흐름의 콘솔 오류는 0건이었다.
+- QA 서버를 잠시 중단해 조회 실패 시 이전 행 숨김을 확인하고, 재시작 후 ‘다시 조회’로 100행 복구를 확인했다. 오류 유발 시 발생한 네트워크 오류는 의도한 검증이다.
+- 화면 증거: `/tmp/moneymap-history-desktop.png`, `/tmp/moneymap-history-mobile.png`, `/tmp/moneymap-history-empty.png`, `/tmp/moneymap-history-error.png`. 임시 파일이므로 영구 배포 산출물은 아니다.
+- PR·main 머지·배포는 아직 진행하지 않았다. TODO는 구현/검증 완료·ship 대기로 유지한다.
