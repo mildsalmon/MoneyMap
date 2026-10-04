@@ -87,6 +87,7 @@ def test_actual_rule_request_cannot_mutate_replacement_scenario_rule(
                 client.request,
                 method,
                 f"/api/rules/{rid}",
+                headers={"If-Match": client.get("/api/rules").json()[0]["edit_token"]},
                 json={**body, "amount": 999} if method == "put" else None,
             )
             entered.wait(timeout=5)
@@ -186,7 +187,7 @@ def test_actual_rule_put_validates_whole_model_without_mutation(ledger, invalid)
     conn = connect(client.app.state.db_path)
     try:
         before = snapshot(conn)
-        result = client.put(f"/api/rules/{rid}", json=update)
+        result = client.put(f"/api/rules/{rid}", headers={"If-Match": created.json()["edit_token"]}, json=update)
         assert result.status_code == 400, result.text
         assert result.json()["detail"]["code"] == "validation_error"
         assert snapshot(conn) == before

@@ -96,6 +96,7 @@ export interface TransactionEditResult {
 }
 
 export interface Rule {
+  edit_token?: string; // actual rule snapshot; scenario rules use their scenario version
   id: number;
   scenario_id: number;
   description: string;

@@ -18,6 +18,8 @@
 
 ### 실제 장부 반복규칙 수정 UI
 
+**Status (2026-10-04):** `feature/actual-rule-editor`에서 구현·리뷰·브라우저 검증 완료(backend 515, E2E 224, build 통과). [설계·정책](docs/designs/actual-rule-editing.md), [검증](docs/verification/actual-rule-editing.md). PR·main 반영 전이므로 릴리스 완료 항목으로 이동하지 않는다.
+
 **What:** 반복 규칙 목록에서 기존 규칙을 열어 내역·출금/입금 계정·금액·일정·시작일/종료일을 수정하고 저장·취소할 수 있게 한다.
 
 **Why:** 월급·월세 등 반복 거래의 조건이 바뀔 때 규칙을 삭제하고 다시 만들 필요 없이 변경한다.

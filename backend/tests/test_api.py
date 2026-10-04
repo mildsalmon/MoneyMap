@@ -537,6 +537,7 @@ def test_update_rule_keeps_watermark(client):
     client.post("/api/materialize")  # watermark 전진
     res = client.put(
         f"/api/rules/{rule['id']}",
+        headers={"If-Match": next(r["edit_token"] for r in client.get("/api/rules").json() if r["id"] == rule["id"])},
         json={
             "from_account_id": salary,
             "to_account_id": toss,
@@ -650,6 +651,7 @@ def test_system_accounts_cannot_be_used_by_recurring_rules(client):
     ).json()
     update = client.put(
         f"/api/rules/{valid['id']}",
+        headers={"If-Match": next(r["edit_token"] for r in client.get("/api/rules").json() if r["id"] == valid["id"])},
         json={
             "from_account_id": opening,
             "to_account_id": cash,
@@ -812,6 +814,7 @@ def test_rule_reference_blocks_adding_child_until_rule_is_moved(client):
 
     res = client.put(
         f"/api/rules/{rule['id']}",
+        headers={"If-Match": next(r["edit_token"] for r in client.get("/api/rules").json() if r["id"] == rule["id"])},
         json={
             "from_account_id": cash,
             "to_account_id": other_expense,
