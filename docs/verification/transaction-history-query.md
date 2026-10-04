@@ -60,4 +60,6 @@ E2E는 전용 포트와 `/tmp/moneymap-e2e-8977`의 합성 DB를 사용했다. �
 - 1280×900과 390×844 스크린샷을 직접 확인했다. 모바일 body 390px, 표 영역 366px/내용 640px로 표만 가로 스크롤된다. 정상 흐름의 콘솔 오류는 0건이었다.
 - QA 서버를 잠시 중단해 조회 실패 시 이전 행 숨김을 확인하고, 재시작 후 ‘다시 조회’로 100행 복구를 확인했다. 오류 유발 시 발생한 네트워크 오류는 의도한 검증이다.
 - 화면 증거: `/tmp/moneymap-history-desktop.png`, `/tmp/moneymap-history-mobile.png`, `/tmp/moneymap-history-empty.png`, `/tmp/moneymap-history-error.png`. 임시 파일이므로 영구 배포 산출물은 아니다.
-- PR·main 머지·배포는 아직 진행하지 않았다. TODO는 구현/검증 완료·ship 대기로 유지한다.
+- v0.9.0.0 릴리스 준비 중 전체 검증을 다시 실행했다: backend **500 passed, 19.03초**, E2E **204 passed, 2.9분**, production build 성공(1.79초).
+- 이후 추가한 `history-ship-coverage.spec.ts`는 집중 실행에서 **6 passed, 5.6초**였다. 이 결과는 위 전체 204개 실행과 별도이며, 추가 테스트를 포함한 전체 실행 완료를 뜻하지 않는다.
+- TODO는 v0.9.0.0 구현 완료로 기록했다. 이 PR의 main 머지와 배포는 아직 대기 중이다.

@@ -17,6 +17,7 @@
 - 최근 입력 더보기(v0.8.4.0, PR #12 main 반영): 처음 5건을 표시하고 `최근 입력 더보기`로 5건씩 추가한다. 저장·실행취소 후 최신 5건으로 돌아간다. [설계·조회 계약](docs/designs/recent-input-load-more.md), [검증 결과](docs/verification/recent-input-load-more-results.md).
 - v0.8.1.0 신규 입력 계정 재적용: [현재 정책](docs/designs/transaction-input-recall-refresh.md), [QA 테스트 계획](docs/verification/transaction-input-recall-refresh-test-plan.md), [실행 결과·남은 검증 범위](docs/verification/transaction-input-recall-refresh-results.md). 새 아이템의 유효 추천은 자동/유지 계정을 갱신하고 직접 선택한 쪽은 보호한다. 조회는 5초 후 종료하며 실패·실행취소 뒤에는 ‘계정 추천 다시 조회’로 다시 요청할 수 있다.
 - 거래 직접 수정·충돌/응답 유실 보호·신규 입력 계정 유지: [transaction-editing.md](docs/designs/transaction-editing.md), [구현 검증](docs/verification/transaction-editing.md). 개발서버 자동 재시작으로 v6 스키마가 적용됐고 기존 거래 값은 보존됐다. 통화·태그 선택 UI·계정 시간 이력은 TODO로 유지한다.
+- 거래내역 기간별 조회(v0.9.0.0 릴리스 준비, 이 PR의 main 반영 대기): 최근 한 달 기본, 날짜·태그 조회와 100건 페이지 이동, 수정 복귀 조건·위치 보존. [설계](docs/designs/transaction-history-query.md), [검증](docs/verification/transaction-history-query.md).
 - 진행 상태: 로컬 `WORKING.md`가 있을 때 참고
 
 ## Design System
@@ -24,5 +25,3 @@ Always read DESIGN.md before making any visual or UI decisions.
 All font choices, colors, spacing, and aesthetic direction are defined there.
 Do not deviate without explicit user approval.
 In QA mode, flag any code that doesn't match DESIGN.md.
-
-- 거래내역 기간별 조회(main 반영 전): 최근 한 달 기본, 날짜·태그 조회와 100건 페이지 이동, 수정 복귀 조건·위치 보존. [설계](docs/designs/transaction-history-query.md), [검증](docs/verification/transaction-history-query.md).
