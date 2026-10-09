@@ -1,6 +1,6 @@
 # 실제 장부 반복 규칙 수정
 
-Status: 구현·리뷰·검증 완료, main 반영 전 (2026-10-04)
+Status: v0.10.0.0 — 구현·리뷰·검증 완료. [검증 기록](../verification/actual-rule-editing.md).
 
 ## 범위와 정책
 
