@@ -200,3 +200,49 @@ test("same accounts are rejected before a write", async ({ page }) => {
   await expect(page.getByRole("alert")).toContainText("서로 다른 계정");
   expect(state.writes).toBe(0);
 });
+
+test("dirty draft warns on unload and declined cancel; accepted navigation removes warning", async ({ page }) => {
+  const state = await setup(page);
+  const unloadPrevented = () => page.evaluate(() => {
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  });
+  expect(await unloadPrevented()).toBe(false);
+  await form(page).getByLabel("내역", { exact: true }).fill("보호할 초안");
+  expect(await unloadPrevented()).toBe(true);
+  page.once("dialog", d => d.dismiss());
+  await form(page).getByRole("button", { name: "취소", exact: true }).click();
+  await expect(form(page).getByLabel("내역", { exact: true })).toHaveValue("보호할 초안");
+  await page.getByRole("button", { name: "대시보드", exact: true }).click();
+  await expect(page.getByRole("button", { name: "화면 떠나기" })).toBeEnabled();
+  await page.getByRole("button", { name: "화면 떠나기" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  expect(await unloadPrevented()).toBe(false);
+  expect(state.writes).toBe(0);
+});
+
+test("uncertain save followed by missing latest rule preserves disabled draft", async ({ page }) => {
+  await setup(page);
+  await page.route("**/api/rules/71", r => r.abort("failed"));
+  await form(page).getByLabel("금액/회 (원)").fill("555000");
+  await save(page).click();
+  await expect(page.getByRole("alert")).toContainText("저장 결과를 확인하지 못했습니다");
+  await page.route("**/api/rules?*", r => r.fulfill({ json: [] }));
+  await page.getByRole("button", { name: "작성 내용을 유지하고 최신 내용 확인" }).click();
+  await expect(page.getByRole("alert")).toContainText("삭제되었습니다");
+  await expect(form(page).getByLabel("금액/회 (원)")).toHaveValue("555000");
+  await expect(save(page)).toBeDisabled();
+});
+
+test("actual save timeout keeps uncertain draft and sends only once", async ({ page }) => {
+  await setup(page);
+  let writes = 0;
+  await page.route("**/api/rules/71", () => { writes++; });
+  await form(page).getByLabel("금액/회 (원)").fill("666000");
+  await save(page).click();
+  await expect(page.getByRole("alert")).toContainText("저장 결과를 확인하지 못했습니다", { timeout: 20_000 });
+  await expect(save(page)).toBeDisabled();
+  await expect(form(page).getByLabel("금액/회 (원)")).toHaveValue("666000");
+  expect(writes).toBe(1);
+});
