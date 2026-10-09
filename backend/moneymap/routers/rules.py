@@ -3,10 +3,11 @@ from __future__ import annotations
 import datetime
 
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from moneymap.adapters.sqlite.materialization import materialize_actual
+from moneymap.adapters.sqlite.rules import rule_edit_token
 from moneymap.app_services.scenarios import now
 from moneymap.dependencies import repos, request_connection
 from moneymap.domain import (
@@ -17,6 +18,10 @@ from moneymap.domain import (
 )
 
 router = APIRouter(dependencies=[Depends(request_connection)])
+
+
+def rule_response(rule: RecurringRule):
+    return {**rule.model_dump(), "edit_token": rule_edit_token(rule)}
 
 
 class RuleIn(BaseModel):
@@ -33,7 +38,7 @@ class RuleIn(BaseModel):
 @router.get("/api/rules")
 def list_rules(request: Request, scenario_id: int = Query(default=1, ge=1, le=1)):
     return [
-        r.model_dump() for r in repos(request)["rules"].find_by_scenario(scenario_id)
+        rule_response(r) for r in repos(request)["rules"].find_by_scenario(scenario_id)
     ]
 
 
@@ -52,11 +57,26 @@ def create_rule(body: RuleIn, request: Request):
         )
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    return repos(request)["rules"].save(rule).model_dump()
+    return rule_response(repos(request)["rules"].save(rule))
 
 
-@router.put("/api/rules/{rule_id}")
-def update_rule(rule_id: int, body: RuleIn, request: Request):
+@router.put(
+    "/api/rules/{rule_id}",
+    responses={
+        409: {"description": "The rule or materialization watermark changed; fetch the latest rule before retrying."},
+        428: {"description": "If-Match is required; pass the edit_token returned by the rules API."},
+    },
+)
+def update_rule(
+    rule_id: int,
+    body: RuleIn,
+    request: Request,
+    token: str | None = Header(
+        None,
+        alias="If-Match",
+        description="Required for updates. Pass the latest rule's edit_token unchanged, including its quotes.",
+    ),
+):
     r = repos(request)
     existing = [
         x for x in r["rules"].find_by_scenario(ACTUAL_SCENARIO_ID) if x.id == rule_id
@@ -66,6 +86,10 @@ def update_rule(rule_id: int, body: RuleIn, request: Request):
             status_code=404,
             detail={"code": "rule_not_found", "message": "규칙이 없습니다"},
         )
+    if existing[0].amount.currency != "KRW":
+        raise HTTPException(status_code=400, detail={
+            "code": "unsupported_rule_currency", "message": "원화 규칙만 수정할 수 있습니다",
+        })
     try:
         updated = RecurringRule.model_validate(
             {
@@ -77,12 +101,16 @@ def update_rule(rule_id: int, body: RuleIn, request: Request):
                 "schedule": Schedule(spec=body.schedule),
                 "start_date": body.start_date,
                 "end_date": body.end_date,
-                # 과거 불변(D9): last_materialized는 유지 — 수정은 미래 실행에만 영향
+                # D9: 처리일과 생성 거래 보존. 미처리 과거에도 새 조건 적용 가능.
             }
         )
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    return r["rules"].save(updated).model_dump()
+    if not token:
+        raise HTTPException(status_code=428, detail={
+            "code": "rule_precondition_required", "message": "규칙을 다시 조회한 뒤 수정하세요",
+        })
+    return rule_response(r["rules"].save(updated, expected_token=token))
 
 
 @router.delete("/api/rules/{rule_id}")
