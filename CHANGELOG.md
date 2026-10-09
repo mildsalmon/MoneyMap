@@ -2,6 +2,19 @@
 
 All notable changes to MoneyMap are documented in this file.
 
+## [0.10.0.0] - 2026-10-10
+
+### Added
+- Edit actual recurring rules without deleting them: change description, accounts, KRW amount, monthly/weekly schedule, and start/end dates while preserving rule identity, materialization progress, and existing transactions.
+- Keep drafts through conflicts and failed saves, compare the latest rule before retrying, and check uncertain save outcomes without automatically resending. Restore keyboard focus and support mobile editing.
+
+### Changed
+- Actual rule updates now require the latest `edit_token` in `If-Match`. Missing preconditions return 428; changed rule content or processing dates return 409. Existing API clients must fetch a fresh token before updating.
+- Explain that new conditions apply to unprocessed dates, including pending past dates, and flow through to baseline and live-additive scenario forecasts.
+
+### Fixed
+- Reject archived accounts and accounts with a currency different from the rule inside the same write transaction. Refuse to convert non-KRW rules silently during editing.
+
 ## [0.9.0.0] - 2026-10-04
 
 ### Added

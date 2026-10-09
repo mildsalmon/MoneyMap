@@ -48,5 +48,7 @@ OpenAPI의 조건부 헤더 설명, writer lock 안 단일 규칙 조회, 모바
 
 - Backend 전체: **515 passed**, 27.80s.
 - Frontend production build: **통과**, 3.52s.
-- 전체 E2E는 문서 갱신 시 실행 중이다. 위 **224 passed**는 2026-10-04 실행 결과이며 이번 실행 결과로 간주하지 않는다. 이번 로그: `/tmp/rule-ship-e2e.log`.
+- 전체 E2E: **224 passed**, 3.3m. 이번 로그: `/tmp/rule-ship-e2e.log`.
+- ship 리뷰에서 추가한 3개 테스트 포함 집중 E2E: **17 passed**, 27.6s. 창 닫기·화면 이동 보호와 해제, 취소 거절, 결과 확인 중 삭제, 실제 15초 timeout을 검증했다. `/tmp/rule-ship-extra.log`. 최종 227개 전체 검증은 PR CI에서 확인한다.
+- 최종 감사: 계획 16/16 완료, 동작별 테스트 그룹 30/30(계측 coverage 아님).
 - 브라우저 QA는 이번 ship에서 재실행하지 않았다. 위 데스크톱·모바일 확인은 2026-10-04 기록이다.
