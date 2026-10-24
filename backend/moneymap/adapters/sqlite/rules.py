@@ -6,10 +6,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 
 from moneymap.domain.account import OPENING_BALANCE_ACCOUNT_NAME
-from moneymap.domain.errors import DomainConflictError, DomainNotFoundError
+from moneymap.domain.errors import DomainConflictError, DomainNotFoundError, DomainValidationError
 from moneymap.domain.money import Money
 from moneymap.domain.recurring_rule import RecurringRule
 from moneymap.domain.schedule import Schedule
@@ -17,6 +18,29 @@ from moneymap.domain.services import validate_postable_accounts
 
 from .accounts import SqliteAccountRepository
 from .common import _D, _account_write, _iso
+
+
+def rule_edit_token(rule: RecurringRule) -> str:
+    """A strong snapshot validator, including the materialization watermark."""
+    digest = hashlib.sha256(rule.model_dump_json().encode()).hexdigest()
+    return f'"{digest}"'
+
+
+def _rule_from_row(row: sqlite3.Row) -> RecurringRule:
+    return RecurringRule(
+        id=row["id"],
+        scenario_id=row["scenario_id"],
+        description=row["description"],
+        from_account_id=row["from_account_id"],
+        to_account_id=row["to_account_id"],
+        amount=Money(amount=row["amount"], currency=row["currency"]),
+        schedule=Schedule(spec=row["schedule"]),
+        start_date=_D(row["start_date"]),
+        end_date=_D(row["end_date"]) if row["end_date"] else None,
+        last_materialized=_D(row["last_materialized"])
+        if row["last_materialized"]
+        else None,
+    )
 
 
 class ScenarioRuleWriter:
@@ -98,33 +122,38 @@ class ScenarioRuleWriter:
             "SELECT * FROM recurring_rules WHERE scenario_id=? ORDER BY id",
             (scenario_id,),
         ).fetchall()
-        return [
-            RecurringRule(
-                id=r["id"],
-                scenario_id=r["scenario_id"],
-                description=r["description"],
-                from_account_id=r["from_account_id"],
-                to_account_id=r["to_account_id"],
-                amount=Money(amount=r["amount"], currency=r["currency"]),
-                schedule=Schedule(spec=r["schedule"]),
-                start_date=_D(r["start_date"]),
-                end_date=_D(r["end_date"]) if r["end_date"] else None,
-                last_materialized=_D(r["last_materialized"])
-                if r["last_materialized"]
-                else None,
-            )
-            for r in rows
-        ]
+        return [_rule_from_row(row) for row in rows]
 
 
 class SqliteRecurringRuleRepository(ScenarioRuleWriter):
-    def save(self, rule):
+    def save(self, rule, *, expected_token: str | None = None):
         with _account_write(self._conn):
+            if expected_token is not None:
+                row = self._conn.execute(
+                    "SELECT * FROM recurring_rules WHERE id=? AND scenario_id=?",
+                    (rule.id, rule.scenario_id),
+                ).fetchone()
+                if row is None:
+                    raise DomainNotFoundError("규칙이 없습니다", code="rule_not_found")
+                current = _rule_from_row(row)
+                if rule_edit_token(current) != expected_token:
+                    raise DomainConflictError(
+                        "규칙 또는 마지막 처리일이 변경되었습니다. 최신 내용을 확인하세요",
+                        code="rule_edit_conflict",
+                    )
+            accounts = SqliteAccountRepository(self._conn).find_all()
             validate_postable_accounts(
-                SqliteAccountRepository(self._conn).find_all(),
-                [rule.from_account_id, rule.to_account_id],
-                for_rule=True,
+                accounts, [rule.from_account_id, rule.to_account_id], for_rule=True,
             )
+            for account in accounts:
+                if account.id not in {rule.from_account_id, rule.to_account_id}:
+                    continue
+                if account.archived or account.currency != rule.amount.currency:
+                    raise DomainValidationError(
+                        "보관된 계정 또는 규칙과 통화가 다른 계정은 사용할 수 없습니다",
+                        code="rule_account_unavailable",
+                        context={"account_id": account.id},
+                    )
             return super().save(rule)
 
     def delete(self, rule_id: int, *, scenario_id: int | None = None) -> None:

@@ -139,7 +139,7 @@ def test_actual_changes_live_for_active_and_archived(golden):
         "schedule": "monthly:31",
         "start_date": "2026-01-01",
     }
-    assert client.put(f"/api/rules/{salary['id']}", json=body).status_code == 200
+    assert client.put(f"/api/rules/{salary['id']}", headers={"If-Match": next(r["edit_token"] for r in client.get("/api/rules").json() if r["id"] == salary["id"])}, json=body).status_code == 200
     after = client.get(path).json()
     assert after["net_worth"]["baseline"]["points"][-1]["balance"] == 15100
     assert after["net_worth"]["scenario"]["points"][-1]["balance"] == 15650
@@ -272,7 +272,7 @@ def test_unconverted_dashboard_preserves_snapshot_rules(golden, monkeypatch):
         "schedule": "monthly:31",
         "start_date": "2026-01-01",
     }
-    assert client.put(f"/api/rules/{salary['id']}", json=body).status_code == 200
+    assert client.put(f"/api/rules/{salary['id']}", headers={"If-Match": next(r["edit_token"] for r in client.get("/api/rules").json() if r["id"] == salary["id"])}, json=body).status_code == 200
     assert next(s for s in client.get(path).json()["series"] if s["id"] == sid) == curve
 
 

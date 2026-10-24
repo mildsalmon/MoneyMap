@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, accountTree, isPostable, type Account, type Rule, type RuleBody } from "../api";
 import { commaInput, fmtWon, todayIso } from "../format";
 import type { ViewProps } from "../App";
+import { ActualRuleEditor } from "./ActualRuleEditor";
 import { useQuery } from "./scenarios/useQuery";
 
 
@@ -86,6 +87,14 @@ export function Rules({ gen, refresh, showToast }: ViewProps) {
   const query = useQuery(`actual-rules:${gen}`, signal => Promise.all([api.rules(1, signal), api.accounts(signal)]));
   const rules = query.data?.[0] ?? [];
   const accounts = query.data?.[1] ?? [];
+  const [editing, setEditing] = useState<Rule>();
+  const returnFocus = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (!editing && query.data && returnFocus.current !== undefined) {
+      document.getElementById(`edit-rule-${returnFocus.current}`)?.focus();
+      returnFocus.current = undefined;
+    }
+  }, [editing, query.data]);
   const [deleteErrors, setDeleteErrors] = useState<Record<number, string>>({});
 
   const nameOf = (id: number) => accounts.find((a) => a.id === id)?.name ?? `#${id}`;
@@ -100,18 +109,22 @@ export function Rules({ gen, refresh, showToast }: ViewProps) {
 
       {query.error && <p role="alert">반복 규칙을 불러오지 못했습니다. {query.error} <button className="btn secondary" onClick={query.reload}>다시 불러오기</button></p>}
       {!query.data && !query.error && <p role="status">반복 규칙 확인 중…</p>}
-      <div className="panel rules-workspace" style={{ marginBottom: 20 }}>
+      {editing && <ActualRuleEditor key={editing.id} rule={editing} accounts={accounts}
+        onCancel={() => setEditing(undefined)} onSaved={() => {
+          setEditing(undefined); refresh(); showToast("규칙을 수정했습니다 — 이미 기록된 거래는 유지됩니다");
+        }} />}
+      {!editing && <div className="panel rules-workspace" style={{ marginBottom: 20 }}>
         <h2 className="panel-heading">새 규칙</h2>
         <RuleForm scenarioId={1} accounts={accounts} onSaved={(r) => {
           refresh();
           showToast(`규칙 "${r.description || humanSchedule(r.schedule.spec)}" 등록됨 — 다음 실행일부터 자동 기록`);
         }} />
-      </div>
+      </div>}
 
       <div className="table-scroll rules-workspace">
         <table className="ledger">
           <thead>
-            <tr><th>내역</th><th>흐름</th><th className="num">금액/회</th><th>일정</th><th>마지막 실행</th><th /></tr>
+            <tr><th>내역</th><th>흐름</th><th className="num">금액/회</th><th>일정</th><th>마지막 처리일</th><th /></tr>
           </thead>
           <tbody>
             {rules.map((r) => (
@@ -121,8 +134,10 @@ export function Rules({ gen, refresh, showToast }: ViewProps) {
                 <td className="num">{fmtWon(r.amount.amount)}</td>
                 <td>{humanSchedule(r.schedule.spec)}</td>
                 <td style={{ color: "var(--faint)" }}>{r.last_materialized ?? "아직"}</td>
-                <td style={{ width: 60 }}>
-                  <button className="btn sm danger" onClick={async () => {
+                <td>
+                  <button id={`edit-rule-${r.id}`} className="btn sm secondary" disabled={!!editing || r.amount.currency !== "KRW" || !r.edit_token}
+                    onClick={() => { returnFocus.current = r.id; setEditing(r); }}>수정</button>
+                  <button className="btn sm danger" disabled={!!editing} onClick={async () => {
                     if (!window.confirm(`"${r.description || humanSchedule(r.schedule.spec)}" 규칙을 삭제합니다.\n이미 기록된 거래는 그대로 남습니다.`)) return;
                     setDeleteErrors((current) => ({ ...current, [r.id]: "" }));
                     try {

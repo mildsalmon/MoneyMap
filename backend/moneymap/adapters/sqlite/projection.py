@@ -64,6 +64,8 @@ class ProjectionInputReader:
                         tuple((p["account_id"], p["amount"]) for p in postings),
                     )
                 )
+        from .installments import projection_inputs
+        installment_events, installment_warnings = projection_inputs(self.conn, scenario.fork_date, actual)
         return ProjectionInputs(
             scenario,
             revisions["actual_ledger_revision"],
@@ -75,6 +77,9 @@ class ProjectionInputReader:
             tuple(planned),
             cash_ids,
             revisions["cash_config_revision"],
+            installment_events,
+            installment_warnings,
+            revisions["installment_revision"],
         )
 
     def _legacy_transactions(self, sid: int, *, start=None, end=None):
@@ -123,7 +128,8 @@ class ProjectionInputReader:
             r["id"]: r["type"]
             for r in self.conn.execute("SELECT id,type FROM accounts")
         }
-        return account_types, self._legacy_transactions(1, end=today)
+        purchases = {r[0] for r in self.conn.execute("SELECT purchase_id FROM installment_plans WHERE exclude_from_spend=1")}
+        return account_types, [t for t in self._legacy_transactions(1, end=today) if t.id not in purchases]
 
     def legacy_inputs(self, sid: int):
         """Only the compatibility dashboard uses the historical fork boundary."""

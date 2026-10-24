@@ -69,7 +69,7 @@ def test_creation_identity_validation_and_live_rules(client):
     assert scenario["rule_mode"] == "live_additive" and scenario["created_at"]
     assert client.get(f"/api/scenarios/{sid}/rules").json() == []
     effective = client.get(f"/api/scenarios/{sid}/effective-rules").json()
-    assert effective == [{"rule": actual, "origin": "actual", "editable": False}]
+    assert effective == [{"rule": {k: v for k, v in actual.items() if k != "edit_token"}, "origin": "actual", "editable": False}]
     for extra in (
         {"fork_date": "2026-02-01"},
         {"base_scenario_id": 1},
@@ -357,7 +357,7 @@ def test_legacy_resolution_complete_stale_and_actual_candidates_not_versioned(cl
         client.post(path, json={**complete, "version": 1}).json()["detail"]["code"]
         == "legacy_rule_resolution_stale"
     )
-    client.put(f"/api/rules/{actual['id']}", json={**actual_body, "amount": 300})
+    client.put(f"/api/rules/{actual['id']}", headers={"If-Match": actual["edit_token"]}, json={**actual_body, "amount": 300})
     result = client.post(path, json=complete)
     assert result.status_code == 200, result.text
     assert result.json()["scenario"]["version"] == 3

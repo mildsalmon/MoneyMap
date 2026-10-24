@@ -2,6 +2,26 @@
 
 All notable changes to MoneyMap are documented in this file.
 
+## [0.10.0.0] - 2026-10-24
+
+### Added
+- Register a new interest-free KRW installment purchase with a preview of its monthly principal schedule, including month-end dates and final-payment rounding.
+- Link actual payments and refunds across installment rows, track remaining principal and expected completion, adjust unpaid due dates, and remove a schedule while retaining the purchase transaction.
+- Include outstanding installment principal in cash forecasts without counting the purchase expense again. Resolve overlap with recurring card bills explicitly and see warnings for overdue or unconfirmed amounts.
+- Edit actual recurring rules without deleting them: change description, accounts, KRW amount, monthly/weekly schedule, and start/end dates while preserving rule identity, materialization progress, and existing transactions.
+- Keep drafts through conflicts and failed saves, compare the latest rule before retrying, and check uncertain save outcomes without automatically resending. Restore keyboard focus and support mobile editing.
+
+### Changed
+- Upgrade the local database to schema v8 with a pre-migration backup. Purchases and linked payment/refund transactions are protected from edits or deletion until their installment links are removed.
+- Actual rule updates now require the latest `edit_token` in `If-Match`. Missing preconditions return 428; changed rule content or processing dates return 409. Existing API clients must fetch a fresh token before updating.
+- Explain that new conditions apply to unprocessed dates, including pending past dates, and flow through to baseline and live-additive scenario forecasts.
+
+### Fixed
+- Retry uncertain installment saves safely after a lost response, timeout, or reload, using the same saved request to avoid duplicate purchases or allocations.
+- Keep purchases made after a historical forecast date out of that forecast’s shared card-bill coverage checks.
+- Delete a recurring card bill while retaining its linked actual installment payment; detach only the rule reference and keep the payment protected.
+- Reject archived accounts and accounts with a currency different from the rule inside the same write transaction. Refuse to convert non-KRW rules silently during editing.
+
 ## [0.9.0.0] - 2026-10-04
 
 ### Added

@@ -43,6 +43,7 @@ def build_dashboard_projection(reader, scenarios, ids: list[int], months: int):
 
     baseline = build_projection(reader, 1, months)
     legacy_basis = None
+    warnings = list(baseline.get("warnings", []))
 
     def points(curve):
         return [{"date": p["date"], "net_worth": p["balance"]} for p in curve["points"]]
@@ -79,6 +80,7 @@ def build_dashboard_projection(reader, scenarios, ids: list[int], months: int):
                 series.append(legacy_projection(reader, sid, months, **legacy_basis))
             else:
                 result = build_projection(reader, sid, months)
+                warnings.extend(f"{scenario.name}: {warning}" for warning in result.get("warnings", []))
                 series.append(
                     {
                         "id": sid,
@@ -87,4 +89,4 @@ def build_dashboard_projection(reader, scenarios, ids: list[int], months: int):
                         "points": points(result["net_worth"]["scenario"]),
                     }
                 )
-    return {"series": series}
+    return {"series": series, "warnings": list(dict.fromkeys(warnings))}

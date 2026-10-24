@@ -273,6 +273,7 @@ def test_rule_edit_preserves_concurrently_materialized_watermark(tmp_path, monke
             "end_date": today.isoformat(),
         }
         rule_id = client.post("/api/rules", json=body).json()["id"]
+        token = client.get("/api/rules").json()[0]["edit_token"]
         read, materialized = Barrier(2), Barrier(2)
         original = SqliteRecurringRuleRepository.find_by_scenario
         pause_next_read = True
@@ -290,15 +291,16 @@ def test_rule_edit_preserves_concurrently_materialized_watermark(tmp_path, monke
             SqliteRecurringRuleRepository, "find_by_scenario", paused_read
         )
         with ThreadPoolExecutor(max_workers=1) as pool:
-            pending = pool.submit(client.put, f"/api/rules/{rule_id}", json=body)
+            pending = pool.submit(client.put, f"/api/rules/{rule_id}", headers={"If-Match": token}, json=body)
             read.wait(timeout=5)
             try:
                 assert client.post("/api/materialize").json()["created"] == 1
             finally:
                 materialized.wait(timeout=5)
             updated = pending.result(timeout=5)
-        assert updated.status_code == 200
-        assert updated.json()["last_materialized"] == today.isoformat()
+        assert updated.status_code == 409
+        assert updated.json()["detail"]["code"] == "rule_edit_conflict"
+        assert client.get("/api/rules").json()[0]["last_materialized"] == today.isoformat()
         assert client.post("/api/materialize").json()["created"] == 0
         assert len(client.get("/api/transactions").json()) == 1
 

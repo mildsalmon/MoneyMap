@@ -19,6 +19,7 @@ from .lifecycle_migration import migrate_lifecycle
 from .transaction_input_migration import migrate_transaction_input
 from .tags_migration import migrate_tags_and_import_provenance
 from .transaction_edit_migration import migrate_transaction_edit
+from .installment_migration import migrate_installments, migrate_installment_rule_cleanup
 
 from moneymap.domain.account import OPENING_BALANCE_ACCOUNT_NAME
 from moneymap.domain.scenario import ACTUAL_SCENARIO_ID
@@ -362,6 +363,8 @@ MIGRATIONS = (
     migrate_transaction_input,
     migrate_tags_and_import_provenance,
     migrate_transaction_edit,
+    migrate_installments,
+    migrate_installment_rule_cleanup,
 )
 
 
