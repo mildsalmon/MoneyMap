@@ -26,6 +26,8 @@ def _iso(d: datetime.date | None) -> str | None:
 
 
 _SQLITE_DOMAIN_ERRORS: dict[str, tuple[type[DomainError], str]] = {
+    "installment_transaction_linked": (DomainConflictError, "할부에 연결된 거래입니다. 할부 화면에서 배분 또는 일정을 해제한 뒤 수정·삭제하세요"),
+    "installment_account_linked": (DomainConflictError, "할부 일정에 연결된 계정입니다. 할부 일정을 정리한 뒤 변경하세요"),
     "cash_account_parent_forbidden": (
         DomainConflictError,
         "현금 부족 계산에서 제외한 뒤 하위 계정을 추가하세요",

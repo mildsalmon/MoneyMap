@@ -70,6 +70,9 @@ class ProjectionInputs:
     planned: tuple[ProjectionEvent, ...]
     cash_account_ids: tuple[int, ...] = ()
     cash_config_revision: int = 1
+    installment_events: tuple[ProjectionEvent, ...] = ()
+    installment_warnings: tuple[str, ...] = ()
+    installment_revision: int = 1
 
     def __post_init__(self):
         # Copy model values so mutation of a caller's entities cannot alter this snapshot.
@@ -114,7 +117,11 @@ def expand_events(
                         ),
                     )
                 )
-    events.extend(event for event in inputs.planned if start <= event.date <= end)
+    events.extend(
+        event
+        for event in (*inputs.planned, *inputs.installment_events)
+        if start <= event.date <= end
+    )
     return tuple(
         sorted(
             events,
@@ -196,7 +203,14 @@ def fold_projection(inputs: ProjectionInputs, months: int) -> dict:
         day_triggers = {key: [] for key in balances}
         for event in items:
             targets = ["baseline"] if event.origin == "actual" else []
-            if event.kind == "planned_transaction" or event.id in scenario_rules:
+            if (
+                event.kind == "planned_transaction"
+                or (
+                    event.kind == "installment"
+                    and inputs.scenario.rule_mode != "legacy_snapshot"
+                )
+                or (event.kind == "rule" and event.id in scenario_rules)
+            ):
                 targets.append("scenario")
             for target in targets:
                 delta[target] += net(event.postings)
@@ -243,6 +257,7 @@ def fold_projection(inputs: ProjectionInputs, months: int) -> dict:
             "actual_ledger_revision": inputs.actual_ledger_revision,
             "actual_rule_revision": inputs.actual_rule_revision,
             "cash_config_revision": inputs.cash_config_revision,
+            "installment_revision": inputs.installment_revision,
         },
         "capabilities": {"scenario_liquidity": True},
         "cash": {
@@ -262,4 +277,5 @@ def fold_projection(inputs: ProjectionInputs, months: int) -> dict:
             {"month": month, **values} for month, values in monthly.items()
         ],
         "has_assumptions": bool(inputs.owned_rules or inputs.planned),
+        "warnings": list(inputs.installment_warnings),
     }

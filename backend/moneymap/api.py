@@ -17,7 +17,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from moneymap.adapters.sqlite import connect, init_db
 from moneymap.adapters.sqlite.backup import run_daily_backup
 from moneymap.http_errors import install_error_handlers
-from moneymap.routers import accounts, reporting, rules, scenarios, status, transactions
+from moneymap.routers import accounts, reporting, rules, scenarios, status, transactions, installments
 
 DEFAULT_DB = os.environ.get("MONEYMAP_DB", "moneymap.db")
 DEFAULT_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
@@ -141,7 +141,7 @@ def create_app(db_path: str = DEFAULT_DB) -> FastAPI:
         expose_headers=["ETag"],
     )
     install_error_handlers(app)
-    for feature in (status, accounts, transactions, rules, scenarios, reporting):
+    for feature in (status, accounts, transactions, rules, scenarios, reporting, installments):
         app.include_router(feature.router)
     return app
 

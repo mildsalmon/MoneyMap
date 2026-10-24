@@ -41,7 +41,7 @@ def test_cash_settings_failure_rolls_back_revision_and_all_account_fields(
             version=bank.version,
         )
         before_accounts = [tuple(r) for r in conn.execute("SELECT * FROM accounts ORDER BY id")]
-        before_revision = tuple(conn.execute("SELECT * FROM calculation_revisions").fetchone())
+        before_revision = dict(conn.execute("SELECT * FROM calculation_revisions").fetchone())
         conn.execute(
             "CREATE TRIGGER fail_cash_revision AFTER UPDATE OF cash_config_revision "
             "ON calculation_revisions BEGIN SELECT RAISE(ABORT, 'cash revision failure'); END"
@@ -50,13 +50,13 @@ def test_cash_settings_failure_rolls_back_revision_and_all_account_fields(
             repo.update_settings(command)
         assert not conn.in_transaction
         assert [tuple(r) for r in conn.execute("SELECT * FROM accounts ORDER BY id")] == before_accounts
-        assert tuple(conn.execute("SELECT * FROM calculation_revisions").fetchone()) == before_revision
+        assert dict(conn.execute("SELECT * FROM calculation_revisions").fetchone()) == before_revision
         conn.execute("DROP TRIGGER fail_cash_revision")
         saved = repo.update_settings(command).account
         assert saved.include_in_cash is not selected
         assert saved.name == "renamed bank" and saved.version == bank.version + 1
         assert conn.execute(
             "SELECT cash_config_revision FROM calculation_revisions"
-        ).fetchone()[0] == before_revision[-1] + 1
+        ).fetchone()[0] == before_revision["cash_config_revision"] + 1
     finally:
         conn.close()
