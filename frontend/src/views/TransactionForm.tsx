@@ -3,6 +3,7 @@ import { fmtDelta, fmtWon } from "../format";
 import type { Account } from "../api";
 import { TransactionAccountPicker, type AccountPickerModel } from "./TransactionAccountPicker";
 import { amountInput, chooseAccount, setTags, switchMode, type Draft, type Side, type SplitRow, type validateDraft } from "./transactionInputState";
+import { TransactionTagPicker } from "./TransactionTagPicker";
 import "./transaction-input.css";
 
 const SOURCE = { empty: "선택 전", auto: "자동 선택", manual: "직접 선택", retained: "기존 선택 유지" };
@@ -33,7 +34,6 @@ export function TransactionForm({ title, intro, draft, model, change, field, val
   const amountRef = externalAmountRef ?? ownAmountRef;
   const pageRef = useRef<HTMLDivElement>(null), barRef = useRef<HTMLDivElement>(null), summaryRef = useRef<HTMLDivElement>(null);
   const [shortViewport, setShortViewport] = useState(false);
-  const [tagInput, setTagInput] = useState("");
   const [activeRow, setActiveRow] = useState<number | null>(null);
   const [modeError, setModeError] = useState("");
   const composingRef = useRef(false);
@@ -55,12 +55,6 @@ export function TransactionForm({ title, intro, draft, model, change, field, val
   const name = (id: number | null) => id === null ? "계정을 선택하세요" : model.byId.get(id)?.name ?? `#${id}`;
   const accountPath = (id: number | null) => id === null ? name(id) : model.paths.get(id) ?? name(id);
   const select = (side: Side, id: number) => change(d => chooseAccount(d, side, id));
-  const toggleTag = (tag: string) => change(d => setTags(d, d.tags.includes(tag) ? d.tags.filter(value => value !== tag) : [...d.tags, tag]));
-  const addTag = () => {
-    const tag = tagInput.trim();
-    if (!tag || tag.length > 50) return;
-    change(d => setTags(d, [...d.tags, tag])); setTagInput("");
-  };
   const editRow = (id: number, patch: Partial<SplitRow>) => change(d => ({ ...d, revision: d.revision + 1, rows: d.rows.map(r => r.id === id ? { ...r, ...patch } : r) }));
   const closePicker = (id: number) => { setActiveRow(null); requestAnimationFrame(() => document.getElementById(`split-account-${id}`)?.focus()); };
   const toggleMode = () => {
@@ -83,10 +77,9 @@ export function TransactionForm({ title, intro, draft, model, change, field, val
         <div className="field txn-date"><label htmlFor="transaction-date">날짜</label><input id="transaction-date" type="date" value={draft.date} onChange={e => field("date", e.target.value)} /></div>
         <div className="field txn-item"><label htmlFor="transaction-item">아이템 <span>(선택)</span></label><input id="transaction-item" maxLength={MAX_DESCRIPTION_LENGTH} placeholder="예: 점심, 월급" value={draft.item} onChange={e => field("item", e.target.value)} {...composition} /></div>
         <div className="field txn-memo"><label htmlFor="transaction-memo">메모 <span>(선택)</span></label><textarea id="transaction-memo" maxLength={MAX_MEMO_LENGTH} rows={2} placeholder="이번 거래에 남길 내용" value={draft.memo} onChange={e => field("memo", e.target.value)} {...composition} /></div>
-        <div className="field txn-tags"><label htmlFor="transaction-tag">태그 <span>(선택·여러 개)</span></label><div className="tag-entry"><input id="transaction-tag" maxLength={50} placeholder="예: 데이트" value={tagInput} onChange={e => setTagInput(e.target.value)} {...composition} onKeyDown={e => { if (!composingRef.current && !e.nativeEvent.isComposing && e.keyCode !== 229 && (e.key === "Enter" || e.key === ",")) { e.preventDefault(); addTag(); } }} /><button type="button" className="btn secondary" onClick={addTag}>추가</button></div>
-          {!!tags.length && <div className="tag-choices" aria-label="기존 태그">{tags.map(tag => <label key={tag} className="tag-choice"><input type="checkbox" checked={draft.tags.includes(tag)} onChange={() => toggleTag(tag)} /><span>{tag}</span></label>)}</div>}
-          {!!draft.tags.length && <div className="selected-tags" aria-label="선택한 태그">{draft.tags.map(tag => <button type="button" key={tag} className="badge tag" onClick={() => toggleTag(tag)} aria-label={`${tag} 태그 제거`}>{tag} ×</button>)}</div>}
-        </div>
+        <TransactionTagPicker catalog={tags} value={draft.tags} disabled={disabled}
+          onChange={values => change(d => setTags(d, values))}
+          onComposingChange={value => { composingRef.current = value; onComposingChange?.(value); }} />
         {draft.mode === "basic" && <div className="field txn-amount"><label htmlFor="transaction-amount">금액</label><input ref={amountRef} id="transaction-amount" className="num" inputMode="numeric" placeholder="0" value={draft.amount} onChange={e => field("amount", amountInput(e.target.value))} {...composition} /></div>}
       </div>
       {recall}

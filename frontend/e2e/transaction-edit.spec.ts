@@ -62,7 +62,7 @@ test("real edit saves every field without replacing transaction, restores filter
     await credit.getByLabel("대변 계정 검색").fill(other.name); await credit.getByRole("radio").check();
     await page.getByRole("button", { name: `${txn.tags[0]} 태그 제거`, exact: true }).click();
     await page.getByLabel("태그 (선택·여러 개)", { exact: true }).fill("새 태그");
-    await page.getByRole("button", { name: "추가", exact: true }).click();
+    await page.getByRole("option", { name: "새 태그 새 태그 추가", exact: true }).click();
     await save(page).click();
     await expect(page).toHaveURL(url => url.pathname === "/transactions" && url.searchParams.get("tag") === txn.tags[0] && url.searchParams.get("start") === "2026-01-01" && url.searchParams.get("end") === "2026-12-31");
     await expect(page.getByText("수정한 거래가 현재 조회 조건에 해당하지 않아 목록에 표시되지 않습니다.")).toBeVisible();

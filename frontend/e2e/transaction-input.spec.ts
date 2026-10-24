@@ -30,7 +30,8 @@ test("reuses multiple tags, adds a new tag, and clears them after save",async({p
   await start(page);const payloads:any[]=[];
   await page.route("**/api/transactions",async r=>{if(r.request().method()!=="POST")return r.continue();payloads.push(r.request().postDataJSON());await r.fulfill({status:201,json:{id:701,...payloads.at(-1)}});});
   await selectPair(page);await amount(page).fill("12000");
-  await page.getByRole("checkbox",{name:"데이트",exact:true}).check();
+  await page.getByLabel("태그 (선택·여러 개)",{exact:true}).fill("데이트");
+  await page.getByRole("option",{name:"데이트",exact:true}).click();
   await page.getByLabel("태그 (선택·여러 개)",{exact:true}).fill("여행");
   await page.getByLabel("태그 (선택·여러 개)",{exact:true}).press("Enter");
   await save(page).click();await expect.poll(()=>payloads.length).toBe(1);
