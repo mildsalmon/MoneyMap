@@ -176,6 +176,7 @@ export interface CashShortage {
 }
 export interface CashCurve { points: { date: string; balance: number }[]; shortage: CashShortage | null }
 export interface Projection {
+  warnings?: string[];
   cash?: { available: false; reason: "cash_accounts_not_configured" } | { available: true; baseline: CashCurve; scenario: CashCurve };
   fork_date: string; projection_start: string; projection_end: string; months: number;
   basis: { scenario_version: number; actual_ledger_revision: number; actual_rule_revision: number; cash_config_revision?: number };

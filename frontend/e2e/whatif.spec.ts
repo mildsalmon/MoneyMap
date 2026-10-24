@@ -146,13 +146,19 @@ test("마이너스통장 개시잔액은 대시보드에서만 부채로 보고�
   await row.getByRole("radio", { name: "예금" }).press("ArrowRight");
   await expect(row.getByRole("radio", { name: "마이너스 사용" })).toBeChecked();
   await page.getByLabel("케이뱅크 개시잔액").fill("123456");
+  let releaseOpening!: () => void;
+  const openingGate = new Promise<void>(resolve => { releaseOpening = resolve; });
   await page.route("**/api/accounts/*/opening-balance", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await openingGate;
     await route.continue();
   });
-  await row.getByRole("button", { name: "기록", exact: true }).click();
-  await expect(row.getByRole("button", { name: "설정", exact: true })).toBeDisabled();
-  await expect(row.getByRole("button", { name: "기록 중…" })).toBeDisabled();
+  try {
+    await row.getByRole("button", { name: "기록", exact: true }).click();
+    await expect(row.getByRole("button", { name: "설정", exact: true })).toBeDisabled();
+    await expect(row.getByRole("button", { name: "기록 중…" })).toBeDisabled();
+  } finally {
+    releaseOpening();
+  }
   await expect(row).toContainText("기록됨");
   await page.unroute("**/api/accounts/*/opening-balance");
 

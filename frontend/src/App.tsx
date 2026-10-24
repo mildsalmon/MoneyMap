@@ -1,23 +1,25 @@
 import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BarChart3, FolderTree, GitBranch, PenLine, Repeat, ScrollText } from "lucide-react";
+import { BarChart3, CreditCard, FolderTree, GitBranch, PenLine, Repeat, ScrollText } from "lucide-react";
 import { api } from "./api";
 import { Dashboard } from "./views/Dashboard";
 import { TxnInput } from "./views/TxnInput";
 import { TxnEdit } from "./views/TxnEdit";
 import { History, useHistoryDeletion } from "./views/History";
 import { Accounts } from "./views/Accounts";
+import { Installments } from "./views/Installments";
 import { Rules } from "./views/Rules";
 import { Scenarios } from "./views/Scenarios";
 import { ScenarioDetail } from "./views/scenarios/ScenarioDetail";
 
-export type View = "dashboard" | "input" | "history" | "accounts" | "rules" | "scenarios";
+export type View = "dashboard" | "input" | "history" | "accounts" | "rules" | "scenarios" | "installments";
 
 const NAV: { id: View; label: string; icon: typeof BarChart3 }[] = [
   { id: "dashboard", label: "대시보드", icon: BarChart3 },
   { id: "input", label: "거래 입력", icon: PenLine },
   { id: "history", label: "거래 내역", icon: ScrollText },
   { id: "accounts", label: "계정·개시잔액", icon: FolderTree },
+  { id: "installments", label: "할부 관리", icon: CreditCard },
   { id: "rules", label: "반복 규칙", icon: Repeat },
   { id: "scenarios", label: "시나리오", icon: GitBranch },
 ];
@@ -30,7 +32,7 @@ export interface Toast {
 export function App() {
   const navigate = useNavigate();
   const location = useLocation();
-  const paths: Record<View, string> = { dashboard: "/", input: "/transactions/new", history: "/transactions", accounts: "/accounts", rules: "/rules", scenarios: "/scenarios" };
+  const paths: Record<View, string> = { dashboard: "/", input: "/transactions/new", history: "/transactions", accounts: "/accounts", rules: "/rules", scenarios: "/scenarios", installments: "/installments" };
   const view = location.pathname.startsWith("/scenarios") ? "scenarios" : /^\/transactions\/\d+\/edit$/.test(location.pathname) ? "history" : (Object.keys(paths) as View[]).find(key => paths[key] === location.pathname);
   const setView = (next: View) => navigate(paths[next]);
   const [online, setOnline] = useState(true);
@@ -143,6 +145,7 @@ export function App() {
           <Route path="/transactions/:id/edit" element={<TxnEdit {...viewProps} />} />
           <Route path="/transactions" element={<History {...viewProps} deletion={historyDeletion} />} />
           <Route path="/accounts" element={<Accounts {...viewProps} />} />
+          <Route path="/installments" element={<Installments {...viewProps} />} />
           <Route path="/rules" element={<Rules {...viewProps} />} />
           <Route path="/scenarios" element={<Scenarios {...viewProps} />} />
           <Route path="/scenarios/archived" element={<Scenarios {...viewProps} archived />} />

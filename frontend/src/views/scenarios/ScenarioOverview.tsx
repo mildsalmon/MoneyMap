@@ -91,6 +91,7 @@ export function ScenarioOverview({
               <dd>{fmtDelta(last("scenario") - last("baseline"))}</dd>
             </div>
           </dl>
+          {data.warnings?.map(w => <p className="banner info" key={w}>{w}</p>)}
           {!data.has_assumptions && (
             <p>
               아직 시나리오 전용 가정이 없습니다. 두 전망은 같습니다.{" "}

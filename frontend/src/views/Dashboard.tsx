@@ -128,6 +128,7 @@ export function Dashboard({ gen, go }: ViewProps) {
 
       {/* 차트 워크벤치 — full-width, 카드에 가두지 않음 */}
       <div>
+        {projectionQuery.data?.warnings?.map(w => <p className="banner info" key={w}>{w}</p>)}
         {projectionQuery.error && <p role="alert">전망을 불러오지 못했습니다. {projectionQuery.error} <button className="btn secondary" onClick={projectionQuery.reload}>다시 계산</button></p>}
         {!projectionQuery.data && !projectionQuery.error && <p role="status">전망 계산 중…</p>}
         {projectionQuery.data && series?.length === 0 && <p>표시할 전망이 없습니다.</p>}

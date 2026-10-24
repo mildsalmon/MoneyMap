@@ -218,7 +218,7 @@ test("dirty draft warns on unload and declined cancel; accepted navigation remov
   await expect(page.getByRole("button", { name: "화면 떠나기" })).toBeEnabled();
   await page.getByRole("button", { name: "화면 떠나기" }).click();
   await expect(page).toHaveURL(/\/$/);
-  expect(await unloadPrevented()).toBe(false);
+  await expect.poll(unloadPrevented).toBe(false);
   expect(state.writes).toBe(0);
 });
 
