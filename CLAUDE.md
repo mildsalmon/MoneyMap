@@ -19,6 +19,7 @@
 - 거래 직접 수정·충돌/응답 유실 보호·신규 입력 계정 유지: [transaction-editing.md](docs/designs/transaction-editing.md), [구현 검증](docs/verification/transaction-editing.md). 개발서버 자동 재시작으로 v6 스키마가 적용됐고 기존 거래 값은 보존됐다. 통화·태그 선택 UI·계정 시간 이력은 TODO로 유지한다.
 - 거래내역 기간별 조회(v0.9.0.0, PR #14 main 반영 완료): 최근 한 달 기본, 날짜·태그 조회와 100건 페이지 이동, 수정 복귀 조건·위치 보존. [설계](docs/designs/transaction-history-query.md), [검증](docs/verification/transaction-history-query.md).
 - 실제 반복규칙 수정(v0.10.0.0): 기존 거래·처리일 보존, 미처리분에 새 조건 적용. PUT는 조회 결과의 `edit_token`을 `If-Match`로 요구한다. [설계](docs/designs/actual-rule-editing.md), [검증 기록](docs/verification/actual-rule-editing.md).
+- 무이자 할부 관리(v0.10.0.0, main 반영 전): 새 원화 구매·회차 미리보기, 실제 납부/환불 배분, 예정일 조정과 잔여 원금·현금 전망을 제공한다. [설계·유이자 후속 확장 경계](docs/designs/installment-payments.md), [검증 기록·운영 범위](docs/verification/installment-payments.md). 현재 스키마는 v8이며 v7의 할부 기록을 보존하면서 연결된 납부 거래의 반복규칙 삭제를 허용한다. 유이자는 P3 후속 작업이다.
 - 진행 상태: 로컬 `WORKING.md`가 있을 때 참고
 
 ## Design System
