@@ -2,6 +2,16 @@
 
 All notable changes to MoneyMap are documented in this file.
 
+## [0.11.0.0] - 2026-10-25
+
+### Changed
+- Search and reuse existing tags while entering or editing a transaction, select several tags, and create new names from the same field. Remove selected tags directly from their chips.
+- Navigate tag choices with the keyboard, retain drafts when closing the list, and use the picker on narrow screens with readable wrapping and touch controls. Show the 20-tag and 50-character limits explicitly.
+
+### Fixed
+- Prevent tag selection during Korean input composition from submitting a transaction, and preserve tags edited for the next transaction while an earlier save is pending.
+- Treat canonically equivalent Unicode tag names as duplicates in the picker while retaining the existing server validation contract.
+
 ## [0.10.0.0] - 2026-10-24
 
 ### Added

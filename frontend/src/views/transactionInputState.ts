@@ -19,11 +19,14 @@ export function newDraft(date: string): Draft {
   return { date, item: "", memo: "", tags: [], amount: "", mode: "basic", debit: emptyChoice(), credit: emptyChoice(), rows: [], epoch: 0, revision: 0 };
 }
 
+export const normalizeTag = (value: string): string => value.normalize("NFC").trim();
+export const tagKey = (value: string): string => normalizeTag(value).toLocaleLowerCase("ko-KR");
+
 export function setTags(draft: Draft, tags: string[]): Draft {
   const normalized: string[] = [];
   const keys = new Set<string>();
   for (const raw of tags) {
-    const tag = raw.trim(), key = tag.toLocaleLowerCase("ko-KR");
+    const tag = normalizeTag(raw), key = tagKey(tag);
     if (!key || keys.has(key)) continue;
     keys.add(key); normalized.push(tag);
   }
