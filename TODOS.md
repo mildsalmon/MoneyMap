@@ -230,7 +230,7 @@
 
 **Outcome (2026-10-24):** 입력·수정 공통 검색 combobox와 선택 칩으로 구현했다. 기존 태그 선택·새 태그 생성·다중 선택을 유지하며 키보드/한글 조합 보호, 제거 후 포커스, 20개·50자 한계, 모바일 44px·axe를 검증했다. [설계·후보 비교](docs/designs/transaction-tags.md), [검증](docs/verification/transaction-tags.md). 위 Context는 착수 전 관찰 기록이다.
 
-**Completed:** 구현 완료, 미출시 (2026-10-24)
+**Completed:** v0.11.0.0 (2026-10-25)
 
 ### 거래 태그 선택 UI 개선
 
@@ -246,7 +246,7 @@
 
 **Outcome (2026-10-24):** 입력·수정 공통 검색 combobox와 선택 칩으로 구현했다. 기존 태그 선택·새 태그 생성·다중 선택을 유지하며 키보드/한글 조합 보호, 제거 후 포커스, 20개·50자 한계, 모바일 44px·axe를 검증했다. [설계·후보 비교](docs/designs/transaction-tags.md), [검증](docs/verification/transaction-tags.md). 위 Context는 착수 전 관찰 기록이다.
 
-**Completed:** 구현 완료, 미출시 (2026-10-24)
+**Completed:** v0.11.0.0 (2026-10-25)
 
 
 ### 할부 구매·납부 일정 관리
