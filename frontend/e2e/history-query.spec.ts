@@ -43,7 +43,17 @@ test("local recent month, defaults URL, presets immediately apply tag drafts and
 
 test("drafts do not fetch, dirty pager locks, Enter applies and pagination replaces exactly 100 rows", async ({ page }) => {
   const requests = await mockHistory(page, Array.from({ length: 201 }, (_, i) => sample(i + 1)));
+  let startup: Route | undefined;
+  await page.route("**/api/materialize", route => { startup = route; });
   await page.goto(`/transactions?${range}&page=1`); await expect(rows(page)).toHaveCount(100);
+  // Force startup to finish after the first rows, as on a slower CI runner.
+  // Its generation refresh is independent of editing the filter draft.
+  const firstRow = await rows(page).first().elementHandle();
+  await expect.poll(() => !!startup).toBe(true);
+  await startup!.fulfill({ json: { created: 0, transactions: [] } });
+  await expect(page.locator(".side .health")).not.toContainText("상태 확인 중…");
+  await expect.poll(() => firstRow!.evaluate(element => element.isConnected)).toBe(false);
+  await expect(rows(page)).toHaveCount(100);
   const initial = requests.length;
   await page.getByLabel("종료일", { exact: true }).fill("2026-09-29");
   expect(requests).toHaveLength(initial); await expect(page.getByRole("button", { name: "다음", exact: true })).toBeDisabled();

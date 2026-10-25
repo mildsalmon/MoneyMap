@@ -25,8 +25,8 @@
 ## 검증
 
 - 수정 전 회귀 실패: 백엔드 2 failed / 1 passed(오늘 누락·과거 조회 끝점 누락), 화면 3 failed(서울/LA의 종료 후 값 표시와 끝 라벨 잘림). 수정 후 전용 테스트는 백엔드 **3개**, 화면 **4개** 통과했다. 모바일·데스크톱 라벨 테스트를 각각 분리했다.
-- 전체 백엔드 `cd backend && uv run pytest`: **563 passed**, 23.33초.
-- 전체 E2E `cd frontend && MONEYMAP_E2E_BACKEND_PORT=18772 MONEYMAP_E2E_FRONTEND_PORT=15180 npm run e2e -- --output=/tmp/moneymap-projection-full`: **245 passed**, 4.2분.
+- 전체 백엔드 `cd backend && uv run pytest`: **563 passed**, 23.53초.
+- 전체 E2E `cd frontend && MONEYMAP_E2E_BACKEND_PORT=18773 MONEYMAP_E2E_FRONTEND_PORT=15181 npm run e2e -- --output=/tmp/moneymap-projection-ci-fix-full`: **245 passed**, 4.1분.
 - 프런트 `npm run build`: TypeScript·Vite 통과. 기존 500KB 번들 경고가 남아 있다.
 - `git diff --check`: 통과. 코드·테스트·유지보수·성능·보안·디자인·단순화 및 adversarial 검토에서 미해결 발견 사항 없음.
 - 리뷰는 같은 모델을 쓰는 기존 검토자 문맥을 재사용했다. 새로운 독립 문맥이나 외부 모델 검증을 주장하지 않는다. Adversarial 검토자는 테스트를 요약으로만 읽었고 실제 테스트·브라우저 캡처 확인은 주 작업자가 수행했다.
@@ -36,3 +36,11 @@
 ## 릴리스 준비
 
 2026-10-25 ship에서 최신 main과 충돌 없음을 확인했다. 검증 당시와 소스·테스트가 같아 두 전체 테스트의 FRESH 기록을 재사용하며, 이후에는 VERSION·변경 기록·완료 TODO·상태 문서만 수정했다. 릴리스 버전은 v0.11.1.0이다.
+
+## CI에서 발견한 기존 테스트의 시작 시점 경합
+
+PR #17의 첫 CI는 전망 성능 검사(37초)를 통과했지만 전체 E2E의 기존 `history-query.spec.ts` 요청 수 검증 1개가 실패했다. 필터 초안을 바꾸는 동안 같은 기존 조건의 요청이 2개에서 3개로 늘었다. 앱 시작의 `materialize → refresh → gen` 갱신이 최초 100개 행을 확인한 뒤 도착했고, 테스트가 이를 초안 입력으로 인한 조회로 오해했다. 그래프 회귀 테스트는 통과했다.
+
+해당 테스트에서 시작 시 materialize 응답을 최초 행 표시 뒤까지 의도적으로 보류하고, 시작 상태 확인·최초 행 교체·새 100개 행 로드가 끝난 뒤 요청 수를 기록하도록 수정했다. 초안 입력이 조회를 발생시키지 않는다는 기존 엄격한 요청 수 assertion은 그대로 유지했다. 느린 시작 조건을 포함한 집중 테스트는 10회 연속 통과(13초)했다. 애플리케이션 코드는 변경하지 않았다.
+
+시작 시점 경합 수정 후 전체 재검증: 백엔드 563 passed(23.53초), E2E 245 passed(4.1분), 빌드 통과. E2E 실행 중 검증 문서만 편집되어 증거 ledger의 content fingerprint는 STALE로 기록됐다. 테스트·애플리케이션 파일은 실행 중 변경하지 않았으며 실제 전체 실행의 exit 0 결과와 로그로 검증했다.
