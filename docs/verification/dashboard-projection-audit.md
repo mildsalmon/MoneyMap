@@ -1,6 +1,6 @@
 # 미래 그래프 정확성·표현 점검
 
-2026-10-25 · `fix/dashboard-projection-boundaries` · 로컬 구현·검증 완료, 미출시.
+2026-10-25 · `fix/dashboard-projection-boundaries` · v0.11.1.0 릴리스 후보 검증 완료, main 병합 전.
 
 선행 태그 UI PR #16은 CI `verify` 8분 31초와 성능 검사 통과 후 main `872b229`로 squash 병합했다. 이 점검은 그 main에서 새 브랜치로 시작했다.
 
@@ -32,3 +32,7 @@
 - 리뷰는 같은 모델을 쓰는 기존 검토자 문맥을 재사용했다. 새로운 독립 문맥이나 외부 모델 검증을 주장하지 않는다. Adversarial 검토자는 테스트를 요약으로만 읽었고 실제 테스트·브라우저 캡처 확인은 주 작업자가 수행했다.
 - 전용 테스트: `backend/tests/test_projection_history.py`, `frontend/e2e/dashboard-projection.spec.ts`.
 - 캡처: `/tmp/moneymap-projection-green/`의 `projection-endpoints-390.png`·`projection-endpoints-1440.png`(테스트별 하위 디렉터리, 임시 파일).
+
+## 릴리스 준비
+
+2026-10-25 ship에서 최신 main과 충돌 없음을 확인했다. 검증 당시와 소스·테스트가 같아 두 전체 테스트의 FRESH 기록을 재사용하며, 이후에는 VERSION·변경 기록·완료 TODO·상태 문서만 수정했다. 릴리스 버전은 v0.11.1.0이다.

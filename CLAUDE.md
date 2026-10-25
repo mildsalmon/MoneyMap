@@ -21,7 +21,7 @@
 - 실제 반복규칙 수정(v0.10.0.0): 기존 거래·처리일 보존, 미처리분에 새 조건 적용. PUT는 조회 결과의 `edit_token`을 `If-Match`로 요구한다. [설계](docs/designs/actual-rule-editing.md), [검증 기록](docs/verification/actual-rule-editing.md).
 - 무이자 할부 관리(v0.10.0.0, PR #15 main 반영): 새 원화 구매·회차 미리보기, 실제 납부/환불 배분, 예정일 조정과 잔여 원금·현금 전망을 제공한다. [설계·유이자 후속 확장 경계](docs/designs/installment-payments.md), [검증 기록·운영 범위](docs/verification/installment-payments.md). 현재 스키마는 v8이며 v7의 할부 기록을 보존하면서 연결된 납부 거래의 반복규칙 삭제를 허용한다. 유이자는 P3 후속 작업이다.
 - 거래 태그 검색·선택 UI(v0.11.0.0, PR #16 main 반영 완료): 입력·수정 공통 combobox, 선택 칩, 새 태그 생성과 키보드/IME 보호. [설계](docs/designs/transaction-tags.md), [검증](docs/verification/transaction-tags.md).
-- 미래 그래프 경계 점검(로컬 구현, 미출시): 실제 선은 조회 기준일까지 유지하고, 표·툴팁은 각 전망 종료일 이후 값을 표시하지 않는다. 겹친 끝 라벨은 차트 안으로 정렬한다. [검증 기록](docs/verification/dashboard-projection-audit.md).
+- 미래 그래프 경계 점검(v0.11.1.0 릴리스 후보): 실제 선은 조회 기준일까지 유지하고, 표·툴팁은 각 전망 종료일 이후 값을 표시하지 않는다. 겹친 끝 라벨은 차트 안으로 정렬한다. [검증 기록](docs/verification/dashboard-projection-audit.md).
 - 진행 상태: 로컬 `WORKING.md`가 있을 때 참고
 
 ## Design System

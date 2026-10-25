@@ -2,6 +2,13 @@
 
 All notable changes to MoneyMap are documented in this file.
 
+## [0.11.1.0] - 2026-10-25
+
+### Fixed
+- Keep the actual net-worth curve visible through the current reporting day even when no transaction occurred that day, without creating a ledger entry.
+- Show values in projection tables and tooltips only within each series' reported period, so a shorter scenario does not appear to continue beyond its forecast endpoint.
+- Keep overlapping endpoint labels inside the chart when several series end near the lowest balance.
+
 ## [0.11.0.0] - 2026-10-25
 
 ### Changed
