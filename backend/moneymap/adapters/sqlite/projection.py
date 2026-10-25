@@ -155,4 +155,8 @@ class ProjectionInputReader:
         for row in rows:
             running += row["delta"]
             points.append({"date": row["date"], "net_worth": running})
+        # A quiet day still has the last recorded balance. End the actual curve
+        # at the requested cutoff, without inventing a transaction or future value.
+        if points and points[-1]["date"] < through:
+            points.append({"date": through, "net_worth": running})
         return points

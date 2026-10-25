@@ -38,12 +38,12 @@ const localDate = (value: number) => {
 
 const day = (iso: string) => new Date(iso + "T00:00:00").getTime();
 
-/** step 의미론: x 시점의 값 = date ≤ x 인 마지막 점.
- *  단, '실제' 시리즈는 마지막 데이터(오늘) 이후로 값을 보고하지 않는다 —
- *  선이 오늘에서 끊기는 규칙(D17)은 툴팁·표에도 똑같이 적용된다. */
+/** step 의미론: 계열의 시작~종료 범위에서 date ≤ x 인 마지막 점.
+ *  모든 계열의 툴팁·표가 선의 유효 기간을 따른다. 실제는 오늘까지,
+ *  전망은 API가 제공한 종료일까지이며 이후 값을 임의로 연장하지 않는다. */
 function valueAt(s: Series, x: number): number | null {
   if (s.points.length === 0) return null;
-  if (s.kind === "actual" && x > day(s.points[s.points.length - 1].date)) return null;
+  if (x > day(s.points[s.points.length - 1].date)) return null;
   let v: number | null = null;
   for (const p of s.points) {
     if (day(p.date) > x) break;
@@ -132,6 +132,14 @@ export function ProjectionChart({
       .sort((a, b) => a.y - b.y);
     for (let i = 1; i < raw.length; i++) {
       if (raw[i].y - raw[i - 1].y < 15) raw[i].y = raw[i - 1].y + 15;
+    }
+    // Keep clustered low endpoints inside the plotting area. Walk back upward
+    // after the forward separation pass so the final labels cannot be clipped.
+    if (raw.length) {
+      raw[raw.length - 1].y = Math.min(raw[raw.length - 1].y, H - PAD.bottom - 8);
+      for (let i = raw.length - 2; i >= 0; i--) {
+        raw[i].y = Math.min(raw[i].y, raw[i + 1].y - 15);
+      }
     }
     return raw;
   }, [withStyle, sx, sy]);
