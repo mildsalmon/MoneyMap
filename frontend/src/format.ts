@@ -1,9 +1,10 @@
 // 숫자 포맷 규칙 (DESIGN.md · D15)
 // 전체 금액: ₩42,180,000 (₩ 뒤 공백 없음) · 축약: 4,218만 / 5.1억 ("M" 금지)
 
-export function fmtWon(n: number): string {
+export function fmtWon(n: number | bigint): string {
   const sign = n < 0 ? "−" : "";
-  return `${sign}₩${Math.abs(n).toLocaleString("ko-KR")}`;
+  const magnitude = typeof n === "bigint" ? (n < 0n ? -n : n) : Math.abs(n);
+  return `${sign}₩${magnitude.toLocaleString("ko-KR")}`;
 }
 
 export function fmtAbbrev(n: number): string {
