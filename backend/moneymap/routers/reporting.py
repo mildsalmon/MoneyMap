@@ -11,6 +11,7 @@ from moneymap.app_services.projection import (
 )
 from moneymap.app_services.scenarios import now
 from moneymap.adapters.sqlite.projection import ProjectionInputReader
+from moneymap.adapters.sqlite.statistics import read_statistics
 from moneymap.dependencies import repos, request_connection
 from moneymap.domain import (
     ACTUAL_SCENARIO_ID,
@@ -25,6 +26,26 @@ class Months(IntEnum):
 
 
 router = APIRouter(dependencies=[Depends(request_connection)])
+
+
+@router.get("/api/statistics")
+def statistics(
+    request: Request,
+    start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+):
+    if set(request.query_params) != {"start", "end"} or any(len(request.query_params.getlist(key)) != 1 for key in ("start", "end")):
+        raise HTTPException(422, detail="시작일과 종료일은 하나씩 지정하세요")
+    try:
+        first, last = datetime.date.fromisoformat(start), datetime.date.fromisoformat(end)
+    except ValueError as exc:
+        raise HTTPException(422, detail="올바른 시작일과 종료일을 입력하세요") from exc
+    today = now().date()
+    if first > last or (last - first).days + 1 > 3660:
+        raise HTTPException(422, detail="시작일 이후, 최대 3660일 범위로 조회하세요")
+    if last > today:
+        raise HTTPException(422, detail=f"통계 종료일은 서울 기준 오늘({today.isoformat()})까지 지정하세요")
+    return {"as_of": today.isoformat(), **read_statistics(request.state.conn, first, last)}
 
 
 @router.get("/api/balances")

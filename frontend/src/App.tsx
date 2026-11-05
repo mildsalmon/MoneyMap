@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { BarChart3, CreditCard, FolderTree, GitBranch, PenLine, Repeat, ScrollText } from "lucide-react";
 import { api } from "./api";
 import { Dashboard } from "./views/Dashboard";
+import { Statistics } from "./views/Statistics";
 import { TxnInput } from "./views/TxnInput";
 import { TxnEdit } from "./views/TxnEdit";
 import { History, useHistoryDeletion } from "./views/History";
@@ -12,10 +13,11 @@ import { Rules } from "./views/Rules";
 import { Scenarios } from "./views/Scenarios";
 import { ScenarioDetail } from "./views/scenarios/ScenarioDetail";
 
-export type View = "dashboard" | "input" | "history" | "accounts" | "rules" | "scenarios" | "installments";
+export type View = "dashboard" | "statistics" | "input" | "history" | "accounts" | "rules" | "scenarios" | "installments";
 
 const NAV: { id: View; label: string; icon: typeof BarChart3 }[] = [
   { id: "dashboard", label: "대시보드", icon: BarChart3 },
+  { id: "statistics", label: "통계", icon: BarChart3 },
   { id: "input", label: "거래 입력", icon: PenLine },
   { id: "history", label: "거래 내역", icon: ScrollText },
   { id: "accounts", label: "계정·개시잔액", icon: FolderTree },
@@ -32,7 +34,7 @@ export interface Toast {
 export function App() {
   const navigate = useNavigate();
   const location = useLocation();
-  const paths: Record<View, string> = { dashboard: "/", input: "/transactions/new", history: "/transactions", accounts: "/accounts", rules: "/rules", scenarios: "/scenarios", installments: "/installments" };
+  const paths: Record<View, string> = { dashboard: "/", statistics: "/statistics", input: "/transactions/new", history: "/transactions", accounts: "/accounts", rules: "/rules", scenarios: "/scenarios", installments: "/installments" };
   const view = location.pathname.startsWith("/scenarios") ? "scenarios" : /^\/transactions\/\d+\/edit$/.test(location.pathname) ? "history" : (Object.keys(paths) as View[]).find(key => paths[key] === location.pathname);
   const setView = (next: View) => navigate(paths[next]);
   const [online, setOnline] = useState(true);
@@ -141,6 +143,7 @@ export function App() {
 
         <Routes>
           <Route path="/" element={<Dashboard {...viewProps} />} />
+          <Route path="/statistics" element={<Statistics {...viewProps} />} />
           <Route path="/transactions/new" element={<TxnInput {...viewProps} />} />
           <Route path="/transactions/:id/edit" element={<TxnEdit {...viewProps} />} />
           <Route path="/transactions" element={<History {...viewProps} deletion={historyDeletion} />} />
