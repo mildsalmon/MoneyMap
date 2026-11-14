@@ -160,3 +160,53 @@ test("real account click, pagination and edit return preserve filter and clamp a
     for (const id of ids) expect((await request.delete(`${base}/transactions/${id}`)).ok()).toBe(true);
   }
 });
+
+test("selected account direction uses applied scope, split net amounts and neutral internal transfers", async ({ page }) => {
+  await mock(page);
+  const rows = [
+    { description: "분할 유입", values: [[101, 60], [104, 40], [102, -100]] },
+    { description: "환불 유출", values: [[101, -30], [102, 30]] },
+    { description: "그룹 내부 이동", values: [[101, -20], [104, 20]] },
+    { description: "같은 계정 상계", values: [[101, 50], [101, -20], [102, -30]] },
+  ].map((row, i) => ({ ...txn, id: 80 + i, description: row.description,
+    postings: row.values.map(([account_id, amount]) => ({ account_id, amount: { amount, currency: "KRW" } })) }));
+  await page.route("**/api/accounts", r => r.fulfill({ json: accounts.map(a => a.id === 104 ? { ...a, parent_id: 201, archived: true } : a) }));
+  await page.route("**/api/transaction-history?*", r => r.fulfill({ json: { ...pageBody, items: rows, total: rows.length } }));
+  await page.goto(`/transactions?${range}&account_id=101&include_descendants=false`);
+  const cell = (name: string) => page.locator(".history-scroll tbody tr").filter({ hasText: name }).locator("td.num");
+  await expect(cell("분할 유입")).toHaveText("유입 +₩60");
+  await expect(cell("분할 유입").locator(".sr-only")).toHaveText("유입");
+  expect(await cell("분할 유입").evaluate(el => {
+    const visible = el.cloneNode(true) as HTMLElement;
+    visible.querySelectorAll(".sr-only").forEach(node => node.remove());
+    return visible.textContent;
+  })).toBe("+₩60");
+  await expect(cell("분할 유입").locator(".history-inflow")).toHaveCSS("color", "rgb(181, 50, 41)");
+  await expect(cell("환불 유출")).toHaveText("유출 −₩30");
+  await expect(cell("환불 유출").locator(".sr-only")).toHaveCSS("clip", "rect(0px, 0px, 0px, 0px)");
+  await expect(cell("환불 유출").locator(".history-outflow")).toHaveCSS("color", "rgb(40, 88, 184)");
+  await expect(cell("같은 계정 상계")).toHaveText("유입 +₩30");
+  await page.getByLabel("계정과목", { exact: true }).selectOption("102");
+  await expect(cell("분할 유입")).toHaveText("유입 +₩60");
+  await page.getByRole("button", { name: "조회", exact: true }).click();
+  await expect(cell("분할 유입")).toHaveText("유출 −₩100");
+  await page.getByLabel("계정과목", { exact: true }).selectOption("201");
+  await page.getByRole("button", { name: "조회", exact: true }).click();
+  await expect(cell("분할 유입")).toHaveText("유입 +₩100");
+  await expect(cell("그룹 내부 이동").locator(".history-neutral")).toHaveText("변동 없음 ₩0");
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect((await new AxeBuilder({ page }).include(".history-page").withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze()).violations).toEqual([]);
+  await page.getByLabel("계정과목", { exact: true }).selectOption("");
+  await page.getByRole("button", { name: "조회", exact: true }).click();
+  await expect(page.getByRole("columnheader", { name: "금액", exact: true })).toBeVisible();
+  await expect(cell("분할 유입")).toHaveText("₩100");
+  await expect(page.locator(".history-scroll .history-inflow, .history-scroll .history-outflow")).toHaveCount(0);
+});
+
+test("selected foreign currency direction preserves native minor units", async ({ page }) => {
+  await mock(page);
+  await page.route("**/api/transaction-history?*", r => r.fulfill({ json: { ...pageBody,
+    items: [{ ...txn, postings: txn.postings.map(p => ({ ...p, amount: { amount: p.amount.amount * 15, currency: "USD" } })) }] } }));
+  await page.goto(`/transactions?${range}&account_id=101&include_descendants=false`);
+  await expect(page.locator(".history-scroll td.num .history-inflow")).toHaveText("유입 +US$15.00");
+});
