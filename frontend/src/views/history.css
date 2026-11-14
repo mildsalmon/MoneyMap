@@ -36,6 +36,8 @@
 .history-outflow { color: #2858B8; }
 .history-neutral { color: var(--muted); }
 .history-direction-help { margin: 4px 0 12px; color: var(--muted); font-size: 12px; }
+.history-balance-help { margin: 4px 0 12px; color: var(--muted); font-size: 12px; }
+.history-balance { white-space: nowrap; }
 @media (max-width: 720px) { .history-account-filter { grid-template-columns: minmax(0, 1fr); gap: 0; } }
 
 .history-account-choice { display: grid; gap: 8px; min-width: 0; }

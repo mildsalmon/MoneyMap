@@ -169,20 +169,6 @@
 **Priority:** P3
 **Depends on:** 마이너스통장 UI 디자인 리뷰
 
-## 성능
-
-### `/balances`를 시나리오별 단일 집계 SQL로 조회
-
-**What:** 계정마다 `balance_at()`을 호출하는 현재 구조를 시나리오별 단일 집계 SQL로 교체한다.
-
-**Why:** 계정 수에 비례하는 쿼리 수를 줄여 대시보드와 계정 화면의 응답 지연을 제어한다.
-
-**Context:** `reporting_type`은 기존 raw balance에 적용하는 순수 계산이라 쿼리 수를 늘리지 않는다. actual/scenario fork 경계 의미론을 보존하는 batch query부터 설계해야 한다.
-
-**Effort:** M
-**Priority:** P3
-**Depends on:** `/balances` 지연 또는 계정 수 증가가 실제로 관측됨
-
 ## 아키텍처
 
 ### 전 repository UoW 전환 재평가
@@ -198,6 +184,15 @@
 **Depends on:** 두 번째 cross-repository 원자성 유스케이스 또는 transaction 경계 중복의 관측
 
 ## Completed
+
+### 거래 후 잔고 저장·표시와 `/balances` 일괄 조회
+
+계정·통화·실제 거래별 거래 후 잔고를 파생 테이블에 저장하고, 과거 변경 시 영향을 받는 계정의 이후 잔고를 같은 트랜잭션에서 보정한다. 계정으로 필터한 거래내역에 거래 후 잔고를 표시한다. `/balances`는 실제의 저장 잔고를 일괄 조회하고 시나리오의 fork 의미론을 보존하는 집계 SQL을 사용한다. 전체 거래 hydration도 3회 일괄 조회로 바꿨다.
+
+**Completed:** 로컬 구현, 미출시 (2026-11-15). 기존 P3 `/balances` 단일 집계 TODO를 완료했다.
+**Design:** [거래 후 잔고](docs/designs/transaction-balances.md).
+**Verification:** [검증 기록](docs/verification/transaction-balances.md).
+
 
 ### 계정과목에서 거래내역 조회
 

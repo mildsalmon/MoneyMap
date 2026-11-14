@@ -145,6 +145,7 @@ test("real account click, pagination and edit return preserve filter and clamp a
     await expect(page.locator("#history-result-title")).toContainText("101건");
     await page.getByRole("button", { name: "다음", exact: true }).click();
     await expect(page.locator(".history-scroll tbody tr")).toHaveCount(1);
+    await expect(page.locator(".history-balance")).toHaveText("₩100");
     await page.getByRole("button", { name: "수정", exact: true }).click();
     await page.getByLabel("메모 (선택)", { exact: true }).fill("계정 필터 복귀 검증");
     await page.getByRole("button", { name: "변경사항 저장", exact: true }).click();
@@ -156,6 +157,7 @@ test("real account click, pagination and edit return preserve filter and clamp a
     await expect(page).toHaveURL(new RegExp(`account_id=${group}&include_descendants=true&page=1`));
     await expect(page.getByText("수정한 거래가 현재 조회 조건에 해당하지 않아 목록에 표시되지 않습니다.", { exact: true })).toBeVisible();
     await expect(page.locator("#history-result-title")).toContainText("100건");
+    await expect(page.locator(".history-balance").first()).toHaveText("₩10,000");
   } finally {
     for (const id of ids) expect((await request.delete(`${base}/transactions/${id}`)).ok()).toBe(true);
   }
@@ -173,7 +175,7 @@ test("selected account direction uses applied scope, split net amounts and neutr
   await page.route("**/api/accounts", r => r.fulfill({ json: accounts.map(a => a.id === 104 ? { ...a, parent_id: 201, archived: true } : a) }));
   await page.route("**/api/transaction-history?*", r => r.fulfill({ json: { ...pageBody, items: rows, total: rows.length } }));
   await page.goto(`/transactions?${range}&account_id=101&include_descendants=false`);
-  const cell = (name: string) => page.locator(".history-scroll tbody tr").filter({ hasText: name }).locator("td.num");
+  const cell = (name: string) => page.locator(".history-scroll tbody tr").filter({ hasText: name }).locator("td.history-amount");
   await expect(cell("분할 유입")).toHaveText("유입 +₩60");
   await expect(cell("분할 유입").locator(".sr-only")).toHaveText("유입");
   expect(await cell("분할 유입").evaluate(el => {
@@ -209,4 +211,37 @@ test("selected foreign currency direction preserves native minor units", async (
     items: [{ ...txn, postings: txn.postings.map(p => ({ ...p, amount: { amount: p.amount.amount * 15, currency: "USD" } })) }] } }));
   await page.goto(`/transactions?${range}&account_id=101&include_descendants=false`);
   await expect(page.locator(".history-scroll td.num .history-inflow")).toHaveText("유입 +US$15.00");
+});
+
+test("after balance uses natural account signs, survives filtering and remains neutral", async ({ page }) => {
+  await mock(page);
+  await page.route("**/api/transaction-history?*", r => {
+    const id = new URL(r.request().url()).searchParams.get("account_id");
+    return r.fulfill({ json: { ...pageBody, items: [{ ...txn,
+      balance_after: [{ currency: "KRW", amount: id === "101" ? 9876 : -3456 }] }] } });
+  });
+  await page.goto(`/transactions?${range}&tag=旅行&account_id=102&include_descendants=false`);
+  await expect(page.getByRole("columnheader", { name: "거래 후 잔고", exact: true })).toBeVisible();
+  await expect(page.locator(".history-balance")).toHaveText("−₩3,456");
+  await page.getByLabel("계정과목", { exact: true }).selectOption("103");
+  await expect(page.locator(".history-balance")).toHaveText("−₩3,456");
+  await page.getByRole("button", { name: "조회", exact: true }).click();
+  await expect(page.locator(".history-balance")).toHaveText("₩3,456");
+  await page.getByLabel("계정과목", { exact: true }).selectOption("101");
+  await page.getByRole("button", { name: "조회", exact: true }).click();
+  await expect(page.locator(".history-balance")).toHaveText("₩9,876");
+  await expect(page.locator(".history-balance .history-inflow, .history-balance .history-outflow")).toHaveCount(0);
+  await page.getByLabel("계정과목", { exact: true }).selectOption("");
+  await page.getByRole("button", { name: "조회", exact: true }).click();
+  await expect(page.getByRole("columnheader", { name: "거래 후 잔고", exact: true })).toHaveCount(0);
+});
+
+test("large after balances retain every minor unit across JSON and formatting", async ({ page }) => {
+  await mock(page);
+  await page.route("**/api/transaction-history?*", r => r.fulfill({ json: { ...pageBody,
+    items: [{ ...txn, balance_after: [{ currency: "KRW", amount: "10000000000000000001" },
+      { currency: "USD", amount: "-900719925474099123" }] }] } }));
+  await page.goto(`/transactions?${range}&account_id=201`);
+  await expect(page.locator(".history-balance")).toContainText("₩10,000,000,000,000,000,001");
+  await expect(page.locator(".history-balance")).toContainText("−US$9,007,199,254,740,991.23");
 });

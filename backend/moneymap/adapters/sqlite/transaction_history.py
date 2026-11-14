@@ -5,6 +5,7 @@ import datetime
 import sqlite3
 
 from moneymap.domain import ACTUAL_SCENARIO_ID, Money, Posting, Transaction
+from .balance_history import selected_balances_after
 
 PAGE_SIZE = 100
 
@@ -72,4 +73,8 @@ class SqliteTransactionHistory:
             description=row["description"], memo=row["memo"], source_rule_id=row["source_rule_id"],
             postings=postings[row["id"]], tags=tags[row["id"]],
         ).model_dump(mode="json") for row in rows]
+        if account_id is not None:
+            balances = selected_balances_after(self.conn, ids, account_id, include_descendants)
+            for item in result["items"]:
+                item["balance_after"] = balances[item["id"]]
         return result

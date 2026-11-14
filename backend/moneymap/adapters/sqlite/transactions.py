@@ -277,31 +277,31 @@ class SqliteTransactionRepository:
             sql += " AND date <= ?"
             params.append(_iso(end))
         sql += " ORDER BY date, id"
-        txns = []
-        for row in self._conn.execute(sql, params).fetchall():
-            postings = [
-                Posting(
-                    account_id=p["account_id"],
-                    amount=Money(amount=p["amount"], currency=p["currency"]),
-                    legacy_zero=p["amount"] == 0,
-                )
-                for p in self._conn.execute(
-                    "SELECT * FROM postings WHERE txn_id=? ORDER BY id", (row["id"],)
-                ).fetchall()
-            ]
-            txns.append(
-                Transaction(
-                    id=row["id"],
-                    scenario_id=row["scenario_id"],
-                    date=_D(row["date"]),
-                    description=row["description"],
-                    memo=row["memo"],
-                    tags=_load_tags(self._conn, row["id"]),
-                    source_rule_id=row["source_rule_id"],
-                    postings=postings,
-                )
-            )
-        return txns
+        rows = self._conn.execute(sql, params).fetchall()
+        if not rows:
+            return []
+        # Reuse the bounded/date predicate for two batch reads. No per-transaction
+        # posting/tag queries and no SQLite parameter limit on a large ledger.
+        selection = sql[:sql.index(" ORDER BY")].replace("SELECT *", "SELECT id")
+        postings = {row["id"]: [] for row in rows}
+        tags = {row["id"]: [] for row in rows}
+        for p in self._conn.execute(
+            f"SELECT * FROM postings WHERE txn_id IN ({selection}) ORDER BY id", params
+        ):
+            postings[p["txn_id"]].append(Posting(
+                account_id=p["account_id"], amount=Money(amount=p["amount"], currency=p["currency"]),
+                legacy_zero=p["amount"] == 0,
+            ))
+        for tag in self._conn.execute(
+            "SELECT tt.txn_id,g.name FROM transaction_tags tt JOIN tags g ON g.id=tt.tag_id "
+            f"WHERE tt.txn_id IN ({selection}) ORDER BY g.name_key", params
+        ):
+            tags[tag["txn_id"]].append(tag["name"])
+        return [Transaction(
+            id=row["id"], scenario_id=row["scenario_id"], date=_D(row["date"]),
+            description=row["description"], memo=row["memo"], tags=tags[row["id"]],
+            source_rule_id=row["source_rule_id"], postings=postings[row["id"]],
+        ) for row in rows]
 
 
 class ScenarioTransactionWriter:

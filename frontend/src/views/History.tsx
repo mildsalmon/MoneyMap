@@ -2,7 +2,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api, ApiError, accountTree, withDescendants, type Account, type Txn } from "../api";
-import { fmtWon } from "../format";
+import { fmtMoney, fmtWon } from "../format";
 import type { ViewProps } from "../App";
 import { useQuery } from "./scenarios/useQuery";
 import { historyReturn, recalledHistory, rememberHistory } from "./transactionEditState";
@@ -159,11 +159,14 @@ function HistorySession({ gen, refresh, showToast, accounts, tags, tagCache, unc
     const net = postings.reduce((sum, p) => sum + p.amount.amount, 0);
     const currency = postings[0]?.amount.currency ?? "KRW";
     const magnitude = Math.abs(net);
-    const formatted = currency === "KRW" ? fmtWon(magnitude)
-      : new Intl.NumberFormat("ko-KR", { style: "currency", currency }).format(
-        magnitude / 10 ** (new Intl.NumberFormat("ko-KR", { style: "currency", currency }).resolvedOptions().maximumFractionDigits ?? 0));
+    const formatted = fmtMoney(magnitude, currency);
     return <span className={net > 0 ? "history-inflow" : net < 0 ? "history-outflow" : "history-neutral"}>
       <span className="sr-only">{net > 0 ? "유입 " : net < 0 ? "유출 " : "변동 없음 "}</span>{net > 0 ? "+" : net < 0 ? "−" : ""}{formatted}</span>;
+  };
+  const balanceAfter = (t: Txn) => {
+    const type = accounts.data?.find(a => String(a.id) === applied?.accountId)?.type;
+    const multiplier = type === "liability" || type === "income" || type === "equity" ? -1 : 1;
+    return t.balance_after?.length ? t.balance_after.map(b => <div key={b.currency}>{fmtMoney(BigInt(b.amount) * BigInt(multiplier), b.currency)}</div>) : "—";
   };
   const savedElsewhere = ready && Number.isSafeInteger(location.state?.savedId) && !page.items.some(t => t.id === location.state.savedId);
   const presets: [HistoryPreset, string][] = [["recent", "최근 한 달"], ["this-month", "이번 달"], ["last-month", "지난달"]];
@@ -209,13 +212,14 @@ function HistorySession({ gen, refresh, showToast, accounts, tags, tagCache, unc
       {ready && <>
         {applied.accountId && <><p className="history-account-applied">현재 계정: {accountLabel(applied.accountId)} · {applied.accountScope === "direct" ? "이 계정만" : "하위 계정 포함"}</p>
           <p className="history-direction-help">선택 계정 기준: <span className="history-inflow">+ 빨간색</span> · <span className="history-outflow">− 파란색</span> · 범위 안 이동은 상계합니다.</p></>}
+        {selectedAccounts && <p className="history-balance-help">거래 후 잔고는 조회 조건 밖의 이전 거래도 포함합니다. 같은 날짜는 거래 번호 순으로 계산합니다.</p>}
         <h2 id="history-result-title" tabIndex={-1}>{page.total ? `전체 ${page.total.toLocaleString("ko-KR")}건 · 최신순` : "0건"}</h2>
         {!page.total ? <div className="history-empty"><span>{applied.accountId ? "선택한 기간·태그·계정과목에 해당하는 거래가 없습니다." : "선택한 기간과 태그에 해당하는 거래가 없습니다."}</span><button className="btn secondary" onClick={() => document.getElementById("history-start")?.focus()}>조회 조건 변경</button></div>
           : <><div className="table-scroll history-scroll" ref={scrollRef} role="region" aria-label="거래 표, 가로 스크롤 가능" tabIndex={0}>
-            <table className="ledger"><thead><tr><th>날짜</th><th>내역</th><th className="num">{selectedAccounts ? "계정 변동액" : "금액"}</th><th>흐름</th><th>작업</th></tr></thead><tbody>
+            <table className="ledger"><thead><tr><th>날짜</th><th>내역</th><th className="num">{selectedAccounts ? "계정 변동액" : "금액"}</th>{selectedAccounts && <th className="num">거래 후 잔고</th>}<th>흐름</th><th>작업</th></tr></thead><tbody>
               {page.items.map(t => <tr key={t.id}><td className="history-date">{t.date}</td><td className="history-description">{t.description || "—"} {t.source_rule_id && <span className="badge auto">자동</span>} {(t.tags ?? []).map(tag => <span className="badge tag" key={tag}>{tag}</span>)}
                 {t.memo && <details className="transaction-memo"><summary>메모 보기</summary><p>{t.memo}</p></details>}</td>
-                <td className="num">{amount(t)}</td><td className="history-flow">{flow(t)}</td>
+                <td className="num history-amount">{amount(t)}</td>{selectedAccounts && <td className="num history-balance">{balanceAfter(t)}</td>}<td className="history-flow">{flow(t)}</td>
                 <td className="history-actions"><button id={`edit-transaction-${t.id}`} className="btn sm secondary" disabled={deleting !== null} onClick={() => edit(t.id)}>수정</button>{" "}<button className="btn sm danger" disabled={deleting !== null || Object.hasOwn(uncertainDeletes, t.id)} onClick={() => void remove(t)}>삭제</button></td></tr>)}
             </tbody></table></div>
             <nav className="history-pager" aria-label="거래 페이지"><span>{((page.page - 1) * 100 + 1).toLocaleString("ko-KR")}–{Math.min(page.page * 100, page.total).toLocaleString("ko-KR")} / {page.total.toLocaleString("ko-KR")}건</span>

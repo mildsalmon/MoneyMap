@@ -222,4 +222,5 @@ def test_unknown_account_is_not_an_unfiltered_history_and_query_count_is_bounded
         assert body['total'] == 110 and len(body['items']) == 100
     finally:
         conn.rollback(); conn.set_trace_callback(None)
-    assert sum(s.lstrip().upper().startswith(('SELECT', 'WITH')) for s in statements) == 4
+    # One extra batch read for all 100 after-balances, never per row.
+    assert sum(s.lstrip().upper().startswith(('SELECT', 'WITH')) for s in statements) == 5
