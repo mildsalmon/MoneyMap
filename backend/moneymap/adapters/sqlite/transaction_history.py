@@ -13,7 +13,8 @@ class SqliteTransactionHistory:
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
 
-    def page(self, start: datetime.date, end: datetime.date, tag: str, page: int) -> dict:
+    def page(self, start: datetime.date, end: datetime.date, tag: str, page: int,
+             account_id: int | None = None, include_descendants: bool = True) -> dict:
         where = "t.scenario_id=? AND t.posted=1 AND t.date>=? AND t.date<=?"
         params: list[object] = [ACTUAL_SCENARIO_ID, start.isoformat(), end.isoformat()]
         if tag:
@@ -23,6 +24,19 @@ class SqliteTransactionHistory:
                 "JOIN transaction_tags tt ON tt.tag_id=g.id WHERE g.name=?)"
             )
             params.append(tag)
+        if account_id is not None:
+            # Filter transaction IDs, not hydrated posting rows: retain the full
+            # double-entry transaction and count transfers/split entries once.
+            if include_descendants:
+                where += """ AND t.id IN (
+                  WITH RECURSIVE selected(id) AS (
+                    SELECT id FROM accounts WHERE id=?
+                    UNION SELECT a.id FROM accounts a JOIN selected s ON a.parent_id=s.id
+                  ) SELECT p.txn_id FROM postings p WHERE p.account_id IN (SELECT id FROM selected)
+                )"""
+            else:
+                where += " AND t.id IN (SELECT txn_id FROM postings WHERE account_id=?)"
+            params.append(account_id)
         total = self.conn.execute(
             f"SELECT COUNT(*) FROM transactions t WHERE {where}", params
         ).fetchone()[0]

@@ -27,3 +27,11 @@
   .history-pager > span:first-child { width: 100%; }
 }
 @media (max-width: 359px) { .history-query { grid-template-columns: minmax(0, 1fr); } .history-query > .btn { margin-top: 0; } }
+
+.history-account-filter { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+.history-query .history-account-scope { display: flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 400; }
+.history-query .history-account-scope input { width: 18px; min-height: 18px; margin: 0; }
+.history-account-applied { overflow-wrap: anywhere; }
+@media (max-width: 720px) { .history-account-filter { grid-template-columns: minmax(0, 1fr); gap: 0; } }
+
+.history-account-choice { display: grid; gap: 8px; min-width: 0; }

@@ -23,6 +23,7 @@
 - 거래 태그 검색·선택 UI(v0.11.0.0, PR #16 main 반영 완료): 입력·수정 공통 combobox, 선택 칩, 새 태그 생성과 키보드/IME 보호. [설계](docs/designs/transaction-tags.md), [검증](docs/verification/transaction-tags.md).
 - 미래 그래프 경계 점검(v0.11.1.0, PR #17 main 반영 완료): 실제 선은 조회 기준일까지 유지하고, 표·툴팁은 각 전망 종료일 이후 값을 표시하지 않는다. 겹친 끝 라벨은 차트 안으로 정렬한다. [검증 기록](docs/verification/dashboard-projection-audit.md).
 - 통계(v0.12.0.0 릴리스 후보): 기간 수입·지출과 기간말 자산·부채·순자산, 월별 정확한 표, 현재 계정 계층별 구성. 원화 실제 기장만 읽으며 거래 전체 통화 제외·마이너스통장 보고 분류를 유지한다. [설계](docs/designs/statistics-overview.md), [검증](docs/verification/statistics-overview.md).
+- 계정별 거래내역(2026-11-14 로컬 구현, 미출시): 계정명 링크와 계정/하위 범위 필터를 제공하고 날짜·태그·페이지·수정 복귀를 보존한다. [설계](docs/designs/account-history-filter.md), [검증](docs/verification/account-history-filter.md).
 - 진행 상태: 로컬 `WORKING.md`가 있을 때 참고
 
 ## Design System

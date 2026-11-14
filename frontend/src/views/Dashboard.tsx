@@ -1,3 +1,5 @@
+import { AccountHistoryLink } from "./AccountHistoryLink";
+import { historyPreset } from "./historyQueryState";
 import { useMemo, useState } from "react";
 import { DashboardBalances } from "./DashboardBalances";
 import { api, chartToggles } from "../api";
@@ -146,7 +148,7 @@ export function Dashboard({ gen, go }: ViewProps) {
             <tbody>
               {expensesByAccount.map(([id, amt]) => (
                 <tr key={id}>
-                  <td>{accounts.find((a) => a.id === id)?.name ?? id}</td>
+                  <td><AccountHistoryLink accountId={id} start={historyPreset("this-month").start} end={historyPreset("this-month").end} includeChildren={false}>{accounts.find((a) => a.id === id)?.name ?? id}</AccountHistoryLink></td>
                   <td className="num">{amt.toLocaleString("ko-KR")}</td>
                 </tr>
               ))}

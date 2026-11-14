@@ -1,3 +1,4 @@
+import { AccountHistoryLink } from "./AccountHistoryLink";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
@@ -12,11 +13,12 @@ import "./statistics.css";
 
 function AccountTable({ data, kind, title }: { data: StatisticsData; kind: "income" | "expense" | "asset" | "liability"; title: string }) {
   const groups = groupStatistics(data, kind);
+  const start = kind === "income" || kind === "expense" ? data.start : "0001-01-01";
   return <section><h2>{title}</h2><table className="ledger" aria-label={title}>
     <thead><tr><th>계정 · 현재 경로</th><th className="num">원</th></tr></thead>
     {groups.map(group => <tbody key={group.id}>
-      {group.name !== null && <tr className="balance-group"><th colSpan={2} scope="rowgroup">{group.name}</th></tr>}
-      {group.items.map(item => <tr key={item.id}><td className="statistics-account">{item.label}
+      {group.name !== null && <tr className="balance-group"><th colSpan={2} scope="rowgroup"><AccountHistoryLink accountId={group.id} start={start} end={data.end}>{group.name}</AccountHistoryLink></th></tr>}
+      {group.items.map(item => <tr key={item.id}><td className="statistics-account"><AccountHistoryLink accountId={item.id} start={start} end={data.end} includeChildren={false}>{item.label}</AccountHistoryLink>
         {item.archived && <span className="badge">보관</span>}</td><td className="num">{fmtWon(item.value)}</td></tr>)}
       {group.name !== null && <tr className="statistics-subtotal"><th scope="row">{group.name} 소계</th><td className="num">{fmtWon(group.total)}</td></tr>}
     </tbody>)}
@@ -112,7 +114,7 @@ export function Statistics({ gen }: ViewProps) {
         <h2>월별 추이</h2><MonthlyFlow rows={data.monthly} />
         <div className="statistics-tables"><AccountTable data={data} kind="income" title="기간 수입 구성" /><AccountTable data={data} kind="expense" title="기간 지출 구성" />
           <AccountTable data={data} kind="asset" title="기간말 자산 구성" /><AccountTable data={data} kind="liability" title="기간말 부채 구성" /></div>
-        <p className="muted">계정 구성은 직접 기록을 한 번씩 합산합니다. 마이너스통장은 음수 잔액을 부채 구성에 표시하며, 자산·부채 구성은 기간말 0원이 아닌 계정을 보여줍니다.</p>
+        <p className="muted">계정명을 누르면 해당 계정의 실제 거래내역을 조회합니다. 거래내역에는 비원화 기록과 보관 계정도 포함됩니다. 계정 구성은 직접 기록을 한 번씩 합산합니다. 마이너스통장은 음수 잔액을 부채 구성에 표시하며, 자산·부채 구성은 기간말 0원이 아닌 계정을 보여줍니다.</p>
       </>}
     </section>
   </div>;

@@ -518,3 +518,8 @@ textarea:focus-visible,
 .rule-edit-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .rule-latest { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 12px; overflow-wrap: anywhere; }
 @media (max-width: 720px) { .actual-rule-editor .btn, .rules-workspace .btn { min-height: 44px; } }
+
+/* Account names remain readable as ledger text and identifiable as links. */
+.account-history-link { color: inherit; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; overflow-wrap: anywhere; }
+.account-history-link:hover { color: var(--accent); text-decoration-color: currentColor; }
+.account-history-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
