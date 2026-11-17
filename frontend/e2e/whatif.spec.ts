@@ -145,6 +145,19 @@ test("마이너스통장 개시잔액은 대시보드에서만 부채로 보고�
   await expect(row.getByRole("radio", { name: "예금" })).toBeChecked();
   await row.getByRole("radio", { name: "예금" }).press("ArrowRight");
   await expect(row.getByRole("radio", { name: "마이너스 사용" })).toBeChecked();
+  const desktop = page.viewportSize()!;
+  await page.setViewportSize({ width: 390, height: 900 });
+  const openingState = row.getByRole("group", { name: "개시잔액 상태" });
+  // Measure the clickable labels, not the visually hidden native radios.
+  for (const label of ["예금", "마이너스 사용"]) {
+    const target = openingState.getByText(label, { exact: true });
+    await target.scrollIntoViewIfNeeded();
+    const box = await target.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  }
+  await expect(page.locator("body")).toHaveJSProperty("scrollWidth", 390);
+  await page.setViewportSize(desktop);
   await page.getByLabel("케이뱅크 개시잔액").fill("123456");
   let releaseOpening!: () => void;
   const openingGate = new Promise<void>(resolve => { releaseOpening = resolve; });

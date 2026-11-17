@@ -447,6 +447,10 @@ textarea:focus-visible,
     display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
   }
   .settings-overdraft { min-height: 44px; }
+  .opening-state label {
+    display: flex; align-items: center; justify-content: center;
+    min-width: 44px; min-height: 44px;
+  }
   .settings-actions { display: grid; grid-template-columns: 1fr 1fr; }
   .toast { left: 12px; right: 12px; bottom: 12px; transform: none; }
 }
