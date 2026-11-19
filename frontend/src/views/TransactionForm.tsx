@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode, type RefObject } from "rea
 import { fmtDelta, fmtWon } from "../format";
 import type { Account } from "../api";
 import { TransactionAccountPicker, type AccountPickerModel } from "./TransactionAccountPicker";
-import { amountInput, chooseAccount, setTags, switchMode, type Draft, type OriginalRows, type Side, type SplitRow, type validateDraft } from "./transactionInputState";
+import { amountInput, categoryForAccount, chooseAccount, setTags, switchMode, type Draft, type OriginalRows, type Side, type SplitRow, type validateDraft } from "./transactionInputState";
 import { TransactionTagPicker } from "./TransactionTagPicker";
 import { CategoryManager, CategorySelect, type useLivingCategories } from "./LivingCategoryFields";
 import "./transaction-input.css";
@@ -57,7 +57,7 @@ export function TransactionForm({ title, intro, draft, model, change, field, val
   const name = (id: number | null) => id === null ? "계정을 선택하세요" : model.byId.get(id)?.name ?? `#${id}`;
   const accountPath = (id: number | null) => id === null ? name(id) : model.paths.get(id) ?? name(id);
   const eligible = (id: number | null) => id !== null && ["expense", "income"].includes(model.byId.get(id)?.type ?? "");
-  const select = (side: Side, id: number) => change(d => chooseAccount(d, side, id));
+  const select = (side: Side, id: number) => change(d => chooseAccount(d, side, id, eligible(id)));
   const editRow = (id: number, patch: Partial<SplitRow>) => change(d => ({ ...d, revision: d.revision + 1, rows: d.rows.map(r => r.id === id ? { ...r, ...patch } : r) }));
   const closePicker = (id: number) => { setActiveRow(null); requestAnimationFrame(() => document.getElementById(`split-account-${id}`)?.focus()); };
   const toggleMode = () => {
@@ -109,7 +109,7 @@ export function TransactionForm({ title, intro, draft, model, change, field, val
           {eligible(row.account) && <CategorySelect catalog={categories} label={`${index + 1}행 생활 분류`}
             value={row.categoryId} change={categoryId => editRow(row.id, { categoryId })} />}
           {validation.errors[row.id] && <p className="txn-error" id={`split-error-${row.id}`}>{validation.errors[row.id]}</p>}
-          {activeRow === row.id && <div className="split-picker" id={`split-picker-${row.id}`}><TransactionAccountPicker model={model} label={`${index + 1}행 계정`} value={row.account} onSelect={id => { editRow(row.id, { account: id, categoryId: row.account === id ? row.categoryId : row.postingId ? null : undefined }); closePicker(row.id); }} /><button type="button" className="btn secondary" onClick={() => closePicker(row.id)}>계정 선택 닫기</button></div>}
+          {activeRow === row.id && <div className="split-picker" id={`split-picker-${row.id}`}><TransactionAccountPicker model={model} label={`${index + 1}행 계정`} value={row.account} onSelect={id => { editRow(row.id, { account: id, categoryId: categoryForAccount(row, eligible(id)) }); closePicker(row.id); }} /><button type="button" className="btn secondary" onClick={() => closePicker(row.id)}>계정 선택 닫기</button></div>}
         </div>)}
         <button id="split-add" type="button" className="btn secondary" disabled={draft.rows.length >= MAX_POSTINGS} onClick={() => change(d => d.rows.length >= MAX_POSTINGS ? d : ({ ...d, revision: d.revision + 1, rows: [...d.rows, { id: Math.max(0, ...d.rows.map(r => r.id)) + 1, account: null, amount: "", debit: true }] }))}>+ 행 추가</button>
       </section>}

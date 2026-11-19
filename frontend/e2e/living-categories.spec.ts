@@ -96,7 +96,9 @@ test("basic edits carry posting categories through mode switches and clear only 
   const restored = switchMode(switchMode(original).draft).draft;
   expect(draftIdentity(restored)).toBe(draftIdentity(original));
   expect(validateDraft(restored, new Set([2, 3])).postings[0]).toMatchObject({ category_id: 7, posting_id: 41 });
-  const reassigned = chooseAccount(restored, "debit", 4);
+  const eligible = chooseAccount(restored, "debit", 5, true);
+  expect(validateDraft(eligible, new Set([5, 3])).postings[0]).toMatchObject({ category_id: 7, posting_id: 41 });
+  const reassigned = chooseAccount(restored, "debit", 4, false);
   expect(validateDraft(reassigned, new Set([3, 4])).postings[0]).toMatchObject({ category_id: null, posting_id: 41 });
   expect(draftIdentity({ ...original, debit: { ...original.debit, categoryId: 8 } })).not.toEqual(draftIdentity(original));
   expect(clearSavedDraft(original, original).debit.categoryId).toBeUndefined();

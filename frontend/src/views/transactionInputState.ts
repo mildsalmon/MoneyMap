@@ -53,8 +53,14 @@ export function editField(draft: Draft, field: "date" | "item" | "memo" | "amoun
   return next;
 }
 
-export function chooseAccount(draft: Draft, side: Side, account: number): Draft {
-  return { ...draft, revision: draft.revision + 1, [side]: { ...draft[side], categoryId: account === draft[side].account ? draft[side].categoryId : draft[side].postingId ? null : undefined, account, source: "manual", revision: draft[side].revision + 1 } };
+// Changing the ledger account keeps the posting's explicit category whenever
+// the new account can carry it. Send null to clear a persisted assignment.
+export function categoryForAccount(row: Pick<Choice, "categoryId" | "postingId">, eligible: boolean) {
+  return eligible ? row.categoryId : row.postingId === undefined ? undefined : null;
+}
+
+export function chooseAccount(draft: Draft, side: Side, account: number, eligible = false): Draft {
+  return { ...draft, revision: draft.revision + 1, [side]: { ...draft[side], categoryId: categoryForAccount(draft[side], eligible), account, source: "manual", revision: draft[side].revision + 1 } };
 }
 
 export function lookupToken(draft: Draft): LookupToken {
