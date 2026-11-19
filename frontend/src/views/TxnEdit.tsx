@@ -140,7 +140,7 @@ function EditSession({ initial, gen, refresh, showToast }: ViewProps & { initial
     draft={draft} change={change} field={field} model={model} validation={validation} onSave={() => void save()}
     canSave={original.editable && !!accounts.data && !!tags.data && validation.valid && phase === "editing"}
     saving={phase === "saving"} disabled={locked || !original.editable} tags={tags.data ?? []}
-    opening={opening} systemAccountId={original.opening_system_id} onComposingChange={value => { composing.current = value; }}
+    originals={originalRows(original)} opening={opening} systemAccountId={original.opening_system_id} onComposingChange={value => { composing.current = value; }}
     saveLabel="변경사항 저장" saveHint="저장하면 이 거래 한 건만 변경됩니다."
     recall={<div className="txn-recall" role="status">{!original.editable ? "현재 지원하지 않는 통화 또는 시스템 거래입니다. 원본을 원화로 변환하지 않습니다."
       : opening ? "계정의 시작 잔액이 바뀌며 이후 잔액과 전망에도 반영됩니다."

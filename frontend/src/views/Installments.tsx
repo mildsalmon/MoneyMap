@@ -26,6 +26,7 @@ export function Installments({gen, refresh, showToast}: ViewProps) {
   const accounts = query.data?.[1] ?? [];
   const plans = data?.plans ?? [];
   const [draft, setDraft] = useState(newDraft);
+  const dated = useQuery(`installment-accounts:${draft.date}:${gen}`, signal => api.datedAccounts(draft.date, signal));
   const [preview, setPreview] = useState<{number: number; due_date: string; principal: number}[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -84,7 +85,7 @@ export function Installments({gen, refresh, showToast}: ViewProps) {
   };
   const purchase = () => ({...draft, principal: Number(draft.principal), months: Number(draft.months), debit_account_id: Number(draft.debit_account_id), card_account_id: Number(draft.card_account_id), cash_account_id: Number(draft.cash_account_id)});
   const previewPurchase = async () => {
-    if (!data || locked) return;
+    if (!data || locked || !accountsReady) return;
     setBusy(true); setError("");
     try {
       const result = await req<{installments: NonNullable<typeof preview>}>("/installments/preview", {method: "POST", body: JSON.stringify({...purchase(), request_id: crypto.randomUUID(), expected_revision: data.revision}), signal: AbortSignal.timeout(15_000)});
@@ -92,9 +93,16 @@ export function Installments({gen, refresh, showToast}: ViewProps) {
     } catch (e) { setError((e as Error).message); } finally {setBusy(false);}
   };
   const field = (key: keyof typeof draft, value: string | boolean) => {setDraft({...draft, [key]: value}); setPreview(null);};
+  const currentAvailable = new Set(accounts.filter(a => !a.is_system && a.currency === "KRW" && isPostable(accounts,a)).map(a => a.id));
+  const purchaseAccounts = dated.data ?? [];
+  const onPurchaseDay = new Set(purchaseAccounts.filter(a => !a.is_system && a.currency === "KRW" && isPostable(purchaseAccounts,a)).map(a => a.id));
+  const accountsReady = onPurchaseDay.has(Number(draft.debit_account_id)) && onPurchaseDay.has(Number(draft.card_account_id))
+    && currentAvailable.has(Number(draft.card_account_id)) && currentAvailable.has(Number(draft.cash_account_id));
   const accountSelect = (key: "debit_account_id" | "card_account_id" | "cash_account_id", label: string, filter: (a: Account) => boolean) => (
     <label>{label}<select required value={draft[key]} onChange={e => field(key, e.target.value)}>
-      <option value="">선택</option>{accountTree(accounts).filter(row => !row.account.archived && !row.account.is_system && row.account.currency === "KRW" && isPostable(accounts, row.account) && filter(row.account)).map(row => <option key={row.account.id} value={row.account.id}>{"　".repeat(row.depth)}{row.account.name}</option>)}
+      <option value="">선택</option>{accountTree(key === "cash_account_id" ? accounts : purchaseAccounts).filter(({account}) => filter(account)
+        && (key === "cash_account_id" || onPurchaseDay.has(account.id))
+        && (key === "debit_account_id" || currentAvailable.has(account.id))).map(row => <option key={row.account.id} value={row.account.id}>{"　".repeat(row.depth)}{row.account.name}</option>)}
     </select></label>
   );
   const setMode = (p: InstallmentPlan, mode: string) => save(`/installments/${p.id}`, "PUT", {projection_mode: mode, rule_signature: p.current_rule_signature});
@@ -117,6 +125,8 @@ export function Installments({gen, refresh, showToast}: ViewProps) {
           <fieldset disabled={locked} className="installment-form">
             <label>구매 내역<input required maxLength={2000} value={draft.description} onChange={e => field("description", e.target.value)} /></label>
             <label>구매일<input type="date" required max={todayIso()} value={draft.date} onChange={e => field("date", e.target.value)} /></label>
+            {dated.error && <p role="alert">{dated.error} <button type="button" onClick={dated.reload}>계정 다시 조회</button></p>}
+            {purchaseAccounts[0]?.history_known === false && <p>이력 미상 · 구매일이 수집 시작 전이라 현재 기장 가능한 계정을 표시합니다.</p>}
             {accountSelect("debit_account_id", "구매 계정 (비용·자산)", a => a.type === "expense" || a.type === "asset")}
             {accountSelect("card_account_id", "카드 계정 (부채)", a => a.type === "liability")}
             {accountSelect("cash_account_id", "납부 통장", a => a.type === "asset")}
@@ -124,13 +134,13 @@ export function Installments({gen, refresh, showToast}: ViewProps) {
             <label>할부 개월 수<input type="number" required min="2" max="60" step="1" value={draft.months} onChange={e => field("months", e.target.value)} /></label>
             <label>첫 납부 예정일<input type="date" required min={draft.date} value={draft.first_due_date} onChange={e => field("first_due_date", e.target.value)} /></label>
             <label className="installment-wide"><input type="checkbox" checked={draft.exclude_from_spend} onChange={e => field("exclude_from_spend", e.target.checked)} /> 일회성 구매로 지정 (기존 시나리오의 반복 소비 추정에서만 제외, 소비 통계는 유지)</label>
-            <button className="btn secondary" type="submit">회차 미리보기</button>
+            <button className="btn secondary" type="submit" disabled={!accountsReady}>회차 미리보기</button>
           </fieldset>
         </form>
         {preview && <div>
           <p>구매 거래 {fmtWon(Number(draft.principal))}와 아래 납부 일정을 함께 저장합니다.</p>
           <div className="table-scroll"><table className="ledger"><thead><tr><th>회차</th><th>예정일</th><th className="num">원금</th></tr></thead><tbody>{preview.map(r => <tr key={r.number}><td>{r.number}회</td><td>{r.due_date}</td><td className="num">{fmtWon(r.principal)}</td></tr>)}</tbody></table></div>
-          <button className="btn primary" disabled={locked} onClick={() => save("/installments", "POST", purchase())}>구매·할부 일정 저장</button>
+          <button className="btn primary" disabled={locked || !accountsReady} onClick={() => save("/installments", "POST", purchase())}>구매·할부 일정 저장</button>
         </div>}
       </details>
       <h2>할부 목록</h2>

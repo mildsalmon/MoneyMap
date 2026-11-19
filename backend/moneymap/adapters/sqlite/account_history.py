@@ -1,6 +1,7 @@
 """Account state at Seoul day close. The journal and its clock use UTC milliseconds."""
 from __future__ import annotations
 
+from collections import defaultdict
 from contextlib import contextmanager
 from datetime import date, datetime, time, timezone
 from itertools import groupby
@@ -9,6 +10,7 @@ import sqlite3
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from moneymap.domain.services import account_name_key, validate_postable_accounts
 from moneymap.domain.errors import DomainConflictError, DomainNotFoundError, DomainValidationError
 from .common import _account_write
 
@@ -53,7 +55,7 @@ def migrate_account_history(conn: sqlite3.Connection) -> None:
     changes = " OR ".join(f"OLD.{f} IS NOT NEW.{f}" for f in FIELDS)
     for name, operation, kind, before in (
         ("create", "INSERT ON accounts", "'create'", "NULL"),
-        ("change", f"UPDATE ON accounts WHEN {changes}", action, _snapshot("OLD")),
+        ("change", f"UPDATE ON accounts WHEN ({changes}) AND NOT EXISTS (SELECT 1 FROM account_action_context WHERE batch='projection')", action, _snapshot("OLD")),
     ):
         conn.execute(f"""CREATE TRIGGER account_history_{name} AFTER {operation} BEGIN
             INSERT INTO account_state_events VALUES
@@ -80,65 +82,183 @@ def _effective(conn, day: date) -> str:
 # The latest correction replaces the effective time of every row in its action.
 # seq is the stable tie breaker, even when a later correction creates a tie.
 TIMELINE = """SELECT e.*, coalesce(c.effective_at,e.effective_at) AS applied_at,
-                     coalesce(c.revision,0) AS revision
+                     coalesce(c.revision,0) AS revision,
+                     (e.action='group' AND EXISTS (
+                        SELECT 1 FROM account_state_events m WHERE m.batch=e.batch AND m.action='reparent'
+                          AND json_extract(m.before_state,'$.parent_id')=e.account_id
+                     )) AS automatic_group
               FROM account_state_events e LEFT JOIN account_date_corrections c
               ON c.revision=(SELECT max(revision) FROM account_date_corrections WHERE batch=e.batch)"""
 
 
-def _replay(conn, until=None, *, validate=False):
+def _timeline(conn, until=None):
     where = "WHERE applied_at <= ?" if until else ""
     rows = conn.execute(f"SELECT * FROM ({TIMELINE}) {where} ORDER BY applied_at,seq", (until,) if until else ())
-    states = {}
     for row in rows:
-        aid = row["account_id"]
-        after = json.loads(row["after_state"])
-        before = json.loads(row["before_state"]) if row["before_state"] else None
-        if before is None:
-            states[aid] = after
-        else:
-            # Apply only the fields changed by this action. A later rename
-            # must not overwrite an archive date corrected after the rename.
-            patch = {field: value for field, value in after.items() if value != before[field]}
-            if validate and (aid not in states or any(states[aid][f] != before[f] for f in patch)):
-                raise DomainConflictError("같은 계정의 변경 순서와 맞지 않는 적용일입니다", code="account_history_order")
-            states[aid].update(patch)
-        if validate and row["action"] != "baseline":
-            _validate_parent_state(states, aid)
-    return states
+        event = dict(row)
+        event["before_state"] = json.loads(row["before_state"]) if row["before_state"] else {}
+        event["after_state"] = json.loads(row["after_state"])
+        yield event
+
+
+class _Tree:
+    """Replay account operations, including group status caused by the last child leaving."""
+
+    def __init__(self):
+        self.accounts = {}
+        self.children = defaultdict(set)
+        self.grouped_by_move = {}
+
+    def apply(self, event):
+        aid = event["account_id"]
+        before, after = event["before_state"], event["after_state"]
+        touched = {aid}
+        errors = set()
+        if event["automatic_group"]:
+            # The recorded live-row update is audit evidence. Its effective
+            # outcome was already computed at the move using the dated tree.
+            return touched, errors
+        patch = {k: v for k, v in after.items() if k not in before or before[k] != v}
+        current = self.accounts.get(aid, {})
+        if before and (not current or any(current.get(k) != before[k] for k in patch)):
+            errors.add(("sequence", aid))
+        previous = current.get("parent_id")
+        parent = patch.get("parent_id", previous)
+        if event["action"] == "reparent" and parent is not None:
+            target = self.accounts.get(parent, {})
+            if not target.get("is_placeholder") and not self.children[parent]:
+                errors.add(("move_target_group", parent))
+        if event["action"] in {"settings", "reparent"} and current.get("archived"):
+            errors.add(("archived_settings", aid))
+        self.accounts[aid] = {**current, **patch}
+        if previous != parent:
+            if previous is not None:
+                self.children[previous].discard(aid)
+                touched.add(previous)
+            if parent is not None:
+                self.children[parent].add(aid)
+                touched.add(parent)
+        if event["action"] == "reparent" and previous is not None:
+            source = self.accounts.get(previous)
+            grouped = bool(source and not self.children[previous] and not source["is_placeholder"]
+                           and not source["is_system"] and not source["is_overdraft"])
+            self.grouped_by_move[event["batch"]] = grouped
+            if grouped:
+                source["is_placeholder"] = 1
+        return touched, errors
+
+    def violations(self, touched):
+        """Check changed nodes, their edges, siblings and ancestry in this snapshot."""
+        errors = set()
+        inspect = touched.union(*(self.children[i] for i in touched))
+        for aid in inspect:
+            a = self.accounts.get(aid)
+            if not a or "type" not in a:
+                continue
+            parent_id = a["parent_id"]
+            group = a["is_placeholder"] or self.children[aid]
+            if a["is_overdraft"] and (group or a["is_system"] or a["type"] != "asset"):
+                errors.add(("overdraft", aid))
+            if a["include_in_cash"] and (group or a["is_system"] or a["archived"] or a["type"] != "asset"):
+                errors.add(("cash", aid))
+            if parent_id is not None:
+                parent = self.accounts.get(parent_id)
+                if (not parent or parent.get("type") != a["type"] or parent["is_system"]
+                    or parent["is_overdraft"] or parent["include_in_cash"]
+                    or (parent["archived"] and not a["archived"])):
+                    errors.add(("parent", aid, parent_id))
+                seen = {aid}
+                cursor = parent_id
+                while cursor in self.accounts:
+                    if cursor in seen:
+                        errors.add(("cycle", aid))
+                        break
+                    seen.add(cursor)
+                    cursor = self.accounts[cursor].get("parent_id")
+            for other_id, other in self.accounts.items():
+                if (other_id != aid and other.get("parent_id") == parent_id and other.get("type") == a["type"]
+                    and account_name_key(other["name"]) == account_name_key(a["name"])):
+                    errors.add(("name", min(aid, other_id), max(aid, other_id)))
+        return errors
+
+    def reason(self, aid):
+        state = self.accounts.get(aid)
+        if not state:
+            return "not_created"
+        if state["is_system"]:
+            return "system"
+        if state["archived"]:
+            return "archived"
+        if state["is_placeholder"] or self.children[aid]:
+            return "group"
+        return "postable"
+
+
+def _tree_at(conn, until):
+    tree = _Tree()
+    for event in _timeline(conn, until):
+        tree.apply(event)
+    return tree
+
+
+def _validate_and_project(conn, original):
+    # Walk both timelines through the union of their boundaries. Only a new
+    # violation can reject a correction, including an old violation extended
+    # into a new interval. Unrelated legacy defects are left as recorded.
+    proposed = {(e["applied_at"], e["seq"]): e for e in _timeline(conn)}
+    earlier = {(e["applied_at"], e["seq"]): e for e in original}
+    old_tree, new_tree = _Tree(), _Tree()
+    directly_changed = set()
+    for boundary in sorted(earlier.keys() | proposed.keys()):
+        old_event, new_event = earlier.get(boundary), proposed.get(boundary)
+        old_ids, old_errors = old_tree.apply(old_event) if old_event else (set(), set())
+        new_ids, new_errors = new_tree.apply(new_event) if new_event else (set(), set())
+        touched = old_ids | new_ids
+        if old_event != new_event:
+            directly_changed.update(touched)
+        if directly_changed:
+            if new_errors - old_errors or new_tree.violations(touched) - old_tree.violations(touched):
+                raise DomainConflictError("적용일이 계정 변경 순서 또는 상위 계정 조건과 맞지 않습니다",
+                                          code="account_history_order")
+    # A corrected move can change today's explicit-group flag even when its
+    # current child count is nonzero. This is a derived write in the same lock.
+    conn.execute("INSERT INTO account_action_context VALUES ('projection',NULL)")
+    for row in conn.execute("SELECT id,is_placeholder FROM accounts").fetchall():
+        effective = new_tree.accounts[row["id"]]["is_placeholder"]
+        derived_changed = old_tree.accounts.get(row["id"], {}).get("is_placeholder") != effective
+        if (derived_changed or row["id"] in directly_changed) and effective != row["is_placeholder"]:
+            conn.execute("UPDATE accounts SET is_placeholder=?,version=version+1 WHERE id=?", (effective,row["id"]))
+    conn.execute("DELETE FROM account_action_context")
 
 
 @contextmanager
 def account_action(conn, effective_date=None):
     stamp = _effective(conn, effective_date) if effective_date is not None else None
+    original = list(_timeline(conn)) if stamp is not None else None
     conn.execute(f"INSERT INTO account_action_context VALUES (?,coalesce(?,{NOW}))", (uuid4().hex, stamp))
     yield
     conn.execute("DELETE FROM account_action_context")
-    if stamp is not None:
-        _replay(conn, validate=True)
+    if original is not None:
+        _validate_and_project(conn, original)
 
 
-def _validate_parent_state(states, aid):
-    account = states[aid]
-    parent = account["parent_id"]
-    seen = {aid}
-    while parent is not None:
-        if parent not in states or parent in seen or (not account["archived"] and states[parent]["archived"]):
-            raise DomainConflictError("상위 계정의 변경 순서와 맞지 않는 적용일입니다", code="account_history_order")
-        seen.add(parent)
-        parent = states[parent]["parent_id"]
-    if account["archived"] and any(a["parent_id"] == aid and not a["archived"] for a in states.values()):
-        raise DomainConflictError("하위 계정 보관 순서와 맞지 않는 적용일입니다", code="account_history_order")
+def dated_source_grouped(conn):
+    context = conn.execute("SELECT * FROM account_action_context").fetchone()
+    return _tree_at(conn, context["effective_at"]).grouped_by_move.get(context["batch"], False)
 
 
 def dated_accounts(conn: sqlite3.Connection, day: date):
     from .accounts import SqliteAccountRepository
 
     accounts = SqliteAccountRepository(conn).find_all()
+    # Version-pinned migration tools can still open a ledger before collection.
+    if conn.execute("PRAGMA user_version").fetchone()[0] < 12:
+        return accounts, False
     cutoff = _utc(datetime.combine(day, time.max, SEOUL))
     known = cutoff >= _start(conn)
     if not known or day >= datetime.now(SEOUL).date():
         return accounts, known
-    states = _replay(conn, cutoff)
+    states = _tree_at(conn, cutoff).accounts
     result = []
     for a in accounts:
         state = states.get(a.id)
@@ -152,37 +272,29 @@ def dated_accounts(conn: sqlite3.Connection, day: date):
     return result, known
 
 
-def _eligibility_intervals(account_id, started_at, events):
-    """Coalesce adjacent equal states, publishing only the last seq at a boundary."""
+def posting_accounts_on(conn, day, ids):
+    accounts, _ = dated_accounts(conn, day)
+    validate_postable_accounts(accounts, list(ids))
+    selected = {a.id: a for a in accounts if a.id in ids}
+    for a in selected.values():
+        if a.archived or a.is_system:
+            raise DomainValidationError(f"'{a.name}' 계정을 해당 거래일에 사용할 수 없습니다. 다른 계정을 선택하세요",
+                                        code="account_unavailable", context={"account_id": a.id})
+    return selected
+
+
+def _eligibility_intervals(conn, account_id):
+    tree = _Tree()
     intervals = []
-    state = {}
-    children = set()
-    for applied_at, changes in groupby(events, key=lambda e: e["applied_at"]):
+    for stamp, changes in groupby(_timeline(conn), key=lambda e: e["applied_at"]):
         for event in changes:
-            before, after = event["before_state"] or {}, event["after_state"]
-            if event["account_id"] == account_id:
-                state.update({k: v for k, v in after.items() if k not in before or before[k] != v})
-            elif after["parent_id"] == account_id:
-                children.add(event["account_id"])
-            else:
-                children.discard(event["account_id"])
-        if not state:
-            continue
-        if state["is_system"]:
-            reason = "system"
-        elif state["archived"]:
-            reason = "archived"
-        elif state["is_placeholder"] or children:
-            reason = "group"
-        else:
-            reason = "postable"
-        if not intervals and applied_at > started_at:
-            intervals.append({"start": started_at, "end": applied_at, "reason": "not_created"})
+            tree.apply(event)
+        reason = tree.reason(account_id)
         if intervals and intervals[-1]["reason"] == reason:
             continue
         if intervals:
-            intervals[-1]["end"] = applied_at
-        intervals.append({"start": applied_at, "end": None, "reason": reason})
+            intervals[-1]["end"] = stamp
+        intervals.append({"start": stamp, "end": None, "reason": reason})
     return intervals
 
 
@@ -203,7 +315,7 @@ def account_events(conn, account_id):
                    if r["batch"] in batches]
     started_at = _start(conn)
     return {"started_at": started_at, "events": events, "corrections": corrections,
-            "intervals": _eligibility_intervals(account_id, started_at, events)}
+            "intervals": _eligibility_intervals(conn, account_id)}
 
 
 def correct_date(conn, account_id, seq, day, expected_revision):
@@ -216,7 +328,8 @@ def correct_date(conn, account_id, seq, day, expected_revision):
         if event["revision"] != expected_revision:
             raise DomainConflictError("적용일이 이미 정정되었습니다. 이력을 다시 확인하세요", code="account_history_stale")
         stamp = _effective(conn, day)
+        original = list(_timeline(conn))
         conn.execute(f"INSERT INTO account_date_corrections VALUES (NULL,?,?,?,{NOW})",
                      (event["batch"], event["applied_at"], stamp))
-        _replay(conn, validate=True)
+        _validate_and_project(conn, original)
         return account_events(conn, account_id)

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api, type Account } from "../api";
+import { accountPickerModel } from "./TransactionAccountPicker";
 import { useQuery } from "./scenarios/useQuery";
 
 const labels: Record<string, string> = {
@@ -18,7 +19,7 @@ interface HistoryProps {
   gen: number;
 }
 
-function Events({ account, accounts, refresh, onArchiveChange, archiveReady, onPendingChange, gen }: HistoryProps & { account: Account }) {
+function Events({ account, paths, refresh, onArchiveChange, archiveReady, onPendingChange, gen }: HistoryProps & { account: Account; paths: Map<number, string> }) {
   const [actionDay, setActionDay] = useState("");
   const history = useQuery(`state-history:${account.id}:${account.version}:${gen}`, signal => api.accountStateHistory(account.id, signal));
   const [seq, setSeq] = useState<number>();
@@ -26,10 +27,11 @@ function Events({ account, accounts, refresh, onArchiveChange, archiveReady, onP
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
   const data = history.data;
-  const name = (id: unknown) => accounts.find(a => a.id === id)?.name ?? "최상위";
+  const name = (id: unknown) => typeof id === "number" ? paths.get(id) ?? `#${id}` : "최상위";
   if (history.error) return <p role="alert">{history.error} <button type="button" onClick={history.reload}>이력 다시 조회</button></p>;
   if (!data) return <p role="status">이력 조회 중…</p>;
   const selected = data.events.find(e => e.seq === seq);
+  const linkedMove = selected && data.events.find(e => e.batch === selected.batch && e.action === "reparent");
   async function correct() {
     if (!selected || !day || saving) return;
     setSaving(true); onPendingChange(true);
@@ -64,6 +66,7 @@ function Events({ account, accounts, refresh, onArchiveChange, archiveReady, onP
     {selected && <div className="field">
       <label>새 적용일 <input type="date" value={day} disabled={saving} onChange={e => setDay(e.target.value)} /></label>
       <p>{labels[selected.action]} 상태를 선택한 날짜 0시부터 적용합니다.</p>
+      {linkedMove && <p aria-label="함께 정정할 이동">같이 적용할 이동 · {name(linkedMove.account_id)} · {name(linkedMove.before_state?.parent_id)} → {name(linkedMove.after_state.parent_id)}. 이전 부모의 그룹 여부도 다시 계산합니다.</p>}
       <button type="button" className="btn primary" disabled={!day || saving} onClick={() => void correct()}>정정 저장</button>
       <button type="button" className="btn secondary" disabled={saving} onClick={() => setSeq(undefined)}>취소</button>
     </div>}
@@ -73,13 +76,14 @@ function Events({ account, accounts, refresh, onArchiveChange, archiveReady, onP
 
 export function AccountStateHistory(props: HistoryProps) {
   const { accounts } = props;
+  const paths = useMemo(() => accountPickerModel(accounts).paths, [accounts]);
   const [id, setId] = useState("");
   const account = accounts.find(a => a.id === Number(id));
   return <details className="panel"><summary>계정 상태 이력</summary>
     <label className="field">이력을 볼 계정 <select value={id} onChange={e => setId(e.target.value)}>
       <option value="">계정 선택</option>
-      {accounts.filter(a => !a.is_system).map(a => <option key={a.id} value={a.id}>{a.name}{a.archived ? " (보관)" : ""}</option>)}
+      {accounts.filter(a => !a.is_system).map(a => <option key={a.id} value={a.id}>{paths.get(a.id) ?? a.name}{a.archived ? " (보관)" : ""}</option>)}
     </select></label>
-    {account && <Events key={account.id} account={account} {...props} />}
+    {account && <Events key={account.id} account={account} paths={paths} {...props} />}
   </details>;
 }

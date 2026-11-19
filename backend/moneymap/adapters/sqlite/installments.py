@@ -20,6 +20,7 @@ from moneymap.domain.errors import (
 from moneymap.domain.installments import schedule
 from moneymap.domain.projection import ProjectionEvent
 from moneymap.domain.services import validate_postable_accounts
+from .account_history import posting_accounts_on
 from .accounts import SqliteAccountRepository
 from .common import _account_write
 from .transactions import _insert_txn
@@ -80,18 +81,19 @@ def create(conn, command):
     def apply():
         if command.date > now().date():
             raise DomainValidationError("구매일은 오늘 또는 과거여야 합니다")
+        by_id = posting_accounts_on(conn, command.date, {command.debit_account_id, command.card_account_id})
+        # The plan also commits future payments to this card and cash account.
+        # Preserve their separate current-lifecycle checks.
         accounts = SqliteAccountRepository(conn).find_all()
-        ids = {
-            command.debit_account_id,
-            command.card_account_id,
-            command.cash_account_id,
-        }
-        validate_postable_accounts(accounts, list(ids))
-        by_id = {a.id: a for a in accounts}
-        for account_id in ids:
-            a = by_id.get(account_id)
-            if a is None or a.archived or a.is_system or a.currency != "KRW":
-                raise DomainValidationError("사용 가능한 원화 말단 계정을 선택하세요")
+        schedule_ids = {command.card_account_id, command.cash_account_id}
+        validate_postable_accounts(accounts, list(schedule_ids))
+        for account in accounts:
+            if account.id in schedule_ids:
+                if account.archived or account.is_system:
+                    raise DomainValidationError("납부에 사용할 수 있는 통장과 카드를 선택하세요")
+                by_id[account.id] = account
+        if any(account.currency != "KRW" for account in by_id.values()):
+            raise DomainValidationError("사용 가능한 원화 말단 계정을 선택하세요")
         if (
             by_id[command.card_account_id].type.value != "liability"
             or by_id[command.cash_account_id].type.value != "asset"

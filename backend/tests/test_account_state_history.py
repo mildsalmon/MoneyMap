@@ -189,3 +189,92 @@ def test_creation_and_parent_eligibility_across_corrections(ledger):
     assert client.post("/api/accounts/2/restore?effective_date=9999-12-31").json()["detail"]["code"] == "account_history_range"
     assert client.get("/api/accounts/99999/state-history").status_code == 404
     assert client.get("/api/accounts?on=0001-01-01").json()[0]["history_known"] is False
+
+
+def test_installment_purchase_obeys_archived_interval_and_is_atomic(ledger):
+    path, client = ledger
+    card = client.post("/api/accounts", json={"name": "이력 카드", "type": "liability"}).json()["id"]
+    assert correct(client, history(client, card)["events"][0], "2020-05-20").is_success
+    act(client, "archive", "2020-06-01", card)
+    act(client, "restore", "2020-06-05", card)
+    body = dict(description="할부 이력", date="2020-06-03", debit_account_id=3, card_account_id=card,
+                cash_account_id=2, principal=1000, months=2, first_due_date="2020-07-01",
+                request_id=str(uuid4()), expected_revision=client.get("/api/installments").json()["revision"])
+
+    def stored():
+        tables = ("transactions", "postings", "installment_plans", "installments",
+                  "installment_allocations", "installment_requests", "calculation_revisions", "account_balance_history")
+        with connect(str(path)) as c:
+            return {t: [tuple(r) for r in c.execute(f"SELECT * FROM {t}")] for t in tables}
+
+    before = stored()
+    assert client.post("/api/installments", json=body).status_code == 400
+    assert stored() == before
+    body["date"] = "2020-06-05"
+    response = client.post("/api/installments", json=body)
+    assert response.status_code == 201
+    assert client.post("/api/installments", json=body).json() == response.json()
+    after = stored()
+    assert len(after["postings"]) == len(before["postings"]) + 2
+    assert len(after["installments"]) == 2 and len(after["installment_requests"]) == 1
+
+
+def test_last_child_is_evaluated_at_move_time_and_after_correction(ledger):
+    _, client = ledger
+    later = client.post("/api/accounts", json={"name":"두 번째 자식","type":"asset","parent_id":4}).json()["id"]
+    assert correct(client, history(client, later)["events"][0], "2020-06-05").is_success
+    cmd = dict(name="이동할 계정", parent_id=5, is_overdraft=False, version=1, effective_date="2020-06-01")
+    moved = client.put("/api/accounts/6/settings", json=cmd)
+    assert moved.is_success
+    def parent(day):
+        return next(a for a in client.get("/api/accounts",params={"on":day}).json() if a["id"] == 4)
+    assert parent("2020-06-02")["is_placeholder"]
+    assert client.post("/api/transactions", json=post("2020-06-02",4)).status_code == 400
+    assert all(i["reason"] == "group" for i in history(client,4)["intervals"])
+    assert moved.json()["effects"]["source_parent_grouped"]
+    # Move the second child's creation before the move. The source never empties.
+    assert correct(client, history(client, later)["events"][0], "2020-05-25").is_success
+    assert not parent("2020-06-02")["is_placeholder"]
+    assert not next(a for a in client.get("/api/accounts").json() if a["id"] == 4)["is_placeholder"]
+    assert client.post("/api/transactions", json=post("2020-06-02",4)).status_code == 400
+
+
+@pytest.mark.parametrize("flag", ["is_overdraft", "include_in_cash"])
+def test_child_cannot_cross_historical_leaf_only_configuration(ledger, flag):
+    _, client = ledger
+    for version, enabled, day in [(1,True,"2020-06-01"),(2,False,"2020-06-05")]:
+        settings = dict(name="이력 통장",parent_id=None,is_overdraft=False,version=version,effective_date=day)
+        settings[flag] = enabled
+        assert client.put("/api/accounts/2/settings", json=settings).is_success
+    child = client.post("/api/accounts", json={"name":"자식","type":"asset","parent_id":2}).json()["id"]
+    event = history(client, child)["events"][0]
+    before = history(client, child)
+    assert correct(client, event, "2020-06-03").status_code == 409
+    assert history(client, child) == before
+    assert correct(client, event, "2020-06-05").is_success
+
+
+def test_standard_seed_skips_archived_path_and_preserves_id_and_postings(ledger):
+    path, client = ledger
+    assert client.put("/api/accounts/3/settings", json=dict(name="식비",parent_id=None,is_overdraft=False,version=1)).is_success
+    assert client.post("/api/accounts/3/archive").is_success
+    first = client.post("/api/accounts/seed-standard")
+    assert first.is_success
+    accounts = client.get("/api/accounts").json()
+    assert not any(a["parent_id"] == 3 for a in accounts)
+    assert next(a for a in accounts if a["name"] == "식비")["id"] == 3
+    assert client.post("/api/accounts/seed-standard").json()["created"] == 0
+    with connect(str(path)) as c:
+        assert c.execute("SELECT account_id FROM postings WHERE id=42").fetchone()[0] == 3
+
+
+def test_unrelated_legacy_invalid_history_survives_a_legal_correction(ledger):
+    path, client = ledger
+    # Reproduce an older seed writer's invalid edge, then repair the live parent.
+    with connect(str(path)) as c:
+        c.execute("UPDATE accounts SET archived=1 WHERE id=4")
+        c.execute("INSERT INTO accounts(name,type,parent_id,position) VALUES('old child','asset',4,2)")
+        c.execute("UPDATE accounts SET archived=0 WHERE id=4")
+    original = history(client,4)
+    act(client, "archive", "2020-06-16")
+    assert history(client,4) == original

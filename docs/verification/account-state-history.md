@@ -15,3 +15,17 @@ The [approved §4 design](../designs/backlog-office-hours-2026-11-19.md) covers 
 The UI shows half-open eligibility periods. Each period includes its start and ends immediately before the next start. Reads fold same-time changes by their original sequence, apply the latest date correction to the entire action, and coalesce adjacent equal states. A backdated change therefore affects reads from the earliest changed boundary, including both parents of a move. The ledger stores the journal and derives periods on read.
 
 The backend regression suite is in [test_account_state_history.py](../../backend/tests/test_account_state_history.py). The browser check is in [account-state-history.spec.ts](../../frontend/e2e/account-state-history.spec.ts). The PR verification record identifies the tested commit, commands, isolated ports, and results.
+
+## Independent review regressions
+
+The review of `063bf69` reproduced seven defects. Each row identifies the failure and the regression check for the follow-up.
+
+| Finding | Regression and observed outcome |
+| --- | --- |
+| Installment purchase bypass | On June 3 a crafted purchase and a stale browser preview both reached the write path. The server now rejects them before writing. An independent SQLite snapshot compares transactions, postings, plans, installments, allocations, receipts, balance history and revisions. The June 5 retry creates one purchase. Future payment account restrictions still apply to the card and cash account. |
+| Last child at effective time | On June 1 child 6 moves out of account 4. Its second child first exists on June 5. Account 4 remains a group on June 2 in the API, availability periods and picker. Correcting the second creation to May 25 clears the derived explicit flag while the remaining child still makes account 4 a group. |
+| Standard seed and unrelated history | Reusing archived 식비 skips its entire standard subtree. A second seed adds zero accounts and the existing posting retains its ID. A separate fixture retains an invalid historical parent/child interval and permits an unrelated dated archive. |
+| Historical leaf constraints | Moving a child's creation into its parent's overdraft or cash-only period returns 409 with the original history intact. Moving it to the day the restriction ends succeeds. |
+| Carried selection | After saving on June 5 and moving the next draft to an archived day, Chromium displays a reselect instruction. Only the matching original posting/account pair in edit mode receives the retention message. |
+| Duplicate names | Two 생활비 accounts appear under distinct full paths in the history selector. |
+| Linked correction | Selecting the former parent's automatic group event shows the affected child and source/destination paths before Save. |

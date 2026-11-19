@@ -25,14 +25,13 @@ from moneymap.domain.money import Money
 from moneymap.domain.scenario import ACTUAL_SCENARIO_ID
 from moneymap.domain.services import (
     opening_balance_posting_amount,
-    validate_postable_accounts,
 )
 from moneymap.domain.transaction import Posting, Transaction
 
 from moneymap.domain.transaction_input import normalize_item_key
 from .opening_balances import V4_OPENING_BALANCES_SQL
 
-from .account_history import dated_accounts
+from .account_history import dated_accounts, posting_accounts_on
 from .common import _D, _iso, _translate_integrity_error
 
 
@@ -130,23 +129,7 @@ class SqliteTransactionRepository:
             raise NotImplementedError("기존 거래는 버전 검증을 포함한 update()를 사용하세요")
         try:
             self._conn.execute("BEGIN IMMEDIATE")
-            accounts, _ = dated_accounts(self._conn, txn.date)
-            validate_postable_accounts(
-                accounts,
-                [p.account_id for p in txn.postings],
-            )
-            targets = {p.account_id for p in txn.postings}
-            for account in accounts:
-                if account.id not in targets:
-                    continue
-                # System accounts are a capability boundary. Only dedicated
-                # internal workflows such as create_opening_balance() may call
-                # _insert_txn() with one; transaction shape never grants access.
-                if account.archived or account.is_system:
-                    raise DomainValidationError(
-                        f"'{account.name}' 계정을 해당 거래일에 사용할 수 없습니다. 다른 계정을 선택하세요",
-                        code="account_unavailable", context={"account_id": account.id},
-                    )
+            posting_accounts_on(self._conn, txn.date, {p.account_id for p in txn.postings})
             txn_id = _insert_txn(self._conn, txn)
             self._conn.commit()
         except Exception:
