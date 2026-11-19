@@ -28,7 +28,6 @@ function body(start = "2026-01-01", end = "2026-02-28"): Statistics {
 }
 async function setup(page: Page) {
   await page.clock.install({ time: new Date("2026-10-25T01:00:00Z") });
-  await page.route("**/api/materialize", r => r.fulfill({ json: { created: 0, transactions: [] } }));
   const requests: string[] = [];
   await page.route(endpoint, r => {
     requests.push(r.request().url()); const p = new URL(r.request().url()).searchParams;
@@ -206,3 +205,66 @@ test("mobile long group names leave exact amounts visible", async ({ page }) => 
     expect(box.x + box.width).toBeLessThanOrEqual(390);
   }
 });
+
+for (const entry of ["statistics", "accounts"] as const) {
+  test(`a due rule materializes once on the first ordinary screen after direct ${entry} entry`, async ({ page, request }) => {
+    const date = "2003-03-15";
+    const description = `통계 진입 회귀 ${crypto.randomUUID()}`;
+    async function accountId(type: "income" | "asset") {
+      const response = await request.post(`${base}/accounts`, { data: { name: `${description} ${type}`, type } });
+      expect(response.status()).toBe(201);
+      return (await response.json()).id;
+    }
+    const rule = await request.post(`${base}/rules`, { data: {
+      description, from_account_id: await accountId("income"), to_account_id: await accountId("asset"),
+      amount: 100, schedule: "monthly:15", start_date: date, end_date: date,
+    } });
+    expect(rule.status()).toBe(201);
+    const { id } = await rule.json();
+    async function generatedTransactions() {
+      const response = await request.get(`${base}/transactions`);
+      expect(response.ok()).toBeTruthy();
+      const rows: { id: number; source_rule_id: number | null }[] = await response.json();
+      return rows.filter(row => row.source_rule_id === id);
+    }
+    let writes = 0;
+    page.on("request", req => {
+      if (req.method() === "POST" && new URL(req.url()).pathname === "/api/materialize") writes++;
+    });
+    const title = page.locator(".statistics-result-title");
+    const income = page.getByLabel("기간 수입과 지출", { exact: true }).locator("dd").first();
+    try {
+      expect(await generatedTransactions()).toHaveLength(0);
+      if (entry === "statistics") {
+        await page.goto(`/statistics/?start=${date}&end=${date}`);
+        await expect(page.locator(".side .health")).toContainText("검산 정상");
+        await expect(title).toHaveText(`${date} ~ ${date} · 0건`);
+        await expect(income).toHaveText("₩0");
+        await page.getByLabel("종료일", { exact: true }).fill("2003-03-16");
+        await page.getByRole("button", { name: "조회", exact: true }).click();
+        await expect(title).toHaveText(`${date} ~ 2003-03-16 · 0건`);
+        expect(await generatedTransactions()).toHaveLength(0);
+        expect(writes).toBe(0);
+        await page.getByRole("button", { name: "계정·개시잔액", exact: true }).click();
+      } else {
+        await page.goto("/accounts");
+      }
+      await expect(page.locator(".banner.info")).toContainText(description);
+      expect(await generatedTransactions()).toHaveLength(1);
+      await page.getByRole("button", { name: "통계", exact: true }).click();
+      await page.getByLabel("시작일", { exact: true }).fill(date);
+      await page.getByLabel("종료일", { exact: true }).fill(date);
+      await page.getByRole("button", { name: "조회", exact: true }).click();
+      await expect(title).toHaveText(`${date} ~ ${date} · 1건`);
+      await expect(income).toHaveText("₩100");
+      await page.getByRole("button", { name: "계정·개시잔액", exact: true }).click();
+      await expect(page.getByRole("row").filter({ hasText: description }).first()).toBeVisible();
+      expect(writes).toBe(1);
+      expect(await generatedTransactions()).toHaveLength(1);
+    } finally {
+      const generated = await generatedTransactions();
+      await request.delete(`${base}/rules/${id}`);
+      for (const transaction of generated) await request.delete(`${base}/transactions/${transaction.id}`);
+    }
+  });
+}

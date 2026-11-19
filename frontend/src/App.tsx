@@ -1,4 +1,4 @@
-import { Routes, Route, useNavigate, useLocation } from "react-router-dom";
+import { Routes, Route, useNavigate, useLocation, useMatch } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BarChart3, CreditCard, FolderTree, GitBranch, PenLine, Repeat, ScrollText } from "lucide-react";
 import { api } from "./api";
@@ -54,13 +54,18 @@ export function App() {
     api.status().then(setStatus).catch(() => {});
   }, []);
 
-  const didInit = useRef(false);
+  const onStatistics = useMatch("/statistics") !== null;
+  const didMaterialize = useRef(false);
   useEffect(() => {
-    // 앱 시작: 반복 거래 materialize → 생성 배너 (D10)
-    // StrictMode 이중 실행 가드 — 백엔드도 낙관적 잠금으로 방어하지만
-    // 배너가 두 번 뜨는 것까지 막으려면 클라이언트 가드도 필요하다.
-    if (didInit.current) return;
-    didInit.current = true;
+    if (didMaterialize.current) return;
+    if (onStatistics) {
+      // 통계에 직접 진입하면 상태만 읽고 반복 거래 생성은 첫 일반 화면까지 미룬다.
+      let active = true;
+      api.status().then(value => { if (active) setStatus(value); })
+        .catch(() => { if (active) setOnline(false); });
+      return () => { active = false; };
+    }
+    didMaterialize.current = true;
     api
       .materialize()
       .then((m) => {
@@ -68,11 +73,14 @@ export function App() {
         refresh();
       })
       .catch(() => setOnline(false));
+  }, [onStatistics, refresh]);
+
+  useEffect(() => {
     const t = setInterval(() => {
       api.health().then(() => setOnline(true)).catch(() => setOnline(false));
     }, 15_000);
     return () => clearInterval(t);
-  }, [refresh]);
+  }, []);
 
   const showToast = useCallback((msg: string, undo?: () => Promise<void>) => {
     const next = { msg, undo };
