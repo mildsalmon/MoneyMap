@@ -8,9 +8,9 @@ const test = base.extend<{ historyApi: string }>({
     const server = spawn(python, ["tests/fixtures/account_history_ledger.py", info.outputPath("ledger.db")], {
       cwd: "../backend", env: { ...process.env, MONEYMAP_CORS_ORIGINS: String(info.project.use.baseURL) },
     });
-    const exited = once(server, "exit");
+    const closed = once(server, "close");
+    let output = "";
     try {
-      let output = "";
       const origin = await new Promise<string>((resolve, reject) => {
         server.stderr.on("data", chunk => {
           output += chunk.toString();
@@ -27,8 +27,11 @@ const test = base.extend<{ historyApi: string }>({
       });
       await use(origin + "/api");
     } finally {
-      server.kill();
-      await exited;
+      const requestedStop = server.kill("SIGTERM");
+      const [code, signal] = await closed;
+      if (!requestedStop || (code !== 0 && signal !== "SIGTERM")) {
+        throw new Error(`History API exited unexpectedly (code=${code}, signal=${signal}).\n${output}`);
+      }
     }
   },
 });
