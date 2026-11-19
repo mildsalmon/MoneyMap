@@ -66,7 +66,11 @@ export function Statistics({ gen }: ViewProps) {
   const query = useQuery(`statistics:${key}:${gen}`, signal => parsed.query
     ? api.statistics(parsed.query.start, parsed.query.end, signal) : Promise.resolve(null));
   const data = query.data;
-  useEffect(() => { setDraft(parsed.draft); setFormError(undefined); }, [location.search]); // URL/back restores the applied criteria.
+  const { start, end } = parsed.draft;
+  useEffect(() => {
+    setDraft({ start, end });
+    setFormError(undefined);
+  }, [start, end, parsed.error]);
   useEffect(() => {
     if (parsed.query && location.search !== statisticsSearch(parsed.query)) {
       navigate({ search: statisticsSearch(parsed.query) }, { replace: true });
@@ -76,9 +80,14 @@ export function Statistics({ gen }: ViewProps) {
   const apply = (period: StatisticsPeriod) => {
     const error = statisticsPeriodError(period); setFormError(error);
     if (error) return;
-    setDraft(period); focusNext.current = true;
+    focusNext.current = true;
     const search = statisticsSearch(period);
-    if (search === location.search) query.reload(); else navigate({ search });
+    if (search === location.search) {
+      setDraft(period);
+      query.reload();
+    } else {
+      navigate({ search });
+    }
   };
   const dirty = !!parsed.query && statisticsSearch(draft) !== key;
   const presets: [StatisticsPreset, string][] = [["this-month", "이번 달"], ["last-month", "지난달"], ["this-year", "올해"], ["recent-year", "최근 12개월"]];
