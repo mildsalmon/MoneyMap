@@ -239,6 +239,15 @@ def read_plans(conn, as_of=None):
     return plans
 
 
+def bill_capacity(rules, day, cash, card):
+    return sum(
+        r.amount.amount for r in rules
+        if r.from_account_id == cash and r.to_account_id == card
+        and r.start_date <= day <= (r.end_date or day)
+        and next(r.schedule.occurrences(day, day), None) is not None
+    )
+
+
 def uncovered_plans(plans, rules):
     """Included installments must fit the bills on the same date and bank/card pair.
 
@@ -258,14 +267,7 @@ def uncovered_plans(plans, rules):
     uncovered = set()
     for (date, cash, card), group in groups.items():
         day = dt.date.fromisoformat(date)
-        capacity = sum(
-            r.amount.amount
-            for r in rules
-            if r.from_account_id == cash
-            and r.to_account_id == card
-            and r.start_date <= day <= (r.end_date or day)
-            and next(r.schedule.occurrences(day, day), None) is not None
-        )
+        capacity = bill_capacity(rules, day, cash, card)
         if capacity < group["amount"]:
             uncovered.update(group["ids"])
     return uncovered
@@ -533,6 +535,7 @@ def remove(conn, plan_id, command):
 
 def projection_inputs(conn, fork, rules, scenario_rules=()):
     events, warnings = [], []
+    scenario_capacity = {}
     # Purchases outside the opening balance must not consume historical bill capacity.
     plans = [
         p for p in read_plans(conn, fork) if p["purchase_date"] <= fork.isoformat()
@@ -577,12 +580,18 @@ def projection_inputs(conn, fork, rules, scenario_rules=()):
             if not postings:
                 continue
             due = dt.date.fromisoformat(row["due_date"])
-            scenario_overlap = p["interest_account_id"] and p["projection_mode"] != "included" and any(
-                r.to_account_id == p["card_account_id"] and r.start_date <= due <= (r.end_date or due)
-                and next(r.schedule.occurrences(due, due), None) is not None for r in scenario_rules
-            )
-            if scenario_overlap:
-                warnings.append(f"{p['description']} {row['number']}회차: 시나리오 카드값 규칙과 겹쳐 시나리오에서 별도 납부를 보류했습니다. 카드값 가정을 확인하세요.")
+            scenario_postings = None
+            if scenario_rules and p["interest_account_id"] and p["projection_mode"] != "included":
+                cash, card = p["cash_account_id"], p["card_account_id"]
+                key = (due, cash, card)
+                if key not in scenario_capacity:
+                    scenario_capacity[key] = bill_capacity(scenario_rules, due, cash, card)
+                covered = min(remaining, scenario_capacity[key])
+                if covered:
+                    # The scenario rule already moves this cash to the card. Offset
+                    # that part of the payment only; the expense postings still apply.
+                    scenario_capacity[key] -= covered
+                    scenario_postings = (*postings, (cash, covered), (card, -covered))
             events.append(
                 ProjectionEvent(
                     due,
@@ -591,7 +600,7 @@ def projection_inputs(conn, fork, rules, scenario_rules=()):
                     f"{p['description']} {row['number']}회차",
                     "actual",
                     tuple(postings),
-                    baseline_only=bool(scenario_overlap),
+                    scenario_postings=scenario_postings,
                 )
             )
     return tuple(events), tuple(dict.fromkeys(warnings))

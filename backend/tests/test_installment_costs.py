@@ -2,6 +2,8 @@
 
 import datetime as dt
 
+import pytest
+
 import test_api
 from test_installments import (
     TODAY,
@@ -222,32 +224,87 @@ def test_unknown_costs_and_invalid_account_or_component(client):
     assert split(client, tid, "payment", row, amount=0).status_code == 422
 
 
-def test_scenario_only_bill_holds_overlapping_statement_only_in_that_scenario(client):
-    a, _ = statement_purchase(client)
+@pytest.mark.parametrize(
+    "bill,other_bank,prebooked",
+    [
+        (0, False, 0),
+        (1, False, 0),
+        (5000, False, 0),
+        (10700, False, 0),
+        (11000, False, 0),
+        (5000, True, 0),
+        (5000, False, 600),
+        (10700, False, 600),
+    ],
+)
+def test_scenario_bill_capacity_preserves_uncovered_cash_and_expense(
+    client, bill, other_bank, prebooked
+):
+    a, row = statement_purchase(client)
     assert test_api.update_settings(client, a["cash"], include_in_cash=True).is_success
-    scenario = client.post(
+    if prebooked:
+        charge = transaction(client, a["interest"], a["card"], prebooked)
+        assert split(client, charge, "charge", row, interest=prebooked).is_success
+    sid = client.post(
         "/api/scenarios",
         json=dict(name="합성 카드 가정", description="", fork_date=TODAY.isoformat()),
-    ).json()["scenario"]
+    ).json()["scenario"]["id"]
+    bank = a["cash"]
+    if other_bank:
+        bank = test_api.make_account(client, "다른 통장", "asset")
+        assert test_api.update_settings(client, bank, include_in_cash=True).is_success
+    if bill:
+        add_scenario_bill(client, sid, bank, a["card"], bill)
+    data = forecast(client, sid)
+    covered = 0 if other_bank else min(10700, bill)
+    for target, cash in [("baseline", -21100), ("scenario", -21100 - bill + covered)]:
+        assert data["cash"][target]["points"][-1]["balance"] == cash
+        assert expense(data, target) == 1100 - prebooked
+        assert data["net_worth"][target]["points"][-1]["balance"] == -21100
+
+
+def add_scenario_bill(client, sid, bank, card, amount):
     due = TODAY + dt.timedelta(days=1)
     response = client.post(
-        f"/api/scenarios/{scenario['id']}/rules",
+        f"/api/scenarios/{sid}/rules",
         json=dict(
-            scenario_version=scenario["version"],
-            description="첫 회차 포함 가능",
-            from_account_id=a["cash"],
-            to_account_id=a["card"],
-            amount=11_000,
+            scenario_version=1,
+            description="첫 회차 카드값",
+            from_account_id=bank,
+            to_account_id=card,
+            amount=amount,
             schedule=f"monthly:{due.day}",
             start_date=due.isoformat(),
             end_date=due.isoformat(),
         ),
     )
     assert response.is_success, response.text
-    data = forecast(client, scenario["id"])
-    assert data["cash"]["baseline"]["points"][-1]["balance"] == -21_100
-    assert data["cash"]["scenario"]["points"][-1]["balance"] == -21_400
-    assert any("시나리오 카드값" in w for w in data["warnings"])
+
+
+def test_scenario_bill_capacity_is_shared_between_purchases(client):
+    a, row = statement_purchase(client)
+    purchase(
+        client,
+        a,
+        months=2,
+        principal=20000,
+        first_due_date=(TODAY + dt.timedelta(days=1)).isoformat(),
+        statement=[
+            dict(principal=10000, interest=600, fee=100),
+            dict(principal=10000, interest=400, fee=0),
+        ],
+        interest_account_id=a["interest"],
+        fee_account_id=a["fee"],
+    )
+    assert test_api.update_settings(client, a["cash"], include_in_cash=True).is_success
+    sid = client.post(
+        "/api/scenarios",
+        json=dict(name="여러 구매", description="", fork_date=TODAY.isoformat()),
+    ).json()["scenario"]["id"]
+    add_scenario_bill(client, sid, a["cash"], a["card"], 15000)
+    data = forecast(client, sid)
+    assert data["cash"]["scenario"]["points"][-1]["balance"] == -42200
+    assert expense(data, "scenario") == 2200
 
 
 def test_one_payment_can_clear_prebooked_interest_and_direct_fee(client):
