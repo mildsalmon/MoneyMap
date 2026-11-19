@@ -2,6 +2,16 @@
 
 All notable changes to MoneyMap are documented in this file.
 
+## [0.12.0.0] - 2026-11-05
+
+### Added
+- Explore income, expenses, assets, liabilities, and net worth for a chosen period on a dedicated statistics page, with monthly trends and exact amounts by account group.
+- Apply date presets or custom dates, return to the same period through browser history, and retry failed queries without losing the applied criteria.
+- Read historical totals including archived accounts, refunds, and overdrafts while keeping transfers, card principal repayments, and opening capital separate from income and expenses.
+
+### Changed
+- Make the statistics scope explicit: posted actual-ledger KRW transactions only, current account hierarchy, and whole-transaction exclusion when a posting or account uses another currency. Report totals that exceed exact integer limits as errors instead of rounded amounts.
+
 ## [0.11.1.0] - 2026-10-25
 
 ### Fixed
