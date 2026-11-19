@@ -64,3 +64,40 @@ test("부분 월 원화 비교에서 복수 태그·분류 순액과 원본 환�
     for (const id of ids) await request.delete(`${base}/transactions/${id}`);
   }
 });
+
+for (const scenario of [
+  { field: "종료일", value: "2024-03-09", previous: "2024-02-21 ~ 2024-02-29", start: "2024-03-01", end: "2024-03-09" },
+  { field: "시작일", value: "2024-03-02", previous: "2024-02-22 ~ 2024-03-01", start: "2024-03-02", end: "2024-03-10" },
+]) {
+  test(`이번 달을 두 번 선택한 뒤 ${scenario.field}을 직접 바꾸면 직전 9일의 거래를 비교한다`, async ({ page, request }) => {
+    const tag = `윤년${crypto.randomUUID().slice(0, 8)}`;
+    async function account(type: string) {
+      const r = await request.post(`${base}/accounts`, { data: { name: `${tag} ${type}`, type } });
+      expect(r.status()).toBe(201);
+      return (await r.json()).id;
+    }
+    const purchase = await request.post(`${base}/transactions`, { data: { date: "2024-02-29", tags: [tag],
+      postings: [{ account_id: await account("asset"), amount: -2300 }, { account_id: await account("expense"), amount: 2300 }] } });
+    expect(purchase.status()).toBe(201);
+    const { id } = await purchase.json();
+    try {
+      await page.clock.install({ time: new Date("2024-03-10T01:00:00Z") });
+      await page.goto("/statistics");
+      for (let click = 0; click < 2; click++) {
+        const loaded = page.waitForResponse(r => new URL(r.url()).searchParams.get("comparison") === "month" && r.ok());
+        await page.getByRole("button", { name: "이번 달", exact: true }).click();
+        await loaded;
+        await expect(page.getByText(/전기 2024-02-01 ~ 2024-02-10 \(10일\)/)).toBeVisible();
+      }
+      await page.getByLabel(scenario.field, { exact: true }).fill(scenario.value);
+      await page.getByRole("button", { name: "조회", exact: true }).click();
+      await expect(page).toHaveURL(url => url.search === `?start=${scenario.start}&end=${scenario.end}`);
+      await expect(page.getByText(`전기 ${scenario.previous} (9일)`, { exact: false })).toBeVisible();
+      const taggedExpense = page.getByRole("row").filter({ has: page.getByRole("rowheader", { name: tag, exact: true }) })
+        .filter({ has: page.getByRole("cell", { name: "지출", exact: true }) });
+      await expect(taggedExpense.getByRole("link", { name: /전기 거래/ })).toHaveText("₩2,300");
+    } finally {
+      await request.delete(`${base}/transactions/${id}`);
+    }
+  });
+}

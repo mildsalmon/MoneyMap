@@ -6,7 +6,7 @@ import type { Statistics as StatisticsData } from "../api/statistics";
 import type { ViewProps } from "../App";
 import { fmtAbbrev, fmtWon } from "../format";
 import { useQuery } from "./scenarios/useQuery";
-import { readStatisticsPeriod, statisticsPeriodError, statisticsPreset, statisticsSearch, statisticsToday, type StatisticsPeriod, type StatisticsPreset, type StatisticsSelection } from "./statisticsQuery";
+import { readStatisticsPeriod, statisticsPeriodError, statisticsPreset, statisticsSearch, statisticsToday, type StatisticsPeriod, type StatisticsPreset } from "./statisticsQuery";
 import { Comparison } from "./StatisticsComparison";
 import { groupStatistics } from "./statisticsGroups";
 import "./statistics.css";
@@ -82,12 +82,13 @@ export function Statistics({ gen }: ViewProps) {
     }
   }, [key, location.search, navigate]);
   useEffect(() => { if (data && focusNext.current) { focusNext.current = false; results.current?.focus(); } }, [data]);
-  const apply = (period: StatisticsSelection) => {
+  const apply = ({ start, end }: StatisticsPeriod, comparison?: "month") => {
+    const period = { start, end };
     const error = statisticsPeriodError(period); setFormError(error);
     if (error) return;
     focusNext.current = true;
     const search = statisticsSearch({ category_id: data ? parsed.query?.category_id : undefined,
-      tag_id: data ? parsed.query?.tag_id : undefined, ...period });
+      tag_id: data ? parsed.query?.tag_id : undefined, ...period, comparison });
     if (search === location.search) {
       setDraft(period);
       query.reload();
@@ -100,7 +101,7 @@ export function Statistics({ gen }: ViewProps) {
   return <div className="statistics-page"><h1>통계</h1>
     <p className="muted">기록된 원화 장부의 수익·비용과 자산 변화를 확인합니다. 투자손익도 포함한 전체 계정 집계입니다.</p>
     <form className="statistics-query" onSubmit={e => { e.preventDefault(); apply(draft); }} aria-label="통계 조회 조건">
-      <div className="filters">{presets.map(([preset, label]) => <button type="button" className="btn secondary" key={preset} onClick={() => apply({ ...statisticsPreset(preset), comparison: preset.endsWith("month") ? "month" : undefined })}>{label}</button>)}</div>
+      <div className="filters">{presets.map(([preset, label]) => <button type="button" className="btn secondary" key={preset} onClick={() => apply(statisticsPreset(preset), preset.endsWith("month") ? "month" : undefined)}>{label}</button>)}</div>
       <div className="statistics-dates">
         <div className="field"><label htmlFor="statistics-start">시작일</label><input id="statistics-start" type="date" required value={draft.start} max={statisticsToday()} onChange={e => setDraft({ ...draft, start: e.target.value })} /></div>
         <div className="field"><label htmlFor="statistics-end">종료일</label><input id="statistics-end" type="date" required value={draft.end} max={statisticsToday()} onChange={e => setDraft({ ...draft, end: e.target.value })} /></div>
