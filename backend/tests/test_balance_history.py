@@ -158,7 +158,11 @@ def test_v8_migration_backfills_preserves_and_rolls_back(tmp_path):
     assert c.execute('PRAGMA user_version').fetchone()[0] == 9
     rows = list(c.execute('SELECT * FROM account_balance_history ORDER BY account_id,currency,txn_id'))
     changes = c.total_changes
-    init_db(c); init_db(c)
+    init_db(c)
+    # v12 writes one collection watermark and one baseline for each account.
+    assert c.total_changes == changes + 1 + c.execute("SELECT count(*) FROM accounts").fetchone()[0]
+    changes = c.total_changes
+    init_db(c)
     assert c.execute('PRAGMA user_version').fetchone()[0] == len(database.MIGRATIONS)
     assert c.total_changes == changes
     assert list(c.execute('SELECT * FROM account_balance_history ORDER BY account_id,currency,txn_id')) == rows

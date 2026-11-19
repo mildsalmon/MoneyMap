@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Route } from "./test";
+import { accountListUrl, test, expect, type Page, type Route } from "./test";
 import AxeBuilder from "@axe-core/playwright";
 
 const accounts = [
@@ -16,7 +16,7 @@ const radio = (p: Page, side: string, name: string) => p.getByRole("group", { na
 const status = (p: Page) => p.locator(".txn-recall");
 
 test.beforeEach(async ({ page }) => {
-  await page.route("**/api/accounts", r => r.fulfill({ json: accounts }));
+  await page.route(accountListUrl, r => r.fulfill({ json: accounts }));
   await page.route("**/api/tags", r => r.fulfill({ json: [] }));
   await page.route("**/api/transactions", r => r.request().method() === "GET" ? r.fulfill({ json: [] }) : r.fulfill({ status: 201, json: { id: 700 } }));
   await page.route("**/api/transaction-input/recent?*", r => r.fulfill({ json: [] }));

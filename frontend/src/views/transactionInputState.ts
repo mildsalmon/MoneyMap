@@ -47,7 +47,7 @@ export function amountInput(value: string): string {
 
 export function editField(draft: Draft, field: "date" | "item" | "memo" | "amount", value: string): Draft {
   const next = { ...draft, [field]: value, revision: draft.revision + 1 };
-  if (field === "item" && itemKey(value) !== itemKey(draft.item)) {
+  if ((field === "item" && itemKey(value) !== itemKey(draft.item)) || (field === "date" && value !== draft.date)) {
     next.epoch++;
   }
   return next;

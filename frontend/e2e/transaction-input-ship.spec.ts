@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "./test";
+import { accountListUrl, expect, test, type Page, type Route } from "./test";
 
 const accounts = [
   { id: 101, name: "식비", type: "expense" },
@@ -12,7 +12,7 @@ const dashboardSave = (page: Page) => page.getByRole("button", { name: "저장 �
 const recent = { id: 700, date: "2026-09-05", description: "이전 거래", amount: 123, posting_count: 2, debit_account_id: 101, credit_account_id: 102 };
 
 test.beforeEach(async ({ page }) => {
-  await page.route("**/api/accounts", route => route.fulfill({ json: accounts }));
+  await page.route(accountListUrl, route => route.fulfill({ json: accounts }));
   await page.route("**/api/status", route => route.fulfill({ json: { trial_balance_ok: true, last_backup: "2026-09-05", last_entry: null } }));
   await page.route("**/api/materialize", route => route.fulfill({ json: { created: 0, transactions: [] } }));
   await page.route("**/api/transaction-input/recent?*", route => route.fulfill({ json: [] }));

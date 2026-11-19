@@ -16,6 +16,7 @@ import {
 import { fmtMoney, todayIso } from "../format";
 import type { ViewProps } from "../App";
 import { AccountRowMenu } from "./AccountRowMenu";
+import { AccountStateHistory } from "./AccountStateHistory";
 import { AccountHistoryLink } from "./AccountHistoryLink";
 import { AccountSettingsPanel } from "./AccountSettingsPanel";
 import { OpeningBalanceControl } from "./OpeningBalanceControl";
@@ -353,7 +354,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     setMenuFocusId(null);
   }, [menuFocusId]);
 
-  const archive = async (account: Account) => {
+  const archive = async (account: Account, day?: string) => {
     if (!balances || rowTasks[account.id]) return;
     if (nativeBalances([account.id]).length && !window.confirm(
       `"${account.name}"에 잔액 ${formatBalances(account, [account.id])}이 남아 있습니다.\n` +
@@ -362,7 +363,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
 
     setRowTask(account.id, "archive");
     try {
-      await api.archiveAccount(account.id);
+      await api.archiveAccount(account.id, day);
       focusAfterRemoval(account.id, false);
       refresh();
       showToast(`"${account.name}" 보관됨 — 아래 보관된 계정에서 복원할 수 있습니다`);
@@ -374,11 +375,11 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     }
   };
 
-  const restore = async (account: Account) => {
+  const restore = async (account: Account, day?: string) => {
     if (rowTasks[account.id]) return;
     setRowTask(account.id, "restore");
     try {
-      await api.restoreAccount(account.id);
+      await api.restoreAccount(account.id, day);
       focusAfterRemoval(account.id, true);
       refresh();
       showToast(`"${account.name}" 복원됨`);
@@ -896,6 +897,8 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
           </div>
         </div>
       )}
+      <AccountStateHistory accounts={accountList} refresh={refresh} gen={gen} onPendingChange={setMutationPending}
+        archiveReady={!!balances && !balancesError} onArchiveChange={(account, day) => account.archived ? restore(account, day) : archive(account, day)} />
       </fieldset>
     </div>
     </AccountOrderProvider>

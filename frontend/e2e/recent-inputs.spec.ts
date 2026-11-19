@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Route } from "./test";
+import { accountListUrl, test, expect, type Page, type Route } from "./test";
 import AxeBuilder from "@axe-core/playwright";
 
 const accounts = [
@@ -21,7 +21,7 @@ const cursor = (route: Route) => Number(new URL(route.request().url()).searchPar
 const reply = (route: Route, entries = data) => route.fulfill({ json: entries.filter(row => row.id < cursor(route)).slice(0, 6) });
 
 test.beforeEach(async ({ page }) => {
-  await page.route("**/api/accounts", r => r.fulfill({ json: accounts }));
+  await page.route(accountListUrl, r => r.fulfill({ json: accounts }));
   await page.route("**/api/tags", r => r.fulfill({ json: [] }));
   await page.route("**/api/transaction-input/last-pair?*", r => r.fulfill({ json: {
     item_key: new URL(r.request().url()).searchParams.get("item"), status: "matched", source_transaction_id: 12,

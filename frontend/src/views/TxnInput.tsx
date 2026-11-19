@@ -12,12 +12,13 @@ import { RecentInputs } from "./RecentInputs";
 type Lookup = { token: LookupToken; gen: number; undo: number; phase: "loading" | "ready" | "error" | "timeout" | "preserved" | "confirmed"; pair?: LastPair; filled?: ("debit" | "credit")[] };
 
 export function TxnInput({ gen, refresh, inputUndoVersion, showToast, go }: ViewProps) {
-  const accountQuery = useQuery(`input-accounts:${gen}`, signal => api.accounts(signal));
-  const tagsQuery = useQuery(`input-tags:${gen}`, signal => api.tags(signal));
-  const cachedAccounts = useRef<Account[]>([]);
-  if (accountQuery.data) cachedAccounts.current = accountQuery.data;
-  const model = useMemo(() => accountPickerModel(cachedAccounts.current), [accountQuery.data]);
   const [draft, setDraft] = useState(() => newDraft(todayIso()));
+  const accountQuery = useQuery(`input-accounts:${gen}:${draft.date}`, signal => api.datedAccounts(draft.date, signal));
+  const tagsQuery = useQuery(`input-tags:${gen}`, signal => api.tags(signal));
+  const cachedAccounts = useRef<{ date: string; rows: Account[] }>(undefined);
+  if (accountQuery.data) cachedAccounts.current = { date: draft.date, rows: accountQuery.data };
+  const rows = cachedAccounts.current?.date === draft.date ? cachedAccounts.current.rows : undefined;
+  const model = useMemo(() => accountPickerModel(rows ?? []), [rows]);
   const current = useRef(draft);
   const change = (fn: (d: Draft) => Draft) => { current.current = fn(current.current); setDraft(current.current); };
   const alive = useRef(true);
@@ -65,7 +66,7 @@ export function TxnInput({ gen, refresh, inputUndoVersion, showToast, go }: View
         controller.abort();
         updateLookup({ ...base, phase: "timeout" });
       }, 5000);
-      api.lastPair(key, controller.signal).then(pair => {
+      api.lastPair(key, controller.signal, draft.date).then(pair => {
         if (!ownsRequest()) return;
         const before = current.current;
         const next = applyPair(before, token, pair);
@@ -76,7 +77,7 @@ export function TxnInput({ gen, refresh, inputUndoVersion, showToast, go }: View
       }).finally(() => clearTimeout(deadline));
     }, 200);
     return () => { clearTimeout(timer); clearTimeout(deadline); controller.abort(); };
-  }, [key, draft.mode, draft.epoch, composing, gen, inputUndoVersion]);
+  }, [key, draft.mode, draft.epoch, draft.date, composing, gen, inputUndoVersion]);
   const currentLookup = (value: Lookup | undefined, d: Draft) => value && value.gen === gen
     && value.undo === (inputUndoVersion?.current ?? 0) && isCurrentLookup(d, value.token) ? value : undefined;
   const activeLookup = currentLookup(lookup, draft);

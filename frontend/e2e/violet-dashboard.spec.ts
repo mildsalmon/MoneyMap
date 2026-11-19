@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "./test";
+import { accountListUrl, test, expect, type Page } from "./test";
 import AxeBuilder from "@axe-core/playwright";
 import { mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -22,7 +22,7 @@ async function setup(page: Page) {
   await page.clock.setFixedTime(new Date("2026-11-15T12:00:00+09:00"));
   await page.route("**/api/materialize", r => r.fulfill({ json: { created: 0, transactions: [] } }));
   await page.route("**/api/status", r => r.fulfill({ json: { trial_balance_ok: true, last_entry: "2026-11-12", last_backup: "2026-11-15" } }));
-  await page.route("**/api/accounts", r => r.fulfill({ json: accounts }));
+  await page.route(accountListUrl, r => r.fulfill({ json: accounts }));
   await page.route("**/api/transactions?*", r => r.fulfill({ json: transactions }));
   await page.route("**/api/rules?*", r => r.fulfill({ json: [1, 2].map(id => ({ id, scenario_id: 1,
     description: `월급 규칙 ${id}`, from_account_id: 903, to_account_id: 901,

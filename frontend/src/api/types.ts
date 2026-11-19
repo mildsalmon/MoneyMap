@@ -11,6 +11,8 @@ export interface AccountReorderResult {
 }
 
 export interface Account {
+  history_known?: boolean;
+  current_parent_id?: number | null;
   id: number;
   name: string;
   type: AccountType;

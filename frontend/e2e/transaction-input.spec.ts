@@ -1,4 +1,4 @@
-import { test, expect, type Page, type Route } from "./test";
+import { accountListUrl, test, expect, type Page, type Route } from "./test";
 import AxeBuilder from "@axe-core/playwright";
 
 const accounts = [
@@ -17,7 +17,7 @@ const amount=(page:Page)=>page.getByLabel("금액",{exact:true});
 const save=(page:Page)=>page.getByRole("button",{name:"저장 (Enter)",exact:true});
 const group=(page:Page,side="차변")=>page.getByRole("group",{name:`${side} 계정`,exact:true});
 async function start(page:Page) {
-  await page.route("**/api/accounts",r=>r.fulfill({json:accounts}));
+  await page.route(accountListUrl,r=>r.fulfill({json:accounts}));
   await page.route("**/api/tags",r=>r.fulfill({json:["데이트","엄마"]}));
   await page.route("**/api/transaction-input/recent?*",r=>r.fulfill({json:[]}));
   await page.route("**/api/transaction-input/last-pair?*",r=>r.fulfill({json:{...matched(new URL(r.request().url()).searchParams.get("item")!),status:"none",debit_account_id:null,credit_account_id:null}}));
@@ -181,7 +181,7 @@ test("responsive widths, long duplicate paths, reduced motion and split accessib
   await start(page);
   const long="아주 긴 계정 이름이 같은 항목을 여러 그룹에서 사용하는 경우";
   const expanded=[...accounts,{...accounts[0],id:201,name:"회사 식비"},{...accounts[1],id:202,parent_id:201,name:long},{...accounts[1],id:203,name:long},{...accounts[2],id:204,name:"보관 자식이 있는 부모"},{...accounts[2],id:205,parent_id:204,archived:true,name:"숨은 자식"}];
-  await page.route("**/api/accounts",r=>r.fulfill({json:expanded}));await page.reload();
+  await page.route(accountListUrl,r=>r.fulfill({json:expanded}));await page.reload();
   await group(page).getByLabel("차변 계정 검색").fill("회사 식비");await group(page).getByRole("radio",{name:`비용 > 회사 식비 > ${long}`,exact:true}).check();
   await group(page,"대변").getByLabel("대변 계정 검색").fill("식비");await group(page,"대변").getByRole("radio",{name:`비용 > 식비 > ${long}`,exact:true}).check();
   await expect(group(page).getByRole("radio",{name:/보관 자식이 있는 부모$/})).toHaveCount(0);

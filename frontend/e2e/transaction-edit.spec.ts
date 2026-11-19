@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route, type APIRequestContext } from "./test";
+import { accountListUrl, expect, test, type Page, type Route, type APIRequestContext } from "./test";
 import AxeBuilder from "@axe-core/playwright";
 import { applied, editAccounts, makeDetail } from "./transactionEditFixtures";
 import type { TransactionDetail, TransactionEditBody } from "../src/api/types";
@@ -20,7 +20,7 @@ function historyPage(list: ReturnType<typeof historyTxn>[], url: string) {
 }
 
 async function mockEditor(page: Page, original = makeDetail(), goto = true) {
-  await page.route("**/api/accounts", r => r.fulfill({ json: editAccounts }));
+  await page.route(accountListUrl, r => r.fulfill({ json: editAccounts }));
   await page.route("**/api/tags", r => r.fulfill({ json: ["데이트", "엄마"] }));
   await page.route("**/api/transaction-history?*", r => r.fulfill({ json: historyPage([historyTxn(original)], r.request().url()) }));
   await page.route(`**/api/transactions/${original.id}`, r => r.request().method() === "GET"

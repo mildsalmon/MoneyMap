@@ -1,11 +1,11 @@
-import { expect, test, type Route } from "./test";
+import { accountListUrl, expect, test, type Route } from "./test";
 import { editAccounts, makeDetail } from "./transactionEditFixtures";
 
 // Regression: repeated edit returns must prefer the latest list visit snapshot.
 // Found by gstack review on 2026-10-04.
 test("second native Back preserves the latest unapplied draft and focus", async ({ page }) => {
   const detail = makeDetail();
-  await page.route("**/api/accounts", r => r.fulfill({ json: editAccounts }));
+  await page.route(accountListUrl, r => r.fulfill({ json: editAccounts }));
   await page.route("**/api/tags", r => r.fulfill({ json: ["데이트", "여행"] }));
   await page.route("**/api/transactions/71", r => r.fulfill({ json: detail }));
   await page.route("**/api/transaction-history?*", r => r.fulfill({ json: {
@@ -33,7 +33,7 @@ test("second native Back preserves the latest unapplied draft and focus", async 
 
 test("pending and uncertain deletion survive leaving and returning to history", async ({ page }) => {
   const detail = makeDetail();
-  await page.route("**/api/accounts", r => r.fulfill({ json: editAccounts }));
+  await page.route(accountListUrl, r => r.fulfill({ json: editAccounts }));
   await page.route("**/api/tags", r => r.fulfill({ json: [] }));
   await page.route("**/api/transaction-history?*", r => r.fulfill({ json: {
     items: [{ ...detail, postings: detail.postings.map(p => ({ account_id: p.account_id,

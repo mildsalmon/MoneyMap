@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./test";
+import { accountListUrl, expect, test, type Page } from "./test";
 import { editAccounts } from "./transactionEditFixtures";
 import type { Rule, RuleBody } from "../src/api/types";
 
@@ -10,7 +10,7 @@ const save = (page: Page) => page.getByRole("button", { name: "규칙 저장", e
 
 async function setup(page: Page) {
   const state = { rule: structuredClone(initial), writes: 0, body: undefined as RuleBody | undefined };
-  await page.route("**/api/accounts", r => r.fulfill({ json: editAccounts }));
+  await page.route(accountListUrl, r => r.fulfill({ json: editAccounts }));
   await page.route("**/api/rules?*", r => r.fulfill({ json: [state.rule] }));
   await page.route("**/api/rules/71", r => {
     state.writes++; state.body = r.request().postDataJSON();

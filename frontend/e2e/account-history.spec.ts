@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route } from "./test";
+import { accountListUrl, expect, test, type Page, type Route } from "./test";
 import AxeBuilder from "@axe-core/playwright";
 import { historyKey, historySearch, readHistoryQuery } from "../src/views/historyQueryState";
 import { historyReturn } from "../src/views/transactionEditState";
@@ -15,7 +15,7 @@ const pageBody = { items: [txn], total: 1, page: 1, total_pages: 1, page_size: 1
 async function mock(page: Page) {
   await page.clock.install({ time: new Date("2026-09-15T03:00:00Z") });
   await page.route("**/api/materialize", r => r.fulfill({ json: { created: 0, transactions: [] } }));
-  await page.route("**/api/accounts", r => r.fulfill({ json: accounts }));
+  await page.route(accountListUrl, r => r.fulfill({ json: accounts }));
   await page.route("**/api/opening-balances", r => r.fulfill({ json: [] }));
   await page.route("**/api/tags", r => r.fulfill({ json: ["여행"] }));
   await page.route("**/api/transaction-history?*", r => r.fulfill({ json: pageBody }));
@@ -172,7 +172,7 @@ test("selected account direction uses applied scope, split net amounts and neutr
     { description: "같은 계정 상계", values: [[101, 50], [101, -20], [102, -30]] },
   ].map((row, i) => ({ ...txn, id: 80 + i, description: row.description,
     postings: row.values.map(([account_id, amount]) => ({ account_id, amount: { amount, currency: "KRW" } })) }));
-  await page.route("**/api/accounts", r => r.fulfill({ json: accounts.map(a => a.id === 104 ? { ...a, parent_id: 201, archived: true } : a) }));
+  await page.route(accountListUrl, r => r.fulfill({ json: accounts.map(a => a.id === 104 ? { ...a, parent_id: 201, archived: true } : a) }));
   await page.route("**/api/transaction-history?*", r => r.fulfill({ json: { ...pageBody, items: rows, total: rows.length } }));
   await page.goto(`/transactions?${range}&account_id=101&include_descendants=false`);
   const cell = (name: string) => page.locator(".history-scroll tbody tr").filter({ hasText: name }).locator("td.history-amount");

@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
@@ -70,6 +71,7 @@ class Account(BaseModel):
 
 
 class AccountSettingsCommand(BaseModel):
+    effective_date: date | None = None
     account_id: int
     name: str
     parent_id: int | None

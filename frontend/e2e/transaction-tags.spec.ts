@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "./test";
+import { accountListUrl, test, expect, type Page } from "./test";
 import AxeBuilder from "@axe-core/playwright";
 import { newDraft, setTags } from "../src/views/transactionInputState";
 
@@ -10,7 +10,7 @@ const accounts = [
 ].map((account, position) => ({ ...account, position, currency: "KRW", version: 1, parent_id: null,
   archived: false, is_system: false, is_placeholder: false, is_overdraft: false }));
 async function start(page: Page, tags: string[] = ["데이트", "여행", "엄마"]) {
-  await page.route("**/api/accounts", r => r.fulfill({ json: accounts }));
+  await page.route(accountListUrl, r => r.fulfill({ json: accounts }));
   await page.route("**/api/tags", r => r.fulfill({ json: tags }));
   await page.route("**/api/transaction-input/recent?*", r => r.fulfill({ json: [] }));
   await page.route("**/api/transaction-input/last-pair?*", r => r.fulfill({ json: { status: "none", debit_account_id: null, credit_account_id: null } }));

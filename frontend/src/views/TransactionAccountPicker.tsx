@@ -21,7 +21,7 @@ export function accountPickerModel(accounts: Account[]) {
     ancestors.set(account.id, trail);
     paths.set(account.id, [...trail.map(k => nodes.get(k)!.name), account.name].join(" > "));
   }
-  return { byId, available, roots, nodes, paths, ancestors };
+  return { byId, available, roots, nodes, paths, ancestors, historyUnknown: accounts[0]?.history_known === false };
 }
 export type AccountPickerModel = ReturnType<typeof accountPickerModel>;
 
