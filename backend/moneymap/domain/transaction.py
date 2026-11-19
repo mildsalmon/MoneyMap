@@ -25,6 +25,7 @@ class Posting(BaseModel):
     model_config = {"frozen": True}
 
     account_id: int
+    category_id: int | None = Field(default=None, gt=0, le=2**53-1, exclude_if=lambda value: value is None)
     amount: Money  # 양수=차변, 음수=대변
     legacy_zero: bool = Field(default=False, exclude=True, repr=False)
 

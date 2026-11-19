@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, ApiError, type Account, type LastPair } from "../api";
 import { fmtDelta, fmtWon, todayIso } from "../format";
 import type { ViewProps } from "../App";
+import { useLivingCategories } from "./LivingCategoryFields";
 import { useQuery } from "./scenarios/useQuery";
 import { accountPickerModel } from "./TransactionAccountPicker";
 import { TransactionForm, netWorthDelta } from "./TransactionForm";
@@ -14,6 +15,7 @@ type Lookup = { token: LookupToken; gen: number; undo: number; phase: "loading" 
 export function TxnInput({ gen, refresh, inputUndoVersion, showToast, go }: ViewProps) {
   const [draft, setDraft] = useState(() => newDraft(todayIso()));
   const accountQuery = useQuery(`input-accounts:${gen}:${draft.date}`, signal => api.datedAccounts(draft.date, signal));
+  const categories = useLivingCategories();
   const tagsQuery = useQuery(`input-tags:${gen}`, signal => api.tags(signal));
   const cachedAccounts = useRef<{ date: string; rows: Account[] }>(undefined);
   if (accountQuery.data) cachedAccounts.current = { date: draft.date, rows: accountQuery.data };
@@ -149,7 +151,7 @@ export function TxnInput({ gen, refresh, inputUndoVersion, showToast, go }: View
     }
     return "선택한 계정을 유지합니다.";
   };
-  return <TransactionForm title="거래 입력" intro="아이템을 적고, 왼쪽과 오른쪽 계정을 선택하세요."
+  return <TransactionForm categories={categories} title="거래 입력" intro="아이템을 적고, 왼쪽과 오른쪽 계정을 선택하세요."
     draft={draft} change={change} field={field} model={model} validation={validation} onSave={() => void save()}
     canSave={canSave} saving={saving} amountRef={amountRef} tags={tagsQuery.data ?? []}
     saveHint={waitingForRecall ? "계정 추천 확인 후 저장할 수 있습니다." : undefined}

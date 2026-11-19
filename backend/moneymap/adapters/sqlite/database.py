@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import sqlite3
 
+from .living_categories import migrate_living_categories
 from .account_history import migrate_account_history
 from .lifecycle_migration import migrate_lifecycle
 from .transaction_input_migration import migrate_transaction_input
@@ -378,6 +379,7 @@ MIGRATIONS = (
     migrate_balance_history_shift,
     migrate_reconciliation,
     migrate_account_history,
+    migrate_living_categories,
 )
 
 

@@ -13,6 +13,7 @@ from moneymap.domain.errors import DomainConflictError, DomainNotFoundError, Dom
 from moneymap.domain.transaction_edit import TransactionDetail, TransactionEdit, edited_postings, validate_balanced
 from moneymap.domain.transaction_input import normalize_item_key
 from .account_history import dated_accounts
+from .living_categories import assign_category
 from .common import _account_write
 from .transactions import SqliteTransactionRepository, _load_tags, _replace_tags
 
@@ -22,8 +23,9 @@ def find_detail(conn: sqlite3.Connection, txn_id: int) -> TransactionDetail | No
     if row is None:
         return None
     postings = conn.execute(
-        "SELECT p.id AS posting_id,p.account_id,p.amount,p.currency,a.is_system,a.type,a.name "
-        "FROM postings p JOIN accounts a ON a.id=p.account_id WHERE p.txn_id=? ORDER BY p.id", (txn_id,)
+        "SELECT p.id AS posting_id,p.account_id,p.amount,p.currency,c.category_id,a.is_system,a.type,a.name "
+        "FROM postings p JOIN accounts a ON a.id=p.account_id "
+        "LEFT JOIN posting_living_categories c ON c.posting_id=p.id WHERE p.txn_id=? ORDER BY p.id", (txn_id,)
     ).fetchall()
     systems = [p for p in postings if p["is_system"]]
     protected = (row["source_rule_id"] is None and row["entry_origin"] != "rule" and len(postings) == 2
@@ -33,13 +35,18 @@ def find_detail(conn: sqlite3.Connection, txn_id: int) -> TransactionDetail | No
     return TransactionDetail(id=row["id"], version=row["edit_version"], date=row["date"],
         description=row["description"], memo=row["memo"], tags=_load_tags(conn, txn_id),
         source_rule_id=row["source_rule_id"], entry_origin=row["entry_origin"],
-        postings=[{k: p[k] for k in ("posting_id", "account_id", "amount", "currency")} for p in postings],
+        postings=[{k: p[k] for k in ("posting_id", "account_id", "amount", "currency", "category_id")} for p in postings],
         kind=kind, opening_system_id=systems[0]["account_id"] if protected else None,
         editable=all(p["currency"] == "KRW" for p in postings) and (not systems or protected))
 
 
 def _fingerprint(command: TransactionEdit) -> str:
     body = command.model_dump(mode="json", exclude={"request_id"})
+    # Retain pre-migration receipt hashes. Omission preserves the category;
+    # explicit null clears it and must have a different request fingerprint.
+    for row, posting in zip(body["postings"] or [], command.postings or []):
+        if "category_id" not in posting.model_fields_set:
+            del row["category_id"]
     return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
 
 
@@ -81,9 +88,10 @@ def update_transaction(conn: sqlite3.Connection, txn_id: int, command: Transacti
             existing = SqliteTransactionRepository(conn).find_opening_balances(command.opening.account_id)
             if any(row["transaction_id"] != txn_id for row in existing):
                 raise DomainConflictError("대상 계정에 이미 개시잔액이 있습니다", code="opening_already_recorded")
-        financial_changed = command.date != original.date or [
+        original_by_id = {p.posting_id: p for p in original.postings}
+        financial_changed = command.date != original.date or {
             (p.posting_id, p.account_id, p.amount) for p in postings
-        ] != [(p.posting_id, p.account_id, p.amount) for p in original.postings]
+        } != {(p.posting_id, p.account_id, p.amount) for p in original.postings}
         if financial_changed:
             conn.execute("UPDATE transactions SET posted=0,date=?,description=?,memo=?,item_key=? WHERE id=?",
                          (command.date.isoformat(), command.description, command.memo, normalize_item_key(command.description), txn_id))
@@ -91,18 +99,29 @@ def update_transaction(conn: sqlite3.Connection, txn_id: int, command: Transacti
             for previous in original.postings:
                 if previous.posting_id not in keep:
                     conn.execute("DELETE FROM postings WHERE id=? AND txn_id=?", (previous.posting_id, txn_id))
-            for posting in postings:
-                if posting.posting_id is not None:
-                    conn.execute("UPDATE postings SET account_id=?,amount=? WHERE id=? AND txn_id=?",
-                                 (posting.account_id, posting.amount, posting.posting_id, txn_id))
-                else:
-                    conn.execute("INSERT INTO postings(txn_id,account_id,amount,currency) VALUES(?,?,?,'KRW')",
-                                 (txn_id, posting.account_id, posting.amount))
-            conn.execute("UPDATE transactions SET posted=1 WHERE id=?", (txn_id,))
         else:
             # Metadata must not unpost/repost an otherwise unchanged ledger.
             conn.execute("UPDATE transactions SET description=?,memo=?,item_key=? WHERE id=?",
                          (command.description, command.memo, normalize_item_key(command.description), txn_id))
+
+        eligible = {a.id for a in accounts if a.type in {"expense", "income"}}
+        for posting in postings:
+            posting_id = posting.posting_id
+            previous = original_by_id.get(posting_id)
+            if posting_id is None:
+                posting_id = conn.execute("INSERT INTO postings(txn_id,account_id,amount,currency) VALUES(?,?,?,'KRW')",
+                                          (txn_id, posting.account_id, posting.amount)).lastrowid
+            elif financial_changed:
+                conn.execute("UPDATE postings SET account_id=?,amount=? WHERE id=? AND txn_id=?",
+                             (posting.account_id, posting.amount, posting_id, txn_id))
+
+            if "category_id" in posting.model_fields_set:
+                assign_category(conn, posting_id, posting.category_id)
+            elif previous and previous.category_id is not None and posting.account_id not in eligible:
+                # An older client can change the account without sending category metadata.
+                assign_category(conn, posting_id, None)
+        if financial_changed:
+            conn.execute("UPDATE transactions SET posted=1 WHERE id=?", (txn_id,))
         _replace_tags(conn, txn_id, command.tags)
         saved = find_detail(conn, txn_id)
         _record(conn, txn_id, command, fingerprint, "applied", saved.version)

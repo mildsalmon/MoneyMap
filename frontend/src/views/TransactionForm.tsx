@@ -4,6 +4,7 @@ import type { Account } from "../api";
 import { TransactionAccountPicker, type AccountPickerModel } from "./TransactionAccountPicker";
 import { amountInput, chooseAccount, setTags, switchMode, type Draft, type OriginalRows, type Side, type SplitRow, type validateDraft } from "./transactionInputState";
 import { TransactionTagPicker } from "./TransactionTagPicker";
+import { CategoryManager, CategorySelect, type useLivingCategories } from "./LivingCategoryFields";
 import "./transaction-input.css";
 
 const SOURCE = { empty: "선택 전", auto: "자동 선택", manual: "직접 선택", retained: "기존 선택 유지" };
@@ -12,6 +13,7 @@ export const netWorthDelta = (postings: readonly { account_id: number; amount: n
   postings.reduce((sum, p) => sum + (["asset", "liability"].includes(accounts.get(p.account_id)?.type ?? "") ? p.amount : 0), 0);
 
 interface Props {
+  categories: ReturnType<typeof useLivingCategories>;
   title: string; intro: string; draft: Draft; model: AccountPickerModel;
   change: (fn: (d: Draft) => Draft) => void;
   field: (field: "date" | "item" | "memo" | "amount", value: string) => void;
@@ -28,7 +30,7 @@ interface Props {
  * persistence and asynchronous data; this component never queries an API. */
 export function TransactionForm({ title, intro, draft, model, change, field, validation,
   onSave, canSave, saving, originals, disabled = false, opening = false, systemAccountId = null,
-  tags, saveLabel = "저장 (Enter)", saveHint = "저장하면 금액과 메모가 비워집니다.",
+  categories, tags, saveLabel = "저장 (Enter)", saveHint = "저장하면 금액과 메모가 비워집니다.",
   recall, accountStatus, extraActions, feedback, footer, amountRef: externalAmountRef, onComposingChange }: Props) {
   const ownAmountRef = useRef<HTMLInputElement>(null);
   const amountRef = externalAmountRef ?? ownAmountRef;
@@ -54,6 +56,7 @@ export function TransactionForm({ title, intro, draft, model, change, field, val
 
   const name = (id: number | null) => id === null ? "계정을 선택하세요" : model.byId.get(id)?.name ?? `#${id}`;
   const accountPath = (id: number | null) => id === null ? name(id) : model.paths.get(id) ?? name(id);
+  const eligible = (id: number | null) => id !== null && ["expense", "income"].includes(model.byId.get(id)?.type ?? "");
   const select = (side: Side, id: number) => change(d => chooseAccount(d, side, id));
   const editRow = (id: number, patch: Partial<SplitRow>) => change(d => ({ ...d, revision: d.revision + 1, rows: d.rows.map(r => r.id === id ? { ...r, ...patch } : r) }));
   const closePicker = (id: number) => { setActiveRow(null); requestAnimationFrame(() => document.getElementById(`split-account-${id}`)?.focus()); };
@@ -92,6 +95,9 @@ export function TransactionForm({ title, intro, draft, model, change, field, val
         <div className="txn-side-heading"><h2 id={`${side}-heading`} tabIndex={-1}>{side === "debit" ? "왼쪽 · 차변" : "오른쪽 · 대변"}</h2><details><summary>도움말</summary><p>{side === "debit" ? "자산·비용은 증가, 부채·수익·자본은 감소합니다." : "자산·비용은 감소, 부채·수익·자본은 증가합니다."}</p></details></div>
         <div className={`txn-selected${draft[side].account !== null ? " has-selection" : ""}`}><strong>{name(draft[side].account)}</strong><small>{SOURCE[draft[side].source]}</small>{draft[side].account !== null && <span>{model.paths.get(draft[side].account!)}</span>}</div>
         {systemAccountId !== null && draft[side].account === systemAccountId ? <p>개시잔액 시스템 상대계정 · 금액은 자동 계산됩니다.</p> : <><TransactionAccountPicker model={model} label={side === "debit" ? "차변 계정" : "대변 계정"} value={draft[side].account} onSelect={id => select(side, id)} />{draft[side].account !== null && !model.available.has(draft[side].account!) && <p>{draft[side].postingId !== undefined && originals?.get(draft[side].postingId)?.account_id === draft[side].account ? "현재 새 입력에는 사용할 수 없는 기존 계정입니다. 이 거래에서는 유지할 수 있습니다." : "이 거래일에는 사용할 수 없습니다. 다른 계정을 선택하세요."}</p>}</>}
+        {!opening && eligible(draft[side].account) && <CategorySelect catalog={categories}
+          label={side === "debit" ? "차변 생활 분류" : "대변 생활 분류"} value={draft[side].categoryId}
+          change={categoryId => change(d => ({ ...d, revision: d.revision + 1, [side]: { ...d[side], categoryId } }))} />}
       </section>)}</div> : <section className="txn-split" aria-labelledby="split-heading"><h2 id="split-heading" tabIndex={-1}>분할 입력</h2>
         {draft.rows.map((row, index) => <div className="split-row" key={row.id}>
           <div className="split-fields">
@@ -100,11 +106,14 @@ export function TransactionForm({ title, intro, draft, model, change, field, val
             <div className="field"><label htmlFor={`split-amount-${row.id}`}>{index + 1}행 금액</label><input id={`split-amount-${row.id}`} ref={index === 0 ? amountRef : undefined} inputMode="numeric" className="num" value={row.amount} placeholder="0" aria-invalid={!!validation.errors[row.id]} aria-describedby={validation.errors[row.id] ? `split-error-${row.id}` : undefined} onChange={e => editRow(row.id, { amount: amountInput(e.target.value) })} {...composition} /></div>
             <button type="button" className="btn secondary" aria-label={`${index + 1}행 삭제`} onClick={() => { change(d => ({ ...d, revision: d.revision + 1, rows: d.rows.filter(r => r.id !== row.id) })); if (activeRow === row.id) setActiveRow(null); requestAnimationFrame(() => document.getElementById("split-add")?.focus()); }}>삭제</button>
           </div>
+          {eligible(row.account) && <CategorySelect catalog={categories} label={`${index + 1}행 생활 분류`}
+            value={row.categoryId} change={categoryId => editRow(row.id, { categoryId })} />}
           {validation.errors[row.id] && <p className="txn-error" id={`split-error-${row.id}`}>{validation.errors[row.id]}</p>}
-          {activeRow === row.id && <div className="split-picker" id={`split-picker-${row.id}`}><TransactionAccountPicker model={model} label={`${index + 1}행 계정`} value={row.account} onSelect={id => { editRow(row.id, { account: id }); closePicker(row.id); }} /><button type="button" className="btn secondary" onClick={() => closePicker(row.id)}>계정 선택 닫기</button></div>}
+          {activeRow === row.id && <div className="split-picker" id={`split-picker-${row.id}`}><TransactionAccountPicker model={model} label={`${index + 1}행 계정`} value={row.account} onSelect={id => { editRow(row.id, { account: id, categoryId: row.account === id ? row.categoryId : row.postingId ? null : undefined }); closePicker(row.id); }} /><button type="button" className="btn secondary" onClick={() => closePicker(row.id)}>계정 선택 닫기</button></div>}
         </div>)}
         <button id="split-add" type="button" className="btn secondary" disabled={draft.rows.length >= MAX_POSTINGS} onClick={() => change(d => d.rows.length >= MAX_POSTINGS ? d : ({ ...d, revision: d.revision + 1, rows: [...d.rows, { id: Math.max(0, ...d.rows.map(r => r.id)) + 1, account: null, amount: "", debit: true }] }))}>+ 행 추가</button>
       </section>}
+      {!opening && <CategoryManager catalog={categories} />}
       <section className="txn-preview" aria-label="복식부기 미리보기"><h2>검산</h2><table className="ledger"><thead><tr><th>계정</th><th className="num">차변</th><th className="num">대변</th></tr></thead><tbody>
         {validation.postings.map((p, i) => <tr key={i}><td>{name(p.account_id)}</td><td className="num">{p.amount > 0 ? fmtWon(p.amount) : "—"}</td><td className="num">{p.amount < 0 ? fmtWon(-p.amount) : "—"}</td></tr>)}
         {!validation.postings.length && <tr><td colSpan={3}>금액과 계정을 채우면 여기 나타납니다.</td></tr>}

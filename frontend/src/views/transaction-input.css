@@ -41,3 +41,7 @@
   }
 }
 .edit-recovery pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+
+.category-manager { margin-block: 1rem; }
+.category-manager summary { cursor: pointer; }
+.category-manager fieldset { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; margin-top: .5rem; border: 1px solid var(--line); }

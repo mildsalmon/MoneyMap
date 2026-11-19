@@ -115,6 +115,14 @@ export function Statistics({ gen }: ViewProps) {
         <h2>기간 수입과 지출</h2><dl className="statistics-summary" aria-label="기간 수입과 지출">
           <Metric label="수입" value={data.summary.income} /><Metric label="지출" value={data.summary.expense} /><Metric label="수지 · 수입 − 지출" value={data.summary.net_income} />
         </dl>
+        {data.categories && <section><h2>생활 분류별 수입과 지출</h2>
+          <table className="ledger" aria-label="생활 분류별 수입과 지출">
+            <thead><tr><th>생활 분류</th><th className="num">수입</th><th className="num">지출</th></tr></thead>
+            <tbody>{data.categories.map(row => <tr key={row.category_id ?? "unclassified"}>
+              <th scope="row">{row.name}</th><td className="num">{fmtWon(row.income)}</td><td className="num">{fmtWon(row.expense)}</td>
+            </tr>)}</tbody>
+            <tfoot><tr className="sum"><th scope="row">합계</th><td className="num">{fmtWon(data.summary.income)}</td><td className="num">{fmtWon(data.summary.expense)}</td></tr></tfoot>
+          </table></section>}
         <h2>기간말 자산과 변화</h2><dl className="statistics-summary" aria-label="기간말 자산과 변화">
           <Metric label="자산" value={data.summary.assets} /><Metric label="부채" value={data.summary.liabilities} /><Metric label="순자산" value={data.summary.net_worth} />
           <Metric label="조회 시작 직전 순자산" value={data.summary.opening_net_worth} /><Metric label="기간 순자산 변화" value={data.summary.net_worth_change} /><Metric label="자본 변동 · 개시잔액 등" value={data.summary.capital_change} />

@@ -5,6 +5,7 @@ export interface Statistics {
   summary: { income: number; expense: number; net_income: number; opening_net_worth: number;
     net_worth: number; net_worth_change: number; assets: number; liabilities: number;
     capital_change: number; reconciliation_difference: number };
+  categories: { category_id: number | null; name: string; expense: number; income: number }[];
   monthly: { month: string; through: string; income: number; expense: number;
     net_income: number; capital_change: number; net_worth: number }[];
   accounts: Account[];

@@ -99,6 +99,7 @@ def test_currency_mismatch_excludes_whole_transaction_in_every_aggregate(client)
     assert body['transaction_count'] == 1
     assert body['summary']['income'] == body['summary']['net_worth'] == 70
     assert body['summary']['opening_net_worth'] == body['summary']['reconciliation_difference'] == 0
+    assert body['categories'] == [{"category_id": None, "name": "미분류", "income": 70, "expense": 0}]
     assert sum(r['income'] for r in body['monthly']) == 70
 
 

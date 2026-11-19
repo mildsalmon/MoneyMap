@@ -4,8 +4,8 @@
 import type { LastPair } from "../api";
 
 export type Side = "debit" | "credit";
-export type Choice = { account: number | null; source: "empty" | "auto" | "manual" | "retained"; revision: number; postingId?: number };
-export type SplitRow = { id: number; account: number | null; amount: string; debit: boolean; postingId?: number };
+export type Choice = { account: number | null; source: "empty" | "auto" | "manual" | "retained"; revision: number; categoryId?: number | null; postingId?: number };
+export type SplitRow = { id: number; account: number | null; amount: string; debit: boolean; categoryId?: number | null; postingId?: number };
 export type Draft = {
   date: string; item: string; memo: string; tags: string[]; amount: string;
   mode: "basic" | "split"; debit: Choice; credit: Choice; rows: SplitRow[];
@@ -54,7 +54,7 @@ export function editField(draft: Draft, field: "date" | "item" | "memo" | "amoun
 }
 
 export function chooseAccount(draft: Draft, side: Side, account: number): Draft {
-  return { ...draft, revision: draft.revision + 1, [side]: { ...draft[side], account, source: "manual", revision: draft[side].revision + 1 } };
+  return { ...draft, revision: draft.revision + 1, [side]: { ...draft[side], categoryId: account === draft[side].account ? draft[side].categoryId : draft[side].postingId ? null : undefined, account, source: "manual", revision: draft[side].revision + 1 } };
 }
 
 export function lookupToken(draft: Draft): LookupToken {
@@ -76,7 +76,7 @@ export function applyPair(draft: Draft, token: LookupToken, pair: LastPair, conf
     const account = pair[`${side}_account_id`]!;
     const source = confirmed ? "manual" : "auto";
     if (account !== draft[side].account || source !== draft[side].source) {
-      next = { ...next, [side]: { ...draft[side], account, source }, revision: draft.revision + 1 };
+      next = { ...next, [side]: { ...draft[side], categoryId: account === draft[side].account ? draft[side].categoryId : draft[side].postingId ? null : undefined, account, source }, revision: draft.revision + 1 };
     }
   }
   return next;
@@ -95,8 +95,8 @@ export function switchMode(draft: Draft): { draft: Draft; error?: string } {
   const next = { ...draft, epoch: draft.epoch + 1, revision: draft.revision + 1 };
   if (draft.mode === "basic") {
     return { draft: { ...next, mode: "split", rows: [
-      { id: 1, account: draft.debit.account, amount: draft.amount, debit: true, postingId: draft.debit.postingId },
-      { id: 2, account: draft.credit.account, amount: draft.amount, debit: false, postingId: draft.credit.postingId },
+      { id: 1, account: draft.debit.account, amount: draft.amount, debit: true, categoryId: draft.debit.categoryId, postingId: draft.debit.postingId },
+      { id: 2, account: draft.credit.account, amount: draft.amount, debit: false, categoryId: draft.credit.categoryId, postingId: draft.credit.postingId },
     ] } };
   }
   const blank = draft.rows.every(row => row.account === null && row.amount === "");
@@ -109,7 +109,7 @@ export function switchMode(draft: Draft): { draft: Draft; error?: string } {
   const choice = (row: SplitRow | undefined, previous: Choice): Choice => ({
     account: blank ? null : row?.account ?? null,
     source: blank || !row?.account ? "empty" : "manual", revision: previous.revision + 1,
-    postingId: row?.postingId,
+    categoryId: row?.categoryId, postingId: row?.postingId,
   });
   return { draft: { ...next, mode: "basic", amount: blank ? "" : debits[0].amount,
     debit: choice(debits[0], draft.debit), credit: choice(credits[0], draft.credit) } };
@@ -118,9 +118,9 @@ export function switchMode(draft: Draft): { draft: Draft; error?: string } {
 export function clearSavedDraft(draft: Draft, submitted: Draft): Draft {
   if (draft.revision !== submitted.revision) return { ...draft, epoch: draft.epoch + 1 };
   return { ...draft, amount: "", memo: "", tags: [], epoch: draft.epoch + 1, revision: draft.revision + 1,
-    debit: { ...draft.debit, source: draft.debit.account ? "retained" : "empty", revision: draft.debit.revision + 1 },
-    credit: { ...draft.credit, source: draft.credit.account ? "retained" : "empty", revision: draft.credit.revision + 1 },
-    rows: draft.rows.map(row => ({ ...row, amount: "" })),
+    debit: { ...draft.debit, categoryId: undefined, source: draft.debit.account ? "retained" : "empty", revision: draft.debit.revision + 1 },
+    credit: { ...draft.credit, categoryId: undefined, source: draft.credit.account ? "retained" : "empty", revision: draft.credit.revision + 1 },
+    rows: draft.rows.map(row => ({ ...row, categoryId: undefined, amount: "" })),
   };
 }
 
@@ -128,11 +128,11 @@ export type OriginalRows = ReadonlyMap<number, { account_id: number; amount: num
 
 export function validateDraft(draft: Draft, availableIds: ReadonlySet<number>, originals?: OriginalRows) {
   const rows: SplitRow[] = draft.mode === "split" ? draft.rows : [
-    { id: 1, account: draft.debit.account, amount: draft.amount, debit: true, postingId: draft.debit.postingId },
-    { id: 2, account: draft.credit.account, amount: draft.amount, debit: false, postingId: draft.credit.postingId },
+    { id: 1, account: draft.debit.account, amount: draft.amount, debit: true, categoryId: draft.debit.categoryId, postingId: draft.debit.postingId },
+    { id: 2, account: draft.credit.account, amount: draft.amount, debit: false, categoryId: draft.credit.categoryId, postingId: draft.credit.postingId },
   ];
   const errors: Record<number, string> = {};
-  const postings: { posting_id?: number; account_id: number; amount: number }[] = [];
+  const postings: { category_id?: number | null; posting_id?: number; account_id: number; amount: number }[] = [];
   for (const row of rows) {
     // Only entirely untouched spare rows may be omitted. "0" is not blank.
     if (draft.mode === "split" && row.postingId === undefined && row.account === null && row.amount === "") continue;
@@ -143,7 +143,7 @@ export function validateDraft(draft: Draft, availableIds: ReadonlySet<number>, o
     else if (!availableIds.has(row.account) && !retained) errors[row.id] = "지금 사용할 수 없는 계정입니다. 다시 선택하세요.";
     else if (!row.amount) errors[row.id] = "금액을 입력하세요.";
     else if (!(amount > 0 || (amount === 0 && previous?.amount === 0))) errors[row.id] = "0보다 큰 정수 금액을 입력하세요.";
-    else postings.push({ ...(row.postingId === undefined ? {} : { posting_id: row.postingId }), account_id: row.account, amount: (row.debit ? 1 : -1) * amount });
+    else postings.push({ ...(row.categoryId === undefined ? {} : { category_id: row.categoryId }), ...(row.postingId === undefined ? {} : { posting_id: row.postingId }), account_id: row.account, amount: (row.debit ? 1 : -1) * amount });
   }
   const debit = postings.filter(p => p.amount > 0).reduce((sum, p) => sum + p.amount, 0);
   const credit = -postings.filter(p => p.amount < 0).reduce((sum, p) => sum + p.amount, 0);

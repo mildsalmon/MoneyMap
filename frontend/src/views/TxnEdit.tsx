@@ -4,6 +4,7 @@ import { api, ApiError, withDescendants, type TransactionDetail, type Transactio
 import type { ViewProps } from "../App";
 import { TransactionForm } from "./TransactionForm";
 import { accountPickerModel } from "./TransactionAccountPicker";
+import { useLivingCategories } from "./LivingCategoryFields";
 import { useQuery } from "./scenarios/useQuery";
 import { editField, validateDraft, type Draft } from "./transactionInputState";
 import { classifyEditResult, draftIdentity, editBody, editDraft, historyReturn, originalRows, type EditPhase } from "./transactionEditState";
@@ -28,6 +29,7 @@ function DraftSummary({ draft }: { draft: Draft }) {
 function EditSession({ initial, gen, refresh, showToast }: ViewProps & { initial: TransactionDetail }) {
   const navigate = useNavigate(), location = useLocation();
   const returnTo = useRef(historyReturn(location.state?.returnTo)).current;
+  const categories = useLivingCategories();
   const tags = useQuery(`edit-tags:${gen}`, signal => api.tags(signal));
   const [original, setOriginal] = useState(initial);
   const [draft, setDraft] = useState(() => editDraft(initial));
@@ -136,7 +138,7 @@ function EditSession({ initial, gen, refresh, showToast }: ViewProps & { initial
   };
   const opening = original.kind !== "regular";
   const targetPositive = draft.debit.account !== original.opening_system_id;
-  return <TransactionForm title="거래 수정" intro="기존 거래 한 건을 수정합니다. 원본 출처와 반복 규칙은 바뀌지 않습니다."
+  return <TransactionForm categories={categories} title="거래 수정" intro="기존 거래 한 건을 수정합니다. 원본 출처와 반복 규칙은 바뀌지 않습니다."
     draft={draft} change={change} field={field} model={model} validation={validation} onSave={() => void save()}
     canSave={original.editable && !!accounts.data && !!tags.data && validation.valid && phase === "editing"}
     saving={phase === "saving"} disabled={locked || !original.editable} tags={tags.data ?? []}
