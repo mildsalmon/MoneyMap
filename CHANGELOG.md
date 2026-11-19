@@ -2,6 +2,11 @@
 
 All notable changes to MoneyMap are documented in this file.
 
+## Unreleased
+
+- Compare a bank or card statement with the actual ledger for one account, currency, and closing date. Inspect the underlying entries or post a balanced adjustment with a reason and counterpart. An earlier edit requires a fresh comparison. Retrying a confirmation returns the original transaction receipt.
+- Schema v11 adds receipts for reconciliation confirmations. The migration preserves existing transactions and balances.
+
 ## [0.13.0.0] - 2026-11-19
 
 ### Added

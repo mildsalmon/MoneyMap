@@ -357,6 +357,13 @@ def _cash_configuration(conn: sqlite3.Connection) -> None:
         END""")
 
 
+def migrate_reconciliation(conn: sqlite3.Connection) -> None:
+    # A receipt records the original result even after normal edits or deletion.
+    conn.execute("""CREATE TABLE reconciliation_requests (
+        request_id TEXT PRIMARY KEY, payload_hash TEXT NOT NULL, txn_id INTEGER NOT NULL
+    )""")
+
+
 MIGRATIONS = (
     _foundation_schema,
     migrate_lifecycle,
@@ -368,6 +375,7 @@ MIGRATIONS = (
     migrate_installment_rule_cleanup,
     migrate_balance_history,
     migrate_balance_history_shift,
+    migrate_reconciliation,
 )
 
 

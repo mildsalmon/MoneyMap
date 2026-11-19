@@ -153,9 +153,9 @@ export function ScenarioOverview({
           <details>
             <summary>계산 근거</summary>
             <p>
-              {data.fork_date} 실제 장부 마감 잔액에서 시작해{" "}
-              {data.projection_start}부터 {data.projection_end}까지 등록한
-              규칙과 예정 거래만 계산합니다. 실제 규칙 변경은 다음 조회에
+              {data.fork_date} 실제 장부의 원화 마감 잔액에서 시작해{" "}
+              {data.projection_start}부터 {data.projection_end}까지 원화 계정에 원화로 기록한
+              규칙과 예정 거래를 계산합니다. 실제 규칙 변경은 다음 조회에
               반영되며 최근 지출 평균은 추정하지 않습니다.
             </p>
           </details>

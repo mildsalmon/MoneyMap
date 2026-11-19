@@ -61,8 +61,9 @@ def balances(
     out = []
     if krw_only and scenario_id != ACTUAL_SCENARIO_ID:
         raise HTTPException(422, detail="원화 잔액은 실제 장부에서 조회하세요")
+    native = {} if krw_only else r["queries"].balances_by_currency(at, scenario_id)
     raw_balances = (r["queries"].actual_krw_balances(at) if krw_only
-                    else r["queries"].balances_at(at, scenario_id))
+                    else {aid: amounts.get("KRW", 0) for aid, amounts in native.items()})
     for a in r["accounts"].find_all():
         if krw_only and a.currency != "KRW":
             continue
@@ -75,6 +76,9 @@ def balances(
                 "type": a.type.value,
                 "reporting_type": reporting_type(a, raw).value,
                 "balance": raw,
+                **({} if krw_only else {"by_currency": {
+                    currency: str(amount) for currency, amount in native.get(a.id, {}).items()
+                }}),
                 "display_balance": raw * a.display_multiplier(),
             }
         )
@@ -131,7 +135,7 @@ def dashboard_projection(
             },
         )
     result = build_dashboard_projection(
-        ProjectionInputReader(request.state.conn, krw_only=True),
+        ProjectionInputReader(request.state.conn),
         repos(request)["scenarios"],
         ids,
         months,

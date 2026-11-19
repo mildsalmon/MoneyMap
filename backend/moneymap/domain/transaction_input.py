@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Literal
 import unicodedata
 
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 
 # Explicit union of ECMAScript trim and Python whitespace. Keep the frontend
@@ -52,9 +52,16 @@ class RecentInput(BaseModel):
     date: str
     description: str
     amount: int
+    currency: str = "KRW"
     posting_count: int
     debit_account_id: int | None
     credit_account_id: int | None
+
+
+    @computed_field
+    @property
+    def exact_minor(self) -> str:
+        return str(self.amount)
 
 
 def validate_latest_pair(item_key: str, candidate: PairCandidate | None) -> LastPair:

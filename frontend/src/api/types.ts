@@ -138,6 +138,7 @@ export interface Series {
 }
 
 export interface BalanceRow {
+  by_currency?: Record<string, string>;
   account_id: number;
   name: string;
   type: AccountType;
@@ -210,6 +211,7 @@ export interface LastPair {
 }
 
 export interface RecentInput {
+  currency: string; exact_minor: string;
   id: number; date: string; description: string; amount: number; posting_count: number;
   debit_account_id: number | null; credit_account_id: number | null;
 }

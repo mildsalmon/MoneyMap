@@ -1,8 +1,8 @@
 /** Period-bounded actual ledger. URL is applied state; input fields are drafts. */
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api, ApiError, accountTree, withDescendants, type Account, type Txn } from "../api";
-import { fmtMoney, fmtWon } from "../format";
+import { fmtMoney } from "../format";
 import type { ViewProps } from "../App";
 import { useQuery } from "./scenarios/useQuery";
 import { historyReturn, recalledHistory, rememberHistory } from "./transactionEditState";
@@ -20,7 +20,7 @@ export function useHistoryDeletion() {
     onUncertainDelete: (t: Txn) => setUncertainDeletes(previous => ({ ...previous, [t.id]: t.description || `#${t.id}` })) };
 }
 
-export function History(props: ViewProps & { deletion: ReturnType<typeof useHistoryDeletion> }) {
+export function History(props: ViewProps & { readOnly?: boolean; deletion: ReturnType<typeof useHistoryDeletion> }) {
   const location = useLocation();
   const accounts = useQuery(`history-accounts:${props.gen}`, signal => api.accounts(signal));
   const tags = useQuery(`history-tags:${props.gen}`, signal => api.tags(signal));
@@ -32,7 +32,8 @@ export function History(props: ViewProps & { deletion: ReturnType<typeof useHist
     {...props.deletion} />;
 }
 
-function HistorySession({ gen, refresh, showToast, accounts, tags, tagCache, uncertainDeletes, onUncertainDelete, deleting, setDeleting, deletingRef }: ViewProps & ReturnType<typeof useHistoryDeletion> & {
+function HistorySession({ readOnly, gen, refresh, showToast, accounts, tags, tagCache, uncertainDeletes, onUncertainDelete, deleting, setDeleting, deletingRef }: ViewProps & ReturnType<typeof useHistoryDeletion> & {
+  readOnly?: boolean;
   accounts: ReturnType<typeof useQuery<Account[]>>;
   tags: ReturnType<typeof useQuery<string[]>>;
   tagCache: string[];
@@ -147,12 +148,16 @@ function HistorySession({ gen, refresh, showToast, accounts, tags, tagCache, unc
   };
   const flow = (t: Txn) => {
     const side = (positive: boolean) => t.postings.filter(p => positive ? p.amount.amount > 0 : p.amount.amount < 0)
-      .map((p, index) => <Fragment key={index}>{index > 0 && "+"}<AccountHistoryLink accountId={p.account_id}
+      .map((p, index) => <Fragment key={index}>{index > 0 && "+"}<AccountHistoryLink pathname={location.pathname} accountId={p.account_id}
         start={applied!.start} end={applied!.end} tag={applied!.tag} includeChildren={false}>{names.get(p.account_id) ?? `#${p.account_id}`}</AccountHistoryLink></Fragment>);
     return <>{side(false)} → {side(true)}</>;
   };
   const amount = (t: Txn) => {
-    if (!selectedAccounts) return fmtWon(t.postings.filter(p => p.amount.amount > 0).reduce((sum, p) => sum + p.amount.amount, 0));
+    if (!selectedAccounts) {
+      const total = t.postings.filter(p => p.amount.amount > 0)
+        .reduce((sum, p) => sum + BigInt(p.exact_minor ?? p.amount.amount), 0n);
+      return fmtMoney(total, t.postings[0]?.amount.currency ?? "KRW");
+    }
     // Transactions balance within one currency. Direction follows the flow arrow
     // (credit → debit), independent of the account's natural balance sign.
     const postings = t.postings.filter(p => selectedAccounts.has(p.account_id));
@@ -172,6 +177,7 @@ function HistorySession({ gen, refresh, showToast, accounts, tags, tagCache, unc
   const presets: [HistoryPreset, string][] = [["recent", "최근 한 달"], ["this-month", "이번 달"], ["last-month", "지난달"]];
   return <div className="history-page">
     <h1 id="history-title" tabIndex={-1}>거래 내역</h1>
+    {readOnly && <Link to={{ pathname: "/transactions", search: location.search }}>일반 거래 내역에서 정정하기</Link>}
     <div className="history-presets" aria-label="빠른 기간 선택">{presets.map(([value, label]) => {
       const dates = historyPreset(value);
       const samePending = pending && dates.start === applied?.start && dates.end === applied?.end && draft.tag === applied?.tag && draft.accountId === applied?.accountId && draft.accountScope === applied?.accountScope;
@@ -216,11 +222,11 @@ function HistorySession({ gen, refresh, showToast, accounts, tags, tagCache, unc
         <h2 id="history-result-title" tabIndex={-1}>{page.total ? `전체 ${page.total.toLocaleString("ko-KR")}건 · 최신순` : "0건"}</h2>
         {!page.total ? <div className="history-empty"><span>{applied.accountId ? "선택한 기간·태그·계정과목에 해당하는 거래가 없습니다." : "선택한 기간과 태그에 해당하는 거래가 없습니다."}</span><button className="btn secondary" onClick={() => document.getElementById("history-start")?.focus()}>조회 조건 변경</button></div>
           : <><div className="table-scroll history-scroll" ref={scrollRef} role="region" aria-label="거래 표, 가로 스크롤 가능" tabIndex={0}>
-            <table className="ledger"><thead><tr><th>날짜</th><th>내역</th><th className="num">{selectedAccounts ? "계정 변동액" : "금액"}</th>{selectedAccounts && <th className="num">거래 후 잔고</th>}<th>흐름</th><th>작업</th></tr></thead><tbody>
+            <table className="ledger"><thead><tr><th>날짜</th><th>내역</th><th className="num">{selectedAccounts ? "계정 변동액" : "금액"}</th>{selectedAccounts && <th className="num">거래 후 잔고</th>}<th>흐름</th>{!readOnly && <th>작업</th>}</tr></thead><tbody>
               {page.items.map(t => <tr key={t.id}><td className="history-date">{t.date}</td><td className="history-description">{t.description || "—"} {t.source_rule_id && <span className="badge auto">자동</span>} {(t.tags ?? []).map(tag => <span className="badge tag" key={tag}>{tag}</span>)}
                 {t.memo && <details className="transaction-memo"><summary>메모 보기</summary><p>{t.memo}</p></details>}</td>
                 <td className="num history-amount">{amount(t)}</td>{selectedAccounts && <td className="num history-balance">{balanceAfter(t)}</td>}<td className="history-flow">{flow(t)}</td>
-                <td className="history-actions"><button id={`edit-transaction-${t.id}`} className="btn sm secondary" disabled={deleting !== null} onClick={() => edit(t.id)}>수정</button>{" "}<button className="btn sm danger" disabled={deleting !== null || Object.hasOwn(uncertainDeletes, t.id)} onClick={() => void remove(t)}>삭제</button></td></tr>)}
+                {!readOnly && <td className="history-actions"><button id={`edit-transaction-${t.id}`} className="btn sm secondary" disabled={deleting !== null} onClick={() => edit(t.id)}>수정</button>{" "}<button className="btn sm danger" disabled={deleting !== null || Object.hasOwn(uncertainDeletes, t.id)} onClick={() => void remove(t)}>삭제</button></td>}</tr>)}
             </tbody></table></div>
             <nav className="history-pager" aria-label="거래 페이지"><span>{((page.page - 1) * 100 + 1).toLocaleString("ko-KR")}–{Math.min(page.page * 100, page.total).toLocaleString("ko-KR")} / {page.total.toLocaleString("ko-KR")}건</span>
               <button className="btn secondary" disabled={dirty || page.page <= 1 || deleting !== null} onClick={() => apply(applied, page.page - 1)}>이전</button><span>{page.page} / {page.total_pages}</span><button className="btn secondary" disabled={dirty || page.page >= page.total_pages || deleting !== null} onClick={() => apply(applied, page.page + 1)}>다음</button>
