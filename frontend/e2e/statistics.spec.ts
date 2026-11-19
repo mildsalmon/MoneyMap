@@ -107,6 +107,29 @@ test("Back during preset navigation keeps the form on the restored period", asyn
   await expect(page.locator(".statistics-result-title")).toContainText("2026-02-28");
 });
 
+test("normalizing the default URL preserves a date edited during entry", async ({ page }) => {
+  await setup(page);
+  await page.addInitScript(() => {
+    const replaceState = history.replaceState;
+    history.replaceState = function (...args) {
+      replaceState.apply(this, args);
+      const input = document.querySelector<HTMLInputElement>("#statistics-start");
+      if (!input || !location.search.includes("start=")) return;
+      history.replaceState = replaceState;
+      // Edit after the URL changes but before the router commits that location.
+      queueMicrotask(() => {
+        input.stepUp();
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    };
+  });
+  await page.goto("/statistics");
+  await ready(page);
+  await expect(page.getByLabel("시작일", { exact: true })).toHaveValue("2026-01-02");
+  await page.getByRole("button", { name: "조회", exact: true }).click();
+  await expect(page.locator(".statistics-result-title")).toContainText("2026-01-02");
+});
+
 test("pending results hide old amounts, failures retry applied criteria and late responses cannot win", async ({ page }) => {
   await setup(page); await page.goto(`/statistics?${range}`); await ready(page);
   const held: Route[] = []; await page.route(endpoint, r => { held.push(r); });

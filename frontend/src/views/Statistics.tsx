@@ -66,7 +66,11 @@ export function Statistics({ gen }: ViewProps) {
   const query = useQuery(`statistics:${key}:${gen}`, signal => parsed.query
     ? api.statistics(parsed.query.start, parsed.query.end, signal) : Promise.resolve(null));
   const data = query.data;
-  useEffect(() => { setDraft(parsed.draft); setFormError(undefined); }, [location.search]); // URL/back restores the applied criteria.
+  const { start, end } = parsed.draft;
+  useEffect(() => {
+    setDraft({ start, end });
+    setFormError(undefined);
+  }, [start, end, parsed.error]);
   useEffect(() => {
     if (parsed.query && location.search !== statisticsSearch(parsed.query)) {
       navigate({ search: statisticsSearch(parsed.query) }, { replace: true });
