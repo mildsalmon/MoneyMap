@@ -1,5 +1,17 @@
 import type { Account, AccountType } from "./types";
+export interface FlowTotals { income: number; expense: number }
+export interface FlowComparison { current: FlowTotals; previous: FlowTotals }
+export interface ComparisonPeriod { start: string; end: string; days: number }
+export interface StatisticsComparison {
+  current: ComparisonPeriod;
+  previous: ComparisonPeriod | null;
+  overall: FlowComparison;
+  tags: (FlowComparison & { tag_id: number; name: string })[];
+  categories: { id: number; name: string }[];
+  details?: { has_more: boolean; items: (FlowTotals & { id: number; date: string; description: string })[] };
+}
 export interface Statistics {
+  comparison?: StatisticsComparison;
   start: string; end: string; as_of: string; currency: "KRW";
   transaction_count: number; excluded_transaction_count: number;
   summary: { income: number; expense: number; net_income: number; opening_net_worth: number;

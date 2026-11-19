@@ -5,6 +5,7 @@ import calendar
 import datetime as dt
 import sqlite3
 
+from .statistics_comparison import read_comparison
 from .accounts import SqliteAccountRepository
 from .krw_reporting import KRW_TRANSACTION
 from moneymap.domain.account import reporting_type
@@ -20,9 +21,14 @@ WITH cohort AS (
 """
 
 
-def read_statistics(conn: sqlite3.Connection, start: dt.date, end: dt.date) -> dict:
+def read_statistics(conn: sqlite3.Connection, start: dt.date, end: dt.date, *,
+                    comparison: str | None = None, category_id: str | None = None,
+                    tag_id: int | None = None, detail: str | None = None, page: int = 1) -> dict:
     try:
-        return _read_statistics(conn, start, end)
+        result = _read_statistics(conn, start, end)
+        if comparison:
+            result["comparison"] = read_comparison(conn, start, end, comparison, category_id, tag_id, detail, page)
+        return result
     except sqlite3.OperationalError as exc:
         if str(exc) != "integer overflow":
             raise

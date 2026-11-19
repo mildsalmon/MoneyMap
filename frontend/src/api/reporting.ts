@@ -3,8 +3,12 @@ import type { Series, BalanceRow } from "./types";
 import type { Statistics } from "./statistics";
 
 export const reportingApi = {
-  statistics: (start: string, end: string, signal?: AbortSignal) =>
-    req<Statistics>(`/statistics?${new URLSearchParams({ start, end })}`, { signal }),
+  statistics: (start: string, end: string, signal?: AbortSignal, options?: URLSearchParams) => {
+    const params = new URLSearchParams(options);
+    params.set("start", start);
+    params.set("end", end);
+    return req<Statistics>(`/statistics?${params}`, { signal });
+  },
   balances: (scenarioId = 1, signal?: AbortSignal) =>
     req<{ at: string; net_worth: number; accounts: BalanceRow[] }>(`/balances?scenario_id=${scenarioId}`, { signal }),
   dashboardBalances: async (signal?: AbortSignal) => {
