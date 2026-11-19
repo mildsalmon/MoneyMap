@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from moneymap.adapters.sqlite import connect
 from moneymap.adapters.sqlite import database
 from moneymap.api import create_app
-from test_installments import TODAY, allocate, plans, purchase, setup
+from test_installments import TODAY, allocate, plans, purchase, setup, transaction
 import test_api
 
 client = test_api.client
@@ -21,10 +21,14 @@ def test_v7_upgrade_preserves_linked_allocation_and_allows_rule_cleanup(tmp_path
     tables = ("transactions", "postings", "installment_plans", "installments",
               "installment_allocations", "installment_requests")
 
+    columns = {}
+
     def snapshot():
         conn = connect(path)
         try:
-            return {table: [tuple(row) for row in conn.execute(f"SELECT * FROM {table} ORDER BY rowid")]
+            for table in tables:
+                columns.setdefault(table, ",".join(r["name"] for r in conn.execute(f"PRAGMA table_info({table})")))
+            return {table: [tuple(row) for row in conn.execute(f"SELECT {columns[table]} FROM {table} ORDER BY rowid")]
                     for table in tables}
         finally:
             conn.close()
@@ -32,15 +36,23 @@ def test_v7_upgrade_preserves_linked_allocation_and_allows_rule_cleanup(tmp_path
     with patch.object(database, "MIGRATIONS", database.MIGRATIONS[:7]):
         with TestClient(create_app(path)) as old:
             accounts = setup(old)
-            purchase(old, accounts)
+            purchase_id = transaction(old, accounts["expense"], accounts["card"], 400_000)
+            # Populate the installed schema using its actual v7 column contract.
+            with connect(path) as conn:
+                plan_id = conn.execute("""INSERT INTO installment_plans(purchase_id,debit_account_id,
+                    card_account_id,cash_account_id,principal) VALUES(?,?,?,?,400000)""",
+                    (purchase_id, accounts["expense"], accounts["card"], accounts["cash"])).lastrowid
+                conn.executemany("INSERT INTO installments(plan_id,number,due_date,principal) VALUES(?,?,?,200000)",
+                                 [(plan_id, n, TODAY.isoformat()) for n in (1,2)])
             rule = old.post("/api/rules", json={
                 "description": "card bill", "from_account_id": accounts["cash"],
                 "to_account_id": accounts["card"], "amount": 200_000,
                 "schedule": f"monthly:{TODAY.day}", "start_date": TODAY.isoformat(),
             }).json()
             payment_id = old.post("/api/materialize").json()["transactions"][0]["id"]
-            row_id = plans(old)[0]["installments"][0]["id"]
-            assert allocate(old, payment_id, [(row_id, 200_000)]).status_code == 200
+            with connect(path) as conn:
+                row_id = conn.execute("SELECT id FROM installments WHERE number=1").fetchone()[0]
+                conn.execute("INSERT INTO installment_allocations VALUES(?,?,'payment',200000)", (payment_id, row_id))
             assert old.delete(f"/api/rules/{rule['id']}").status_code == 409
             before = snapshot()
 

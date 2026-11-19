@@ -64,7 +64,7 @@ class ProjectionInputReader:
                     )
                 )
         from .installments import projection_inputs
-        installment_events, installment_warnings = projection_inputs(self.conn, scenario.fork_date, actual)
+        installment_events, installment_warnings = projection_inputs(self.conn, scenario.fork_date, actual, owned)
         return ProjectionInputs(
             scenario,
             revisions["actual_ledger_revision"],

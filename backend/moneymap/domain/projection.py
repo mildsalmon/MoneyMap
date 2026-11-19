@@ -48,6 +48,7 @@ class ProjectionEvent:
     label: str
     origin: str
     postings: tuple[tuple[int, int], ...]
+    baseline_only: bool = False
 
 
 class ScenarioSnapshot(Scenario):
@@ -207,6 +208,7 @@ def fold_projection(inputs: ProjectionInputs, months: int) -> dict:
                 event.kind == "planned_transaction"
                 or (
                     event.kind == "installment"
+                    and not event.baseline_only
                     and inputs.scenario.rule_mode != "legacy_snapshot"
                 )
                 or (event.kind == "rule" and event.id in scenario_rules)

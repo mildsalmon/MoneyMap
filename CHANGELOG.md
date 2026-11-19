@@ -4,6 +4,9 @@ All notable changes to MoneyMap are documented in this file.
 
 ## Unreleased
 
+- Enter statement principal, interest and fees for each card installment. Allocate partial payments and refunds to their ledger components, link previously booked charges, and confirm cancelled interest and additional fees for early payoff.
+- Schema v14 preserves existing interest-free schedules, allocations and retry receipts. Cash forecasts use unpaid statement amounts as of the projection date.
+
 - In transaction entry and editing, assign one living category to each expense or income line. Create or rename a category under **생활 분류 관리**. Statistics shows signed income and expense by category for the selected period.
 - Schema v13 adds category definitions and posting assignments. Historical expense and income postings appear under **미분류** until explicitly classified. Renaming a category updates its label on existing postings.
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+from collections import defaultdict
 
 from moneymap.app_services.scenarios import now
 from moneymap.domain import Money, Posting, Transaction
@@ -17,7 +18,8 @@ from moneymap.domain.errors import (
     DomainNotFoundError,
     DomainValidationError,
 )
-from moneymap.domain.installments import schedule
+
+from moneymap.domain.installments import row_balances
 from moneymap.domain.projection import ProjectionEvent
 from moneymap.domain.services import validate_postable_accounts
 from .account_history import posting_accounts_on
@@ -33,9 +35,19 @@ def revision(conn):
 
 
 def mutate(conn, command, action, target, apply):
-    payload = json.dumps(
-        [action, target, command.model_dump(mode="json")], sort_keys=True
-    )
+    body = command.model_dump(mode="json")
+    # Commands issued before v14 must still match their durable receipt.
+    if action == "create" and command.statement is None:
+        for key in ("statement", "statement_date", "interest_account_id", "fee_account_id"):
+            body.pop(key)
+    if action == "allocate":
+        for row in body["allocations"]:
+            for key in ("interest", "fee"):
+                if row[f"{key}_charge_id"] is None:
+                    row.pop(f"{key}_charge_id")
+                if row[key] == 0:
+                    row.pop(key)
+    payload = json.dumps([action, target, body], sort_keys=True)
     fingerprint = hashlib.sha256(payload.encode()).hexdigest()
     with _account_write(conn):
         receipt = conn.execute(
@@ -79,6 +91,8 @@ def _require_plan(conn, plan_id):
 
 def create(conn, command):
     def apply():
+        if command.statement_date and command.statement_date > now().date():
+            raise DomainValidationError("명세서 기준일은 오늘 또는 과거여야 합니다")
         if command.date > now().date():
             raise DomainValidationError("구매일은 오늘 또는 과거여야 합니다")
         by_id = posting_accounts_on(conn, command.date, {command.debit_account_id, command.card_account_id})
@@ -86,11 +100,15 @@ def create(conn, command):
         # Preserve their separate current-lifecycle checks.
         accounts = SqliteAccountRepository(conn).find_all()
         schedule_ids = {command.card_account_id, command.cash_account_id}
+        cost_ids = {command.interest_account_id, command.fee_account_id} - {None}
+        schedule_ids.update(cost_ids)
         validate_postable_accounts(accounts, list(schedule_ids))
         for account in accounts:
             if account.id in schedule_ids:
                 if account.archived or account.is_system:
                     raise DomainValidationError("납부에 사용할 수 있는 통장과 카드를 선택하세요")
+                if account.id in cost_ids and account.type.value != "expense":
+                    raise DomainValidationError("이자와 수수료는 비용 계정을 선택하세요")
                 by_id[account.id] = account
         if any(account.currency != "KRW" for account in by_id.values()):
             raise DomainValidationError("사용 가능한 원화 말단 계정을 선택하세요")
@@ -123,25 +141,26 @@ def create(conn, command):
         )
         purchase_id = _insert_txn(conn, txn)
         plan_id = conn.execute(
-            "INSERT INTO installment_plans(purchase_id,debit_account_id,card_account_id,cash_account_id,principal,exclude_from_spend) VALUES(?,?,?,?,?,?)",
+            "INSERT INTO installment_plans(purchase_id,debit_account_id,card_account_id,cash_account_id,principal,exclude_from_spend,interest_account_id,fee_account_id) VALUES(?,?,?,?,?,?,?,?)",
             (
                 purchase_id,
                 command.debit_account_id,
                 command.card_account_id,
                 command.cash_account_id,
                 command.principal,
-                int(command.exclude_from_spend),
+                int(command.exclude_from_spend), command.interest_account_id, command.fee_account_id,
             ),
         ).lastrowid
-        conn.executemany(
-            "INSERT INTO installments(plan_id,number,due_date,principal) VALUES(?,?,?,?)",
-            [
-                (plan_id, row["number"], row["due_date"], row["principal"])
-                for row in schedule(
-                    command.principal, command.months, command.first_due_date
+        for row in command.rows():
+            row_id = conn.execute(
+                "INSERT INTO installments(plan_id,number,due_date,principal) VALUES(?,?,?,?)",
+                (plan_id, row["number"], row["due_date"], row["principal"]),
+            ).lastrowid
+            if command.statement is not None:
+                conn.execute(
+                    "INSERT INTO installment_statements VALUES(?,?,?,?,0,0)",
+                    (row_id, (command.statement_date or command.date).isoformat(), row["interest"], row["fee"]),
                 )
-            ],
-        )
         return {"id": plan_id, "purchase_id": purchase_id}
 
     return mutate(conn, command, "create", None, apply)
@@ -150,7 +169,7 @@ def create(conn, command):
 def rule_context(plan, rules, rows):
     # Any cash->same card rule in the schedule window could include this purchase.
     # Include rules from other cash accounts: card bills may move between banks.
-    remaining = [r for r in rows if r["remaining"] > 0]
+    remaining = [r for r in rows if r["unpaid_total"] > 0]
     candidates = [
         r
         for r in rules
@@ -171,8 +190,13 @@ def rule_context(plan, rules, rows):
     return candidates, signature
 
 
+def statement_costs(entry):
+    return {key: entry[key] if entry is not None else 0
+            for key in ("interest", "fee", "cancelled_interest", "early_fee")}
+
+
 def read_plans(conn, as_of=None):
-    """Three bounded-by-data batch reads, independent of the number of plans."""
+    """Batch reads independent of the number of purchases."""
     as_of = as_of or now().date()
     plans = [
         dict(r)
@@ -182,36 +206,34 @@ def read_plans(conn, as_of=None):
     ]
     if not plans:
         return []
-    rows = [
-        dict(r)
-        for r in conn.execute(
-            "SELECT i.*,coalesce(sum(CASE WHEN t.date<=? THEN a.amount ELSE 0 END),0) settled FROM installments i LEFT JOIN installment_allocations a ON a.installment_id=i.id LEFT JOIN transactions t ON t.id=a.transaction_id GROUP BY i.id ORDER BY i.plan_id,i.number",
-            (as_of.isoformat(),),
-        )
-    ]
-    allocations = [
-        dict(r)
-        for r in conn.execute(
-            "SELECT a.*,t.date,t.description FROM installment_allocations a JOIN transactions t ON t.id=a.transaction_id ORDER BY t.date,t.id"
-        )
-    ]
-    by_plan = {}
-    for row in rows:
-        row["remaining"] = row["principal"] - row["settled"]
-        row["status"] = (
-            "paid"
-            if row["remaining"] == 0
-            else "needs_confirmation"
-            if row["due_date"] <= as_of.isoformat()
-            else "scheduled"
-        )
-        by_plan.setdefault(row["plan_id"], []).append(row)
+    day = as_of.isoformat()
+    statements = {}
+    for entry in conn.execute("SELECT * FROM installment_statements WHERE effective_date<=? ORDER BY effective_date", (day,)):
+        statements[entry["installment_id"]] = entry
+    allocations = defaultdict(list)
+    for entry in conn.execute(
+        """SELECT a.*,t.date,t.description FROM installment_allocations a
+           JOIN transactions t ON t.id=a.transaction_id WHERE t.date<=? ORDER BY t.date,t.id""", (day,)
+    ):
+        allocations[entry["installment_id"]].append(dict(entry))
+    by_plan = defaultdict(list)
+    cost_plans = {p["id"] for p in plans if p["interest_account_id"]}
+    for source in conn.execute("SELECT * FROM installments ORDER BY plan_id,number"):
+        row = dict(source)
+        statement = statement_costs(statements.get(row["id"]))
+        if row["plan_id"] in cost_plans and row["id"] not in statements:
+            statement.update(interest=None, fee=None)
+        row.update(row_balances(row["principal"], statement, allocations[row["id"]]))
+        row["unknown_cost"] = row["interest"] is None or row["fee"] is None
+        row["status"] = ("paid" if not row["unpaid_total"] and not row["unknown_cost"]
+                         else "needs_confirmation" if row["due_date"] <= day else "scheduled")
+        by_plan[row["plan_id"]].append(row)
     for p in plans:
-        p["installments"] = by_plan.get(p["id"], [])
-        row_ids = {r["id"] for r in p["installments"]}
-        p["allocations"] = [a for a in allocations if a["installment_id"] in row_ids]
+        p["installments"] = by_plan[p["id"]]
+        p["allocations"] = [a for r in p["installments"] for a in allocations[r["id"]]]
         p["remaining_principal"] = sum(r["remaining"] for r in p["installments"])
-        outstanding = [r for r in p["installments"] if r["remaining"]]
+        p["unpaid_total"] = sum(r["unpaid_total"] for r in p["installments"])
+        outstanding = [r for r in p["installments"] if r["status"] != "paid"]
         p["next_due_date"] = min((r["due_date"] for r in outstanding), default=None)
         p["completion_date"] = max((r["due_date"] for r in outstanding), default=None)
     return plans
@@ -228,10 +250,10 @@ def uncovered_plans(plans, rules):
         if p["projection_mode"] != "included":
             continue
         for row in p["installments"]:
-            if row["remaining"]:
+            if row["unpaid_total"]:
                 key = (row["due_date"], p["cash_account_id"], p["card_account_id"])
                 group = groups.setdefault(key, {"amount": 0, "ids": set()})
-                group["amount"] += row["remaining"]
+                group["amount"] += row["unpaid_total"]
                 group["ids"].add(p["id"])
     uncovered = set()
     for (date, cash, card), group in groups.items():
@@ -268,7 +290,7 @@ def list_plans(conn):
         if p["id"] in uncovered or (
             p["projection_mode"] == "included"
             and not candidates
-            and p["remaining_principal"]
+            and p["unpaid_total"]
         ):
             p["needs_projection_decision"] = True
     return {
@@ -276,6 +298,92 @@ def list_plans(conn):
         "as_of": now().date().isoformat(),
         "plans": plans,
     }
+
+
+def validate_row_history(conn, row_id):
+    """Replacements and unlinks must leave every historical day consistent."""
+    principal = conn.execute("SELECT principal FROM installments WHERE id=?", (row_id,)).fetchone()[0]
+    entries = conn.execute(
+        """SELECT a.*,t.date FROM installment_allocations a JOIN transactions t ON t.id=a.transaction_id
+           WHERE a.installment_id=? ORDER BY t.date,t.id""", (row_id,),
+    ).fetchall()
+    statements = {row["effective_date"]: row for row in conn.execute(
+        "SELECT * FROM installment_statements WHERE installment_id=?", (row_id,)
+    )}
+    by_day = defaultdict(list)
+    by_txn = {a["transaction_id"]: a for a in entries}
+    drawn = defaultdict(int)
+    for a in entries:
+        by_day[a["date"]].append(a)
+        for component in ("interest", "fee"):
+            charge_id = a[f"{component}_charge_id"]
+            if charge_id is None:
+                continue
+            charge = by_txn.get(charge_id)
+            if charge is None or charge["kind"] != "charge" or charge["date"] > a["date"]:
+                raise DomainValidationError("같은 회차에 먼저 연결한 비용 분개를 선택하세요")
+            key = (charge_id, component)
+            drawn[key] += a[component]
+            if drawn[key] > charge[component]:
+                raise DomainValidationError("선기장 거래의 비용 배분액을 넘습니다")
+    statement = None
+    seen = []
+    for day in sorted(statements.keys() | by_day.keys()):
+        statement = statements.get(day, statement)
+        seen.extend(by_day[day])
+        row_balances(principal, statement_costs(statement), seen)
+
+
+def update_statement(conn, row_id, command):
+    def apply():
+        row = conn.execute("""SELECT p.interest_account_id,t.date FROM installments i
+            JOIN installment_plans p ON p.id=i.plan_id JOIN transactions t ON t.id=p.purchase_id
+            WHERE i.id=?""", (row_id,)).fetchone()
+        if row is None:
+            raise DomainNotFoundError("회차가 없습니다", code="installment_not_found")
+        if not row["interest_account_id"]:
+            raise DomainValidationError("명세서 방식의 회차에서 비용을 변경할 수 있습니다")
+        day = command.effective_date.isoformat()
+        if day < row["date"] or command.effective_date > now().date():
+            raise DomainValidationError("명세서 기준일은 구매일부터 오늘 사이여야 합니다")
+        conn.execute("""INSERT INTO installment_statements VALUES(?,?,?,?,?,?)
+            ON CONFLICT(installment_id,effective_date) DO UPDATE SET interest=excluded.interest,
+            fee=excluded.fee,cancelled_interest=excluded.cancelled_interest,early_fee=excluded.early_fee""",
+            (row_id, day, command.interest, command.fee, command.cancelled_interest, command.early_fee))
+        validate_row_history(conn, row_id)
+
+    return mutate(conn, command, "statement", row_id, apply)
+
+
+def allocation_postings(kind, allocation, plan, amounts):
+    """Yield the actual debit/credit pairs supporting each component."""
+    card, cash = plan["card_account_id"], plan["cash_account_id"]
+    if allocation.amount:
+        if kind not in ("payment", "billed_payment", "refund"):
+            raise DomainValidationError("비용 연결에는 원금을 배분할 수 없습니다")
+        yield card, plan["debit_account_id"] if kind == "refund" else cash, allocation.amount
+    for component in ("interest", "fee"):
+        value = getattr(allocation, component)
+        charge_id = getattr(allocation, f"{component}_charge_id")
+        if charge_id and (not value or kind not in ("billed_payment", "charge_refund")):
+            raise DomainValidationError("선기장 비용 납부 또는 미납 청구 환급에 원래 비용 분개를 연결하세요")
+        if value and kind == "charge_refund" and not charge_id:
+            raise DomainValidationError("환급할 선기장 비용 분개를 선택하세요")
+        if not value:
+            continue
+        expense = plan[f"{component}_account_id"]
+        if not expense or kind == "refund":
+            raise DomainValidationError("비용 배분은 명세서의 납부 또는 비용 환급으로 연결하세요")
+        if kind == "payment":
+            yield expense, cash, value
+        elif kind == "charge":
+            yield expense, card, value
+        elif kind == "billed_payment":
+            yield card if charge_id else expense, cash, value
+        elif kind == "charge_refund":
+            yield card, expense, value
+        else:  # A paid expense can be refunded to the card or its payment account.
+            yield cash if amounts.get(cash, 0) > 0 else card, expense, value
 
 
 def allocate(conn, command):
@@ -306,6 +414,9 @@ def allocate(conn, command):
         amounts = {}
         for p in postings:
             amounts[p["account_id"]] = amounts.get(p["account_id"], 0) + p["amount"]
+        touched = {r[0] for r in conn.execute(
+            "SELECT installment_id FROM installment_allocations WHERE transaction_id=?", (command.transaction_id,)
+        )}
         conn.execute(
             "DELETE FROM installment_allocations WHERE transaction_id=?",
             (command.transaction_id,),
@@ -313,7 +424,7 @@ def allocate(conn, command):
         used_debit, used_credit = {}, {}
         for allocation in command.allocations:
             row = conn.execute(
-                "SELECT i.*,p.card_account_id,p.cash_account_id,p.debit_account_id,t.date purchase_date FROM installments i JOIN installment_plans p ON p.id=i.plan_id JOIN transactions t ON t.id=p.purchase_id WHERE i.id=?",
+                "SELECT i.*,p.card_account_id,p.cash_account_id,p.debit_account_id,p.interest_account_id,p.fee_account_id,t.date purchase_date FROM installments i JOIN installment_plans p ON p.id=i.plan_id JOIN transactions t ON t.id=p.purchase_id WHERE i.id=?",
                 (allocation.installment_id,),
             ).fetchone()
             if row is None:
@@ -322,35 +433,23 @@ def allocate(conn, command):
                 )
             if txn["date"] < row["purchase_date"]:
                 raise DomainValidationError("구매일 이전 거래는 연결할 수 없습니다")
-            settled = conn.execute(
-                "SELECT coalesce(sum(amount),0) FROM installment_allocations WHERE installment_id=?",
-                (allocation.installment_id,),
-            ).fetchone()[0]
-            if settled + allocation.amount > row["principal"]:
-                raise DomainValidationError("배분액이 회차의 남은 원금을 넘습니다")
-            debit = row["card_account_id"]
-            credit = (
-                row["cash_account_id"]
-                if command.kind == "payment"
-                else row["debit_account_id"]
-            )
-            used_debit[debit] = used_debit.get(debit, 0) + allocation.amount
-            used_credit[credit] = used_credit.get(credit, 0) + allocation.amount
-            if used_debit[debit] > amounts.get(debit, 0) or used_credit[
-                credit
-            ] > -amounts.get(credit, 0):
-                raise DomainValidationError(
-                    "배분 합계가 거래의 카드 상환액 또는 상대 계정 금액을 넘습니다. 납부는 통장→카드, 환불은 구매 계정→카드 거래를 선택하세요"
-                )
+            for debit, credit, value in allocation_postings(command.kind, allocation, row, amounts):
+                used_debit[debit] = used_debit.get(debit, 0) + value
+                used_credit[credit] = used_credit.get(credit, 0) + value
+                if used_debit[debit] > amounts.get(debit, 0) or used_credit[credit] > -amounts.get(credit, 0):
+                    raise DomainValidationError("배분 합계가 거래의 해당 차변 또는 대변 금액을 넘습니다")
+            for charge_id in {allocation.interest_charge_id, allocation.fee_charge_id} - {None}:
+                if not conn.execute("SELECT 1 FROM transactions WHERE id=?", (charge_id,)).fetchone():
+                    raise DomainValidationError("선기장 비용 거래가 없습니다")
             conn.execute(
-                "INSERT INTO installment_allocations VALUES(?,?,?,?)",
-                (
-                    command.transaction_id,
-                    allocation.installment_id,
-                    command.kind,
-                    allocation.amount,
-                ),
+                """INSERT INTO installment_allocations(transaction_id,installment_id,kind,amount,interest,fee,interest_charge_id,fee_charge_id)
+                   VALUES(?,?,?,?,?,?,?,?)""",
+                (command.transaction_id, allocation.installment_id, command.kind, allocation.amount,
+                 allocation.interest, allocation.fee, allocation.interest_charge_id, allocation.fee_charge_id),
             )
+            touched.add(allocation.installment_id)
+        for row_id in touched:
+            validate_row_history(conn, row_id)
         return {"transaction_id": command.transaction_id}
 
     return mutate(conn, command, "allocate", command.transaction_id, apply)
@@ -432,7 +531,7 @@ def remove(conn, plan_id, command):
     return mutate(conn, command, "remove", plan_id, apply)
 
 
-def projection_inputs(conn, fork, rules):
+def projection_inputs(conn, fork, rules, scenario_rules=()):
     events, warnings = [], []
     # Purchases outside the opening balance must not consume historical bill capacity.
     plans = [
@@ -449,12 +548,14 @@ def projection_inputs(conn, fork, rules):
             p["projection_mode"] == "included" and not candidates
         ):
             undecided = True
-        if undecided and p["remaining_principal"]:
+        if undecided and p["unpaid_total"]:
             warnings.append(
                 f"{p['description']}: 카드값 반복 규칙과 중복 여부를 확인해야 합니다. 할부 예정액은 전망에서 보류했습니다."
             )
         for row in rows:
-            remaining = row["remaining"]
+            if row["unknown_cost"]:
+                warnings.append(f"{p['description']} {row['number']}회차: 미확인 이자·수수료는 전망에서 빠져 있습니다.")
+            remaining = row["unpaid_total"]
             if not remaining:
                 continue
             if row["due_date"] <= fork.isoformat():
@@ -462,19 +563,35 @@ def projection_inputs(conn, fork, rules):
                     f"{p['description']} {row['number']}회차: 납부 확인 또는 예정일 조정이 필요합니다. 현금 전망에 미확인 금액이 빠져 있습니다."
                 )
                 continue
-            if undecided or p["projection_mode"] == "included":
+            if undecided:
                 continue
+            # An included bill already pays cash into the card. Reclassify only
+            # unbooked costs from that card repayment to their expense accounts.
+            postings = []
+            if p["projection_mode"] != "included":
+                postings.extend([(p["cash_account_id"], -remaining), (p["card_account_id"], remaining)])
+            for component in ("interest", "fee"):
+                value = row[f"unbooked_{component}"]
+                if value:
+                    postings.extend([(p["card_account_id"], -value), (p[f"{component}_account_id"], value)])
+            if not postings:
+                continue
+            due = dt.date.fromisoformat(row["due_date"])
+            scenario_overlap = p["interest_account_id"] and p["projection_mode"] != "included" and any(
+                r.to_account_id == p["card_account_id"] and r.start_date <= due <= (r.end_date or due)
+                and next(r.schedule.occurrences(due, due), None) is not None for r in scenario_rules
+            )
+            if scenario_overlap:
+                warnings.append(f"{p['description']} {row['number']}회차: 시나리오 카드값 규칙과 겹쳐 시나리오에서 별도 납부를 보류했습니다. 카드값 가정을 확인하세요.")
             events.append(
                 ProjectionEvent(
-                    dt.date.fromisoformat(row["due_date"]),
+                    due,
                     "installment",
                     row["id"],
                     f"{p['description']} {row['number']}회차",
                     "actual",
-                    (
-                        (p["cash_account_id"], -remaining),
-                        (p["card_account_id"], remaining),
-                    ),
+                    tuple(postings),
+                    baseline_only=bool(scenario_overlap),
                 )
             )
     return tuple(events), tuple(dict.fromkeys(warnings))
