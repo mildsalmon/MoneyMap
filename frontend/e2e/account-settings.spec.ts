@@ -1,3 +1,5 @@
+import AxeBuilder from "@axe-core/playwright";
+
 import { expect, test, type APIRequestContext, type Page } from "./test";
 
 const API_BASE = (process.env.MONEYMAP_E2E_API_BASE
@@ -192,7 +194,8 @@ test("보관 계정은 복원만 제공하고 좁은 화면의 설정 패널은 
 
   await page.goto("/");
   await nav(page, "계정·개시잔액").click();
-  await accountRow(page, child.name).getByRole("button", { name: "보관" }).click();
+  await accountRow(page, child.name).getByRole("button", { name: /더보기$/ }).click();
+  await accountRow(page, child.name).getByRole("menuitem", { name: "보관" }).click();
   const archivedRow = page.locator(".archived-ledger tr").filter({ hasText: child.name });
   await expect(archivedRow.getByRole("button", { name: "설정", exact: true })).toHaveCount(0);
   await expect(archivedRow.getByRole("button", { name: "복원" })).toBeVisible();
@@ -259,4 +262,118 @@ test("설정 저장 후 계정 갱신 실패는 기존 행과 재시도 경로�
   await refreshError.getByRole("button", { name: "다시 시도" }).click();
   await expect(accountRow(page, renamed)).toBeVisible();
   await expect(refreshError).toBeHidden();
+});
+
+test.describe("계정 행 메뉴", () => {
+  test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
+
+  test("Shift+Tab closes the menu on its trigger and Escape leaves it closed", async ({ page, request }) => {
+    const account = await createAccount(request, "메뉴-E2E-역방향");
+    await page.goto("/accounts");
+    const trigger = page.getByRole("button", { name: `${account.name} 더보기` });
+    const menu = page.getByRole("menu", { name: `${account.name} 더보기` });
+    await trigger.press("Enter");
+    await expect(menu.getByRole("menuitem").first()).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(trigger).toBeFocused();
+    await expect.soft(trigger).toHaveAttribute("aria-expanded", "false");
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(trigger).toBeFocused();
+  });
+
+  test("group conversion returns focus to the converted row's menu button", async ({ page, request }) => {
+    const account = await createAccount(request, "메뉴-E2E-그룹전환");
+    await page.goto("/accounts");
+    const row = accountRow(page, account.name);
+    const trigger = row.getByRole("button", { name: `${account.name} 더보기` });
+    await trigger.press("Enter");
+    await row.getByRole("menuitem", { name: "그룹으로" }).press("Enter");
+    await expect(row).toHaveClass(/group-row/);
+    await expect(trigger).toBeFocused();
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("group conversion preserves focus moved outside the pending row", async ({ page, request }) => {
+    const account = await createAccount(request, "메뉴-E2E-다른포커스");
+    let resume!: () => void;
+    const hold = new Promise<void>(resolve => { resume = resolve; });
+    await page.route(`**/api/accounts/${account.id}/placeholder`, async route => {
+      await hold;
+      await route.continue();
+    });
+    await page.goto("/accounts");
+    const row = accountRow(page, account.name);
+    const trigger = row.getByRole("button", { name: `${account.name} 더보기` });
+    await trigger.press("Enter");
+    await row.getByRole("menuitem", { name: "그룹으로" }).press("Enter");
+    const navigation = nav(page, "계정·개시잔액");
+    try {
+      await expect(trigger).toBeDisabled();
+      await navigation.focus();
+    } finally {
+      resume();
+    }
+    await expect(row).toHaveClass(/group-row/);
+    await expect(navigation).toBeFocused();
+  });
+
+  test("denied group archive returns focus to the surviving row's menu button", async ({ page, request }) => {
+    const group = await createAccount(request, "메뉴-E2E-보관거절", { isPlaceholder: true });
+    await createAccount(request, "메뉴-E2E-활성자식", { parentId: group.id });
+    await page.goto("/accounts");
+    const trigger = page.getByRole("button", { name: `${group.name} 더보기` });
+    await trigger.tap();
+    await page.getByRole("menuitem", { name: `${group.name} 보관` }).tap();
+    await expect(page.getByRole("alert")).toContainText("하위 계정 1개를 먼저 보관하세요");
+    await expect(trigger).toBeFocused();
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("터치·키보드로 행을 식별하고 보관·복원 후 다음 작업으로 이동한다", async ({ page, request }) => {
+    const group = await createAccount(request, "메뉴-E2E-분류", { isPlaceholder: true });
+    const first = await createAccount(request, "메뉴-E2E-첫째", { parentId: group.id });
+    const next = await createAccount(request, "메뉴-E2E-둘째", { parentId: group.id });
+    await page.goto("/accounts");
+
+    const row = accountRow(page, first.name);
+    const settings = row.getByRole("button", { name: "설정", exact: true });
+    await settings.tap();
+    await expect(page.getByLabel(`${first.name} 이름`)).toBeFocused();
+    await settings.tap();
+    await expect(settings).toBeFocused();
+
+    const trigger = row.getByRole("button", { name: `${first.name} 더보기` });
+    const menu = page.getByRole("menu", { name: `${first.name} 더보기` });
+    const convert = menu.getByRole("menuitem", { name: "그룹으로" });
+    const archive = menu.getByRole("menuitem", { name: `${first.name} 보관` });
+    await trigger.press("Space");
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await expect(convert).toBeFocused();
+    await convert.press("ArrowUp");
+    await expect(archive).toBeFocused();
+    await archive.press("ArrowDown");
+    await expect(convert).toBeFocused();
+    await convert.press("Escape");
+    await expect(trigger).toBeFocused();
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await trigger.press("Enter");
+    await expect(convert).toBeFocused();
+    const audit = await new AxeBuilder({ page }).include(".account-row-menu").analyze();
+    expect(audit.violations).toEqual([]);
+    await archive.tap();
+    await expect(accountRow(page, next.name).getByRole("button", { name: "설정", exact: true })).toBeFocused();
+
+    const archived = page.locator(".archived-ledger tr").filter({ hasText: first.name });
+    await expect(archived.getByRole("button")).toHaveCount(1);
+    await archived.getByRole("button", { name: "복원" }).tap();
+    await expect(page.locator("#accounts-title")).toBeFocused();
+    await trigger.tap();
+    await expect(convert).toBeVisible();
+    const groupTrigger = page.getByRole("button", { name: `${group.name} 더보기` });
+    await groupTrigger.tap();
+    await expect(menu).toBeHidden();
+    await page.getByRole("menuitem", { name: "소분류" }).tap();
+    await expect(page.getByLabel(`${group.name} 소분류 이름`)).toBeFocused();
+  });
 });

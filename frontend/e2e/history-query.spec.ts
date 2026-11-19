@@ -184,7 +184,7 @@ test("mobile uses shared column order, named controls and table-only overflow", 
   await page.setViewportSize({ width: 390, height: 844 });
   await mockHistory(page, [{ ...sample(1), description: "긴내역".repeat(50), memo: "메모".repeat(200) }]);
   await page.goto(`/transactions?${range}&page=1`); await expect(rows(page)).toHaveCount(1);
-  expect(await page.locator("th").allTextContents()).toEqual(["날짜", "내역", "금액", "흐름", "작업"]);
+  await expect(page.locator(".history-scroll th")).toHaveText(["날짜", "내역", "금액", "흐름", "작업"]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(await submit(page).evaluate(e => e.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
   await page.getByText("메모 보기", { exact: true }).click();

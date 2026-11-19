@@ -30,7 +30,8 @@ async function createRootCategory(page: Page, section: string, name: string) {
 }
 
 async function createChildCategory(page: Page, parent: string, name: string) {
-  await page.locator("tr.account-row", { hasText: parent }).first().getByRole("button", { name: /소분류/ }).click();
+  await page.locator("tr.account-row", { hasText: parent }).first().getByRole("button", { name: /더보기$/ }).click();
+  await page.locator("tr.account-row", { hasText: parent }).first().getByRole("menuitem", { name: /소분류/ }).click();
   const input = page.getByLabel(`${parent} 소분류 이름`);
   await input.fill(name);
   await input.press("Enter");
@@ -59,7 +60,8 @@ test("개시잔액이 0원이어도 '기록'으로 확인하고 진입할 수 �
 
   // 계정 보관(소프트 삭제, D23) — 목록에서 사라지고 복원 가능
   await nav(page, "계정·개시잔액").click();
-  await page.locator('tr:has-text("빈통장")').getByRole("button", { name: "보관" }).click();
+  await page.locator('tr:has-text("빈통장")').getByRole("button", { name: /더보기$/ }).click();
+  await page.locator('tr:has-text("빈통장")').getByRole("menuitem", { name: "보관" }).click();
   await expect(page.locator(".toast")).toContainText("보관됨");
   await expect(page.getByText("보관된 계정 (1)")).toBeVisible();
   await page.getByRole("button", { name: "복원" }).click();
@@ -72,7 +74,8 @@ test("그룹(대분류) 계정은 거래 입력에서 선택 불가 (D24)", asyn
   await nav(page, "계정·개시잔액").click();
   await createRootCategory(page, "자산", "은행묶음");
   // "그룹으로" 전환 → 그룹 badge
-  await page.locator('tr:has-text("은행묶음")').getByRole("button", { name: "그룹으로" }).click();
+  await page.locator('tr:has-text("은행묶음")').getByRole("button", { name: /더보기$/ }).click();
+  await page.locator('tr:has-text("은행묶음")').getByRole("menuitem", { name: "그룹으로" }).click();
   await expect(page.locator('tr:has-text("은행묶음")')).toContainText("그룹");
   // 하위 실계정 생성
   await createChildCategory(page, "은행묶음", "카카오뱅크");
