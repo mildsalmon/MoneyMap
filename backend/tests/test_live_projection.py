@@ -127,6 +127,33 @@ def test_hand_calculated_golden(golden, months, end, baseline, scenario):
         assert dates == sorted(set(dates)) and len(dates) <= 367
 
 
+def test_persisted_foreign_events_leave_won_forecast_and_cash_unchanged(golden):
+    from test_balance_history import insert
+    from test_api import update_settings
+
+    client, sid, bank, income, _ = golden
+    update_settings(client, bank, include_in_cash=True).raise_for_status()
+    url = f"/api/projection?scenario_id={sid}&months=3"
+    before = client.get(url).json()
+    assert before["cash"]["available"]
+    conn = connect(client.app.state.db_path)
+    with conn:
+        insert(conn, [bank, income], 1025, FORK.isoformat(), "USD")
+        insert(conn, [bank, income], 2500, "2026-02-10", "JPY", scenario=sid)
+        conn.execute(
+            "INSERT INTO recurring_rules(scenario_id,description,from_account_id,to_account_id,"
+            "amount,currency,schedule,start_date) VALUES(?,?,?,?,?,?,?,?)",
+            (sid, "historical dollar rule", income, bank, 500, "USD", "monthly:15", "2026-02-01"),
+        )
+    conn.close()
+    after = client.get(url).json()
+    for field in ("net_worth", "cash", "monthly_income_expense"):
+        assert after[field] == before[field]
+    saved = client.get(f"/api/scenarios/{sid}/planned-transactions").json()
+    assert any(p["amount"] == {"currency": "JPY", "amount": 2500}
+               for txn in saved for p in txn["postings"])
+
+
 def test_actual_changes_live_for_active_and_archived(golden):
     client, sid, bank, income, salary = golden
     path = f"/api/projection?scenario_id={sid}&months=3"

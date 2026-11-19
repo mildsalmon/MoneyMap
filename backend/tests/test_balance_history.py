@@ -96,7 +96,7 @@ def test_random_edits_scenario_moves_currencies_and_metadata(ledger):
         c.execute("UPDATE accounts SET name='새 이름',archived=1 WHERE id=?", (ids[0],))
     assert [tuple(r) for r in c.execute('SELECT * FROM account_balance_history')] == before
     for aid in ids:
-        raw = c.execute('SELECT COALESCE(SUM(p.amount),0) FROM postings p JOIN transactions t ON t.id=p.txn_id WHERE p.account_id=? AND t.scenario_id=1 AND t.posted=1', (aid,)).fetchone()[0]
+        raw = c.execute('SELECT COALESCE(SUM(p.amount),0) FROM postings p JOIN transactions t ON t.id=p.txn_id WHERE p.account_id=? AND p.currency=? AND t.scenario_id=1 AND t.posted=1', (aid, "KRW")).fetchone()[0]
         assert SqliteLedgerQueries(c).balances_at(dt.date(2026, 9, 30), 1).get(aid, 0) == raw
 
 
@@ -159,7 +159,7 @@ def test_v8_migration_backfills_preserves_and_rolls_back(tmp_path):
     rows = list(c.execute('SELECT * FROM account_balance_history ORDER BY account_id,currency,txn_id'))
     changes = c.total_changes
     init_db(c); init_db(c)
-    assert c.execute('PRAGMA user_version').fetchone()[0] == 10
+    assert c.execute('PRAGMA user_version').fetchone()[0] == len(database.MIGRATIONS)
     assert c.total_changes == changes
     assert list(c.execute('SELECT * FROM account_balance_history ORDER BY account_id,currency,txn_id')) == rows
     assert [tuple(r) for r in c.execute('SELECT * FROM postings')] == before

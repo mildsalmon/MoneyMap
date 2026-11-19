@@ -1,0 +1,13 @@
+.reconciliation { max-width: 820px; }
+.reconciliation .panel { margin-block: 16px; }
+.reconcile-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 14px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.reconcile-fields legend { font-weight: 650; padding: 0; margin-block: 12px; }
+.reconcile-fields label { display: grid; gap: 6px; min-width: 0; }
+.reconcile-fields input, .reconcile-fields select { width: 100%; min-width: 0; }
+.reconcile-fields p, .reconcile-fields button { grid-column: 1 / -1; justify-self: start; }
+.reconcile-balances { display: flex; gap: 22px; flex-wrap: wrap; }
+.reconcile-balances dd { margin: 4px 0 0; font-variant-numeric: tabular-nums; font-weight: 650; }
+.reconcile-actions { display: flex; gap: 8px; margin-top: 16px; }
+@media (max-width: 720px) {
+  .reconciliation input, .reconciliation select, .reconciliation button { min-height: 44px; }
+}
