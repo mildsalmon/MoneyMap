@@ -33,12 +33,14 @@ export function useAccountWrites(accounts: Account[], blocked: boolean, showToas
     return blocked || [...active.current.values()].some(held =>
       held.some(a => scopes.some(b => scopesOverlap(accounts, a, b))));
   }
-  function begin(...scopes: SiblingScope[]) {
-    if (busy(...scopes)) return null;
-    const ticket = ++sequence.current;
+  function resume(ticket: number, ...scopes: SiblingScope[]) {
+    if (active.current.has(ticket) || busy(...scopes)) return null;
     active.current.set(ticket, scopes);
     render();
     return ticket;
+  }
+  function begin(...scopes: SiblingScope[]) {
+    return resume(++sequence.current, ...scopes);
   }
   function finish(ticket: number) {
     if (active.current.delete(ticket)) render();
@@ -57,7 +59,7 @@ export function useAccountWrites(accounts: Account[], blocked: boolean, showToas
   function announce(message: string) {
     if (!lastSuccess.current) showToast(message);
   }
-  return { begin, busy, finish, success, announce, parentVersions, holds: (ticket: number) => active.current.has(ticket),
+  return { begin, resume, busy, finish, success, announce, parentVersions, holds: (ticket: number) => active.current.has(ticket),
     pending: active.current.size > 0 };
 }
 

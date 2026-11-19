@@ -605,6 +605,8 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     const editing = settingsIds.includes(account.id);
     const operation = ordering.operations.find(op => op.owner.id === account.id);
     const childScope = { type: account.type, parent_id: account.id };
+    const containsDraft = settingsIds.some(id => rollupIds.includes(id))
+      || Object.values(inlineDrafts).some(draft => draft.parent_id !== null && rollupIds.includes(draft.parent_id));
     const pending = rowTasks[account.id];
 
     return (
@@ -619,7 +621,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
               <button type="button" className="badge group-badge group-disclosure"
                 aria-expanded={!folded.has(account.id)}
                 aria-label={`${account.name} 하위 계정 ${folded.has(account.id) ? "펼치기" : "접기"}`}
-                disabled={settingsIds.length > 0 || Object.keys(inlineDrafts).length > 0 || writes.busy(childScope)}
+                disabled={writes.busy(childScope) || (!folded.has(account.id) && containsDraft)}
                 onClick={() => setGroupFolded(account.id, !folded.has(account.id))}>
                 {folded.has(account.id) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                 그룹 · 합산

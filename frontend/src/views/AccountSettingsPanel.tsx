@@ -45,7 +45,8 @@ function accountPath(accounts: Account[], account: Account): string {
 
 export function AccountSettingsPanel({ account, accounts, onCancel, onSaved, onConfirmed, loadAccounts, writes }: Props) {
   const [baseline, setBaseline] = useState(account);
-  const [needsRead, setNeedsRead] = useState(false);
+  const [unconfirmedWrite, setUnconfirmedWrite] = useState<number | null>(null);
+  const needsRead = unconfirmedWrite !== null;
   const [name, setName] = useState(account.name);
   const [parentId, setParentId] = useState<number | "">(account.parent_id ?? "");
   const [isOverdraft, setIsOverdraft] = useState(account.is_overdraft);
@@ -119,7 +120,7 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved, onC
     } catch (caught) {
       if (!writes.holds(ticket)) return;
       if (!(caught instanceof ApiError) || caught.status >= 500 || caught.code === "account_settings_stale" || caught.code === "account_parent_stale") {
-        setNeedsRead(true);
+        setUnconfirmedWrite(ticket);
         setError("최신 내용을 확인한 뒤 다시 시도하세요.");
       } else {
         setError(caught.message);
@@ -131,7 +132,9 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved, onC
   };
 
   async function checkLatest() {
-    const ticket = writes.begin(account, destination);
+    if (unconfirmedWrite === null) return;
+    // Confirm the original write at its place in the user's action order.
+    const ticket = writes.resume(unconfirmedWrite, account, destination);
     if (ticket === null) return;
     setPending(true);
     try {
@@ -153,7 +156,7 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved, onC
       if (isOverdraft === baseline.is_overdraft) setIsOverdraft(saved.is_overdraft);
       if (includeInCash === baseline.include_in_cash) setIncludeInCash(saved.include_in_cash);
       setBaseline(saved);
-      setNeedsRead(false);
+      setUnconfirmedWrite(null);
       setError(`현재 저장된 값: ${accountPath(rows, saved)} · 마이너스통장 ${saved.is_overdraft ? "켜짐" : "꺼짐"} · 현금성 ${saved.include_in_cash ? "포함" : "제외"}. 초안을 확인하고 저장하세요.`);
     } finally {
       writes.finish(ticket);

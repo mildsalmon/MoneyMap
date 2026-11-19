@@ -224,3 +224,116 @@ test("최상위 분류 저장 중에도 다른 유형의 초안과 고급 계정
     expect((await serverRows(request, parent)).map(row => row.name)).toEqual([prefix + "-비용"]);
   } finally { pending.release(); }
 });
+
+test.describe("리뷰 회귀", () => {
+  test("새로고침 후에도 타 탭에서 이름이 바뀐 생성 요청의 영수증을 확인한다", async ({ page, context, request }) => {
+    const { parent } = await group(request, "생성복구");
+    const original = parent.name + "-신규", renamed = original + "-변경";
+    const input = page.getByLabel(parent.name + " 소분류 이름");
+    const alert = page.locator("tr.account-inline [role=alert]");
+    async function enterDraft() {
+      await row(page, parent).getByRole("button", { name: /더보기$/ }).click();
+      await page.getByRole("menuitem", { name: "소분류" }).click();
+      await input.fill(original);
+      await input.press("Enter");
+    }
+    const posts: string[] = [], receipts: string[] = [];
+    let receiptAvailable = false;
+    await page.route("**/accounts/creation-requests/*", async route => {
+      receipts.push(route.request().url().split("/").pop()!);
+      if (receiptAvailable) await route.continue();
+      else await route.abort();
+    });
+    await page.route("**/api/accounts", async route => {
+      if (route.request().method() === "POST") {
+        posts.push(route.request().postDataJSON().request_id);
+        if (posts.length === 1) {
+          expect((await route.fetch()).status()).toBe(201);
+          await route.abort();
+          return;
+        }
+      }
+      await route.continue();
+    });
+    await page.goto("/accounts");
+    await enterDraft();
+    await expect(alert).toBeVisible();
+    const saved = (await serverRows(request, parent)).find(a => a.name === original)!;
+    const other = await context.newPage();
+    await blockExternalStyles(other);
+    await other.goto("/accounts");
+    await settings(other, saved).click();
+    await form(other, saved).getByLabel(original + " 이름").fill(renamed);
+    await form(other, saved).getByRole("button", { name: "변경 저장" }).click();
+    await expect(row(other, saved)).toContainText(renamed);
+
+    await page.reload();
+    await enterDraft();
+    await expect.poll(() => receipts.length + posts.length).toBe(3);
+    expect(posts).toHaveLength(1);
+    await expect(alert).toBeVisible();
+    receiptAvailable = true;
+    await input.press("Enter");
+    await expect(input).toHaveCount(0);
+    expect(receipts).toEqual([posts[0], posts[0], posts[0]]);
+    expect((await serverRows(request, parent)).filter(a => a.name.startsWith(original)))
+      .toMatchObject([{ id: saved.id, name: renamed }]);
+
+    // After confirmation, a deliberate new account with the old name is a new command.
+    await enterDraft();
+    await expect(input).toHaveCount(0);
+    expect(new Set(posts).size).toBe(2);
+  });
+
+  test("먼저 시작한 설정의 뒤늦은 확인은 나중에 저장한 순서의 실행취소를 보존한다", async ({ page, request }) => {
+    const a = await group(request, "확인A"), b = await group(request, "실행취소B");
+    await page.goto("/accounts");
+    const panel = form(page, a.first);
+    await settings(page, a.first).click();
+    await panel.getByLabel(a.first.name + " 이름").fill(a.first.name + "-완료");
+    await page.route(`**/accounts/${a.first.id}/settings`, async route => {
+      expect((await route.fetch()).status()).toBe(200);
+      await route.abort();
+    });
+    await panel.getByRole("button", { name: "변경 저장" }).click();
+    const check = panel.getByRole("button", { name: "최신 내용 확인" });
+    await expect(check).toBeVisible();
+    await moveUp(page, b.second);
+    await expect(page.locator(".toast")).toContainText(b.second.name);
+    await check.click();
+    await expect(panel).toHaveCount(0);
+    await expect(page.locator(".toast")).toContainText(b.second.name);
+    await page.getByRole("button", { name: "실행취소", exact: true }).click();
+    await expect.poll(async () => (await serverRows(request, b.parent)).map(r => r.id))
+      .toEqual([b.first.id, b.second.id]);
+    expect((await serverRows(request, a.parent))[0].name).toBe(a.first.name + "-완료");
+  });
+
+  test("설정 저장 중 접힌 독립 그룹을 펼쳐 저장하고 겹치는 그룹은 잠근다", async ({ page, request }) => {
+    const a = await group(request, "펼침A"), b = await group(request, "펼침B");
+    const pending = gate();
+    await page.route(`**/accounts/${a.first.id}/settings`, async route => {
+      await pending.wait;
+      await route.continue();
+    });
+    await page.goto("/accounts");
+    await row(page, b.parent).getByRole("button", { name: /하위 계정 접기/ }).click();
+    try {
+      await settings(page, a.first).click();
+      await form(page, a.first).getByLabel(a.first.name + " 이름").fill(a.first.name + "-완료");
+      await form(page, a.first).getByRole("button", { name: "변경 저장" }).click();
+      await expect(row(page, a.parent).getByRole("button", { name: /하위 계정 접기/ })).toBeDisabled();
+      await expect(settings(page, a.second)).toBeDisabled();
+      const expand = row(page, b.parent).getByRole("button", { name: /하위 계정 펼치기/ });
+      await expect(expand).toBeEnabled();
+      await expand.press("Enter");
+      await settings(page, b.first).click();
+      await form(page, b.first).getByLabel(b.first.name + " 이름").fill(b.first.name + "-완료");
+      await form(page, b.first).getByRole("button", { name: "변경 저장" }).click();
+      await expect(row(page, b.first)).toContainText(b.first.name + "-완료");
+      await expect(settings(page, a.second)).toBeDisabled();
+      pending.release();
+      await expect(row(page, a.first)).toContainText(a.first.name + "-완료");
+    } finally { pending.release(); }
+  });
+});
