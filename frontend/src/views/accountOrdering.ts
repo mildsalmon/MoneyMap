@@ -20,7 +20,10 @@ export function insertOrder(ids: number[], source: number, target: number, after
   return next;
 }
 export function overlayOrder(accounts: Account[], owner: Account, ids: number[]) {
-  const slots = siblings(accounts, owner).map(a => a.position);
+  const peers = siblings(accounts, owner);
+  // A canonical refresh may already include a concurrent move or creation.
+  if (peers.length !== ids.length || peers.some(peer => !ids.includes(peer.id))) return accounts;
+  const slots = peers.map(a => a.position);
   const positions = new Map(ids.map((id, i) => [id, slots[i]]));
   return accounts.map(a => positions.has(a.id) ? { ...a, position: positions.get(a.id)! } : a);
 }

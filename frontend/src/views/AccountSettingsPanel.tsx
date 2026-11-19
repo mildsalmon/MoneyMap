@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { AccountWrites } from "./useAccountWrites";
 import { Check, X } from "lucide-react";
 import {
   ApiError,
@@ -23,8 +24,10 @@ interface Props {
   account: Account;
   accounts: Account[];
   onCancel: () => void;
-  onSaved: (result: AccountSettingsResult) => Promise<void> | void;
-  onPendingChange?: (pending: boolean) => void;
+  onSaved: (result: AccountSettingsResult, ticket: number) => Promise<void>;
+  onConfirmed: (saved: Account, ticket: number, tree: Account[]) => void;
+  loadAccounts: () => Promise<Account[] | undefined>;
+  writes: AccountWrites;
 }
 
 function accountPath(accounts: Account[], account: Account): string {
@@ -40,14 +43,9 @@ function accountPath(accounts: Account[], account: Account): string {
   return `${TYPE_LABEL[account.type]} / ${parts.join(" / ")}`;
 }
 
-export function AccountSettingsPanel({ account, accounts, onCancel, onSaved, onPendingChange }: Props) {
-  const [baseline] = useState(() => ({
-    name: account.name,
-    parentId: account.parent_id,
-    isOverdraft: account.is_overdraft,
-    includeInCash: account.include_in_cash,
-    version: account.version,
-  }));
+export function AccountSettingsPanel({ account, accounts, onCancel, onSaved, onConfirmed, loadAccounts, writes }: Props) {
+  const [baseline, setBaseline] = useState(account);
+  const [needsRead, setNeedsRead] = useState(false);
   const [name, setName] = useState(account.name);
   const [parentId, setParentId] = useState<number | "">(account.parent_id ?? "");
   const [isOverdraft, setIsOverdraft] = useState(account.is_overdraft);
@@ -81,9 +79,9 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved, onP
   }, [account.id, account.type, accounts, descendants]);
 
   const candidateIds = new Set(candidates.map((candidate) => candidate.id));
-  const currentParent = baseline.parentId === null
+  const currentParent = baseline.parent_id === null
     ? undefined
-    : accounts.find((candidate) => candidate.id === baseline.parentId);
+    : accounts.find((candidate) => candidate.id === baseline.parent_id);
   const currentParentNeedsMove = Boolean(currentParent && !candidateIds.has(currentParent.id));
   const selectedParent = parentId === ""
     ? undefined
@@ -96,14 +94,17 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved, onP
   const normalizedName = name.trim();
   const normalizedParent = parentId === "" ? null : parentId;
   const dirty = normalizedName !== baseline.name
-    || normalizedParent !== baseline.parentId
-    || isOverdraft !== baseline.isOverdraft
-    || includeInCash !== baseline.includeInCash;
+    || normalizedParent !== baseline.parent_id
+    || isOverdraft !== baseline.is_overdraft
+    || includeInCash !== baseline.include_in_cash;
 
+  const destination = { type: account.type, parent_id: normalizedParent };
+  const disabled = pending || writes.busy(account, destination);
   const submit = async () => {
-    if (!normalizedName || !dirty || pending) return;
+    if (!normalizedName || !dirty || disabled || needsRead) return;
+    const ticket = writes.begin(account, destination);
+    if (ticket === null) return;
     setPending(true);
-    onPendingChange?.(true);
     setError("");
     try {
       const result = await api.updateAccountSettings(account.id, {
@@ -112,19 +113,53 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved, onP
         is_overdraft: isOverdraft,
         include_in_cash: includeInCash,
         version: baseline.version,
+        parent_versions: writes.parentVersions(account, destination),
       });
-      await onSaved(result);
+      if (writes.holds(ticket)) await onSaved(result, ticket);
     } catch (caught) {
-      if (caught instanceof ApiError && caught.code === "account_settings_stale") {
-        setError(`${caught.message} 최신 내용을 확인한 뒤 다시 시도하세요.`);
+      if (!writes.holds(ticket)) return;
+      if (!(caught instanceof ApiError) || caught.status >= 500 || caught.code === "account_settings_stale" || caught.code === "account_parent_stale") {
+        setNeedsRead(true);
+        setError("최신 내용을 확인한 뒤 다시 시도하세요.");
       } else {
-        setError((caught as Error).message);
+        setError(caught.message);
       }
     } finally {
+      writes.finish(ticket);
       setPending(false);
-      onPendingChange?.(false);
     }
   };
+
+  async function checkLatest() {
+    const ticket = writes.begin(account, destination);
+    if (ticket === null) return;
+    setPending(true);
+    try {
+      const rows = await loadAccounts();
+      if (!writes.holds(ticket)) return;
+      const saved = rows?.find(row => row.id === account.id);
+      if (!rows || !saved) {
+        setError("계정의 최신 내용을 불러오지 못했습니다.");
+        return;
+      }
+      if (saved.name === normalizedName && saved.parent_id === normalizedParent &&
+          saved.is_overdraft === isOverdraft && saved.include_in_cash === includeInCash) {
+        onConfirmed(saved, ticket, rows);
+        return;
+      }
+      // Keep the user's edits. Untouched fields adopt the newly observed version.
+      if (normalizedName === baseline.name) setName(saved.name);
+      if (normalizedParent === baseline.parent_id) setParentId(saved.parent_id ?? "");
+      if (isOverdraft === baseline.is_overdraft) setIsOverdraft(saved.is_overdraft);
+      if (includeInCash === baseline.include_in_cash) setIncludeInCash(saved.include_in_cash);
+      setBaseline(saved);
+      setNeedsRead(false);
+      setError(`현재 저장된 값: ${accountPath(rows, saved)} · 마이너스통장 ${saved.is_overdraft ? "켜짐" : "꺼짐"} · 현금성 ${saved.include_in_cash ? "포함" : "제외"}. 초안을 확인하고 저장하세요.`);
+    } finally {
+      writes.finish(ticket);
+      setPending(false);
+    }
+  }
 
   return (
     <tr className="account-settings-row" id={`account-settings-panel-${account.id}`}>
@@ -150,7 +185,8 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved, onP
               id={`account-name-${account.id}`}
               aria-label={`${baseline.name} 이름`}
               value={name}
-              disabled={pending}
+              readOnly={needsRead}
+              disabled={disabled}
               onChange={(event) => {
                 setName(event.target.value);
                 setError("");
@@ -164,7 +200,7 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved, onP
               id={`account-parent-${account.id}`}
               aria-label={`${baseline.name} 상위 그룹`}
               value={parentId}
-              disabled={pending}
+              disabled={disabled || needsRead}
               title={selectedPath}
               onChange={(event) => {
                 setParentId(event.target.value === "" ? "" : Number(event.target.value));
@@ -191,7 +227,7 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved, onP
               type="checkbox"
               aria-label={`${account.name} 마이너스통장`}
               checked={isOverdraft}
-              disabled={!overdraftEligible || pending}
+              disabled={!overdraftEligible || disabled || needsRead}
               onChange={(event) => {
                 setIsOverdraft(event.target.checked);
                 setError("");
@@ -205,16 +241,17 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved, onP
 
           {account.type === "asset" && !isGroup(accounts, account) && !account.archived && !account.is_system && (
             <label className="settings-overdraft settings-cash">
-              <input type="checkbox" checked={includeInCash} disabled={pending}
+              <input type="checkbox" checked={includeInCash} disabled={disabled || needsRead}
                 onChange={(event) => { setIncludeInCash(event.target.checked); setError(""); }} />
               <span>현금 부족 계산에 포함<small>이 계정의 잔액을 즉시 사용할 수 있는 자금으로 계산합니다.</small></span>
             </label>
           )}
           <div className="settings-actions">
-            <button className="btn sm primary settings-save" type="submit" disabled={!normalizedName || !dirty || pending}>
+            <button className="btn sm primary settings-save" type="submit" disabled={!normalizedName || !dirty || disabled || needsRead}>
               <Check size={13} aria-hidden="true" />
               {pending ? "저장 중…" : "변경 저장"}
             </button>
+            {needsRead && <button type="button" className="btn sm secondary" disabled={disabled} onClick={() => void checkLatest()}>최신 내용 확인</button>}
             <button className="btn sm secondary" type="button" disabled={pending} onClick={onCancel}>
               <X size={13} aria-hidden="true" />
               취소

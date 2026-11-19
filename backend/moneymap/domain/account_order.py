@@ -1,7 +1,7 @@
 """Sibling-order commands and snapshot validation, independent of persistence."""
 from pydantic import BaseModel, Field
 
-from .account import Account, AccountType
+from .account import Account, AccountType, validate_parent_versions
 from .errors import DomainConflictError, DomainNotFoundError, DomainValidationError
 from .services import is_account_group
 
@@ -12,6 +12,7 @@ class AccountOrderItem(BaseModel):
 
 
 class AccountReorderCommand(BaseModel):
+    parent_versions: dict[int, int] = Field(default_factory=dict)
     type: AccountType
     parent_id: int | None
     ordered_accounts: list[AccountOrderItem] = Field(min_length=2)
@@ -28,6 +29,7 @@ class AccountReorderResult(BaseModel):
 
 def validate_reorder(command: AccountReorderCommand, accounts: list[Account]) -> list[Account]:
     """Validate in documented precedence; return all eligible siblings in old order."""
+    validate_parent_versions(accounts, command.parent_versions)
     ids = [item.id for item in command.ordered_accounts]
     if len(set(ids)) != len(ids):
         raise DomainValidationError("중복 계정이 있습니다", code="account_reorder_duplicate")
