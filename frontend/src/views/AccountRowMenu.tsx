@@ -51,14 +51,14 @@ export function AccountRowMenu({ id, name, actions }: { id: number; name: string
   return <span className="account-more" onBlur={event => {
     if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
   }}>
-    <button type="button" className="btn sm secondary" ref={trigger} aria-label={label}
+    <button type="button" id={`${menuId}-trigger`} className="btn sm secondary" ref={trigger} aria-label={label}
       aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined}
       onClick={() => setOpen(!open)}>
       <MoreHorizontal size={16} aria-hidden="true" />
     </button>
     {open && <div ref={menu} id={menuId} role="menu" aria-label={label} className="account-row-menu"
       onKeyDown={event => {
-        if (event.key === "Escape") {
+        if (event.key === "Escape" || (event.key === "Tab" && event.shiftKey)) {
           event.preventDefault();
           close();
         } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {

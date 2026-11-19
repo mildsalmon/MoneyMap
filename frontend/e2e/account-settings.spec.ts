@@ -267,6 +267,69 @@ test("설정 저장 후 계정 갱신 실패는 기존 행과 재시도 경로�
 test.describe("계정 행 메뉴", () => {
   test.use({ hasTouch: true, viewport: { width: 390, height: 844 } });
 
+  test("Shift+Tab closes the menu on its trigger and Escape leaves it closed", async ({ page, request }) => {
+    const account = await createAccount(request, "메뉴-E2E-역방향");
+    await page.goto("/accounts");
+    const trigger = page.getByRole("button", { name: `${account.name} 더보기` });
+    const menu = page.getByRole("menu", { name: `${account.name} 더보기` });
+    await trigger.press("Enter");
+    await expect(menu.getByRole("menuitem").first()).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(trigger).toBeFocused();
+    await expect.soft(trigger).toHaveAttribute("aria-expanded", "false");
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
+    await expect(trigger).toBeFocused();
+  });
+
+  test("group conversion returns focus to the converted row's menu button", async ({ page, request }) => {
+    const account = await createAccount(request, "메뉴-E2E-그룹전환");
+    await page.goto("/accounts");
+    const row = accountRow(page, account.name);
+    const trigger = row.getByRole("button", { name: `${account.name} 더보기` });
+    await trigger.press("Enter");
+    await row.getByRole("menuitem", { name: "그룹으로" }).press("Enter");
+    await expect(row).toHaveClass(/group-row/);
+    await expect(trigger).toBeFocused();
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("group conversion preserves focus moved outside the pending row", async ({ page, request }) => {
+    const account = await createAccount(request, "메뉴-E2E-다른포커스");
+    let resume!: () => void;
+    const hold = new Promise<void>(resolve => { resume = resolve; });
+    await page.route(`**/api/accounts/${account.id}/placeholder`, async route => {
+      await hold;
+      await route.continue();
+    });
+    await page.goto("/accounts");
+    const row = accountRow(page, account.name);
+    const trigger = row.getByRole("button", { name: `${account.name} 더보기` });
+    await trigger.press("Enter");
+    await row.getByRole("menuitem", { name: "그룹으로" }).press("Enter");
+    const navigation = nav(page, "계정·개시잔액");
+    try {
+      await expect(trigger).toBeDisabled();
+      await navigation.focus();
+    } finally {
+      resume();
+    }
+    await expect(row).toHaveClass(/group-row/);
+    await expect(navigation).toBeFocused();
+  });
+
+  test("denied group archive returns focus to the surviving row's menu button", async ({ page, request }) => {
+    const group = await createAccount(request, "메뉴-E2E-보관거절", { isPlaceholder: true });
+    await createAccount(request, "메뉴-E2E-활성자식", { parentId: group.id });
+    await page.goto("/accounts");
+    const trigger = page.getByRole("button", { name: `${group.name} 더보기` });
+    await trigger.tap();
+    await page.getByRole("menuitem", { name: `${group.name} 보관` }).tap();
+    await expect(page.getByRole("alert")).toContainText("하위 계정 1개를 먼저 보관하세요");
+    await expect(trigger).toBeFocused();
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
   test("터치·키보드로 행을 식별하고 보관·복원 후 다음 작업으로 이동한다", async ({ page, request }) => {
     const group = await createAccount(request, "메뉴-E2E-분류", { isPlaceholder: true });
     const first = await createAccount(request, "메뉴-E2E-첫째", { parentId: group.id });

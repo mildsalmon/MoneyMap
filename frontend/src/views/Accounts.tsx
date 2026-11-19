@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Plus, Settings2 } from "lucide-react";
 import {
   accountTree,
@@ -67,6 +67,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   const [mutationPending, setMutationPending] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [settingsFocusId, setSettingsFocusId] = useState<number | null>(null);
+  const [menuFocusId, setMenuFocusId] = useState<number | null>(null);
   const inlineRef = useRef<HTMLInputElement>(null);
 
   const accountRequest = useRef<AbortController | null>(null);
@@ -328,6 +329,16 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     setRemovedRow(null);
   }, [accounts, removedRow]);
 
+  useLayoutEffect(() => {
+    if (menuFocusId === null) return;
+    // Disabling the fieldset during the request blurs its trigger. Respect focus
+    // if the user moved elsewhere before the request finished.
+    if (document.activeElement === document.body) {
+      document.getElementById(`account-row-menu-${menuFocusId}-trigger`)?.focus();
+    }
+    setMenuFocusId(null);
+  }, [menuFocusId]);
+
   const archive = async (account: Account) => {
     if (!balances || rowTasks[account.id]) return;
     const balance = balanceOf(account.id)?.balance ?? 0;
@@ -344,6 +355,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
       showToast(`"${account.name}" 보관됨 — 아래 보관된 계정에서 복원할 수 있습니다`);
     } catch (error) {
       setPageError((error as Error).message);
+      setMenuFocusId(account.id);
     } finally {
       setRowTask(account.id);
     }
@@ -380,6 +392,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
       setPageError((error as Error).message);
     } finally {
       setMutationPending(false);
+      setMenuFocusId(account.id);
     }
   };
 
