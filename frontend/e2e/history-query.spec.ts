@@ -25,6 +25,20 @@ async function mockHistory(page: Page, list: Txn[], tagList = ["데이트", "여
   return requests;
 }
 
+// On direct entry App materializes and refreshes the ledger after the first
+// rows can already be visible. Wait for the replacement rows before acting.
+async function openRefreshedHistory(page: Page, search: string, count: number) {
+  let startup: Route | undefined;
+  await page.route("**/api/materialize", route => { startup = route; }, { times: 1 });
+  await page.goto(`/transactions?${search}`);
+  await expect(rows(page)).toHaveCount(count);
+  const firstGeneration = await rows(page).last().elementHandle();
+  await expect.poll(() => !!startup).toBe(true);
+  await startup!.continue();
+  await expect.poll(() => firstGeneration.evaluate(row => row.isConnected)).toBe(false);
+  await expect(rows(page)).toHaveCount(count);
+}
+
 test("local recent month, defaults URL, presets immediately apply tag drafts and retain future this-month entries", async ({ page }) => {
   await page.clock.install({ time: new Date("2026-09-13T12:00:00") });
   await mockHistory(page, [sample(1, "2026-08-13"), sample(2, "2026-08-14"), sample(3, "2026-09-13"), sample(4, "2026-09-30", ["데이트"])]);
@@ -99,24 +113,37 @@ test("tag catalog failure keeps selected tag and page; retry cannot change draft
 
 test("new request hides old rows through failure; retry uses applied conditions, and older responses cannot win", async ({ page }) => {
   await mockHistory(page, [sample(1)]);
-  await page.goto(`/transactions?${range}&page=1`); await expect(rows(page)).toHaveCount(1);
-  let held: Route | undefined;
-  await page.route("**/api/transaction-history?*", r => { held = r; });
+  await openRefreshedHistory(page, `${range}&page=1`, 1);
+  const ending = (day: string) => (url: URL) => url.pathname === "/api/transaction-history" && url.searchParams.get("end") === day;
+  const applied = ending("2026-09-29");
+  let fail!: () => void;
+  const failureReady = new Promise<void>(resolve => { fail = resolve; });
+  // StrictMode can start two requests when the applied URL remounts the list.
+  // Every request for this phase gets the same response, including its live one.
+  await page.route(applied, async route => {
+    await failureReady;
+    await route.fulfill({ status: 500, json: { detail: "확인 실패" } });
+  });
+  const submitted = page.waitForRequest(req => applied(new URL(req.url())));
   await page.getByLabel("종료일", { exact: true }).fill("2026-09-29"); await submit(page).click();
-  await expect.poll(() => !!held).toBe(true); await expect(rows(page)).toHaveCount(0);
+  await submitted;
+  await expect(rows(page)).toHaveCount(0);
   await expect(page.getByRole("navigation", { name: "거래 페이지" })).toHaveCount(0);
-  await held!.fulfill({ status: 500, json: { detail: "확인 실패" } });
-  await expect(page.locator("#history-query-error")).toBeVisible(); await expect(rows(page)).toHaveCount(0);
-  await page.getByLabel("종료일", { exact: true }).fill("2026-09-28"); held = undefined;
+  fail();
+  const error = page.locator("#history-query-error");
+  await expect(error).toBeVisible(); await expect(error).toContainText("확인 실패");
+  await expect(rows(page)).toHaveCount(0);
+  await page.getByLabel("종료일", { exact: true }).fill("2026-09-28");
   await expect(page.getByText("재시도할 조건: 2026-09-01 ~ 2026-09-29 · 태그 전체 · 1페이지")).toBeVisible();
+  let retry: Route | undefined;
+  await page.route(applied, route => { retry = route; });
   await page.getByRole("button", { name: "다시 조회", exact: true }).click();
-  await expect.poll(() => !!held).toBe(true);
-  expect(new URL(held!.request().url()).searchParams.get("end")).toBe("2026-09-29");
-  const old = held!; held = undefined;
-  await submit(page).click(); await expect.poll(() => !!held).toBe(true);
-  await held!.fulfill({ json: pageOf([sample(2)], held!.request().url()) });
+  await expect.poll(() => !!retry).toBe(true);
+  expect(new URL(retry!.request().url()).searchParams.get("end")).toBe("2026-09-29");
+  await page.route(ending("2026-09-28"), route => route.fulfill({ json: pageOf([sample(2)], route.request().url()) }));
+  await submit(page).click();
   await expect(rows(page)).toContainText("거래-2");
-  await old.fulfill({ json: pageOf([sample(1)], old.request().url()) }).catch(() => {});
+  await retry!.fulfill({ json: pageOf([sample(1)], retry!.request().url()) }).catch(() => {});
   await expect(rows(page)).toContainText("거래-2"); await expect(rows(page)).not.toContainText("거래-1");
 });
 
@@ -198,14 +225,19 @@ test("mobile uses shared column order, named controls and table-only overflow", 
 
 test("late tag choices do not change form height or a scrolled ledger position", async ({ page }) => {
   await mockHistory(page, Array.from({ length: 201 }, (_, i) => sample(i + 1, "2026-09-15", ["데이트"])));
-  let held: Route | undefined;
-  await page.route("**/api/tags", r => { held = r; });
-  await page.goto(`/transactions?${range}&tag=${encodeURIComponent("데이트")}&page=2`);
-  await expect(rows(page)).toHaveCount(100); await expect.poll(() => !!held).toBe(true);
+  let releaseTags!: () => void;
+  const catalogReady = new Promise<void>(resolve => { releaseTags = resolve; });
+  await page.route("**/api/tags", async route => {
+    await catalogReady;
+    await route.fulfill({ json: ["데이트", "새 태그"] });
+  });
+  await openRefreshedHistory(page, `${range}&tag=${encodeURIComponent("데이트")}&page=2`, 100);
+  await expect(page.getByText("목록 확인 중…", { exact: true })).toBeVisible();
   await rows(page).last().scrollIntoViewIfNeeded();
   const height = await page.locator(".history-query").evaluate(e => e.getBoundingClientRect().height);
   const scroll = await page.locator(".main").evaluate(e => e.scrollTop); expect(scroll).toBeGreaterThan(0);
-  await held!.fulfill({ json: ["데이트", "새 태그"] });
+  releaseTags();
+  await expect(page.getByLabel("태그", { exact: true }).getByRole("option", { name: "새 태그" })).toHaveCount(1);
   await expect(page.getByText("목록 확인 중…", { exact: true })).toHaveCount(0);
   expect(await page.locator(".history-query").evaluate(e => e.getBoundingClientRect().height)).toBe(height);
   await expect.poll(() => page.locator(".main").evaluate(e => e.scrollTop)).toBe(scroll);
