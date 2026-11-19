@@ -200,3 +200,57 @@ test("대사 내역 새 탭에서 재조회·새로고침·취소까지 기한�
     await request.delete(base + "/rules/" + id);
   }
 });
+
+test("외화 카드 대사 전후에 만든 시나리오는 기준일과 기간별 원화 순자산을 유지한다", async ({ page, request }) => {
+  const fork = "2004-03-31";
+  const card = await account(request, "liability");
+  const expense = await account(request, "expense");
+  await post(request, card.id, expense.id, -100300, fork);
+  const scenarios: number[] = [];
+  const createScenario = async () => {
+    const created = await request.post(base + "/scenarios", { data: {
+      name: "대사 전망 " + crypto.randomUUID(), fork_date: fork,
+    } });
+    expect(created.status()).toBe(201);
+    const { scenario } = await created.json();
+    scenarios.push(scenario.id);
+    const planned = await request.post(base + `/scenarios/${scenario.id}/planned-transactions`, { data: {
+      scenario_version: scenario.version, description: "원화 예정 비용", date: "2004-08-01",
+      postings: [{ account_id: card.id, amount: -700 }, { account_id: expense.id, amount: 700 }],
+    } });
+    expect(planned.status()).toBe(201);
+  };
+  try {
+    await createScenario();
+    await page.goto("/accounts/reconciliation");
+    await page.getByLabel("대사 계정").selectOption(String(card.id));
+    await page.getByLabel("마감일", { exact: true }).fill(fork);
+    await page.getByRole("combobox", { name: "통화" }).selectOption("USD");
+    await page.getByLabel("명세서 미상환액").fill("10.25");
+    await page.getByRole("button", { name: "잔액 비교" }).click();
+    await page.getByLabel("상대 계정").selectOption(String(expense.id));
+    await page.getByLabel("조정 사유").fill("외화 카드 비용");
+    await page.getByRole("button", { name: "조정 거래 확정" }).click();
+    await expect(page.getByRole("status")).toContainText("기록 완료");
+    await createScenario();
+
+    for (const id of scenarios) {
+      await page.goto(`/scenarios/${id}`);
+      const summary = page.locator(".scenario-summary");
+      for (const months of [3, 6, 12]) {
+        await page.getByRole("button", { name: `${months}개월`, exact: true }).click();
+        await expect(summary.locator("div").filter({ hasText: "시작 순자산" }).locator("dd")).toHaveText("−₩100,300");
+        await expect(summary.locator("div").filter({ hasText: `${months}개월 뒤 예상` }).locator("dd"))
+          .toHaveText(months === 3 ? "−₩100,300" : "−₩101,000");
+      }
+    }
+  } finally {
+    for (const id of scenarios) {
+      const url = base + `/scenarios/${id}`;
+      const { version } = await (await request.get(url)).json();
+      expect((await request.post(url + "/archive", { data: { version } })).ok()).toBe(true);
+      const impact = await request.get(url + "/deletion-impact");
+      expect((await request.delete(url, { headers: { "If-Match": impact.headers().etag } })).ok()).toBe(true);
+    }
+  }
+});

@@ -67,7 +67,8 @@ def test_migrated_dashboard_includes_only_whole_krw_transactions_and_rules(tmp_p
         assert actual["points"][-1]["net_worth"] == forecast["points"][0]["net_worth"] == 750
         assert forecast["points"][-1]["net_worth"] == 830
         ordinary = client.get("/api/projection?scenario_id=1&months=3").json()
-        assert ordinary["net_worth"]["baseline"]["points"][-1]["balance"] == (830 + 959 + 100 + 1234 + 700 if mixed else 830)
+        points = ordinary["net_worth"]["baseline"]["points"]
+        assert (points[0]["balance"], points[-1]["balance"]) == (750, 830)
         if mixed:
             rows = client.get("/api/transaction-history", params={
                 "start": today, "end": today, "account_id": bank}).json()["items"]

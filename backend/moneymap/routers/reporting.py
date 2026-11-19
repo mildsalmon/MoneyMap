@@ -135,7 +135,7 @@ def dashboard_projection(
             },
         )
     result = build_dashboard_projection(
-        ProjectionInputReader(request.state.conn, krw_only=True),
+        ProjectionInputReader(request.state.conn),
         repos(request)["scenarios"],
         ids,
         months,
