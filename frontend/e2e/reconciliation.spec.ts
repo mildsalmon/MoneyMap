@@ -132,57 +132,6 @@ test("외화 명세서의 소수 단위와 마감일 거래 내역 링크", asyn
   expect(materializations).toBe(0);
 });
 
-test("folding a reconciled group preserves drafts and exposes its USD-only posting after the last child is archived in another tab", async ({ page, context, request }) => {
-  const group = await account(request, "asset");
-  const income = await account(request, "income");
-  await page.goto("/accounts");
-  await page.getByRole("link", { name: "잔액 대사" }).click();
-  await page.getByLabel("대사 계정").selectOption(String(group.id));
-  await page.getByLabel("마감일", { exact: true }).fill(close);
-  await page.getByRole("combobox", { name: "통화" }).selectOption("USD");
-  await page.getByLabel("명세서 잔액").fill("10.25");
-  await page.getByRole("button", { name: "잔액 비교" }).click();
-  await page.getByLabel("상대 계정").selectOption(String(income.id));
-  await page.getByLabel("조정 사유").fill("외화 입금");
-  await page.getByRole("button", { name: "조정 거래 확정" }).click();
-  await expect(page.getByRole("status")).toContainText("기록 완료");
-
-  const childName = `하위-${crypto.randomUUID()}`;
-  const child = await request.post(base + "/accounts", { data: { name: childName, type: "asset", parent_id: group.id } });
-  expect(child.status()).toBe(201);
-  const { id: childId } = await child.json();
-  await page.getByRole("button", { name: "계정·개시잔액", exact: true }).click();
-  const direct = page.getByRole("row").filter({ has: page.getByLabel(`${group.name} 미분류 이동 대상`) });
-  const draft = page.getByLabel(`${childName} 개시잔액`, { exact: true });
-  await expect(direct).toContainText("$10.25");
-  await draft.fill("1234");
-  await page.getByRole("button", { name: `${group.name} 하위 계정 접기` }).click();
-  await expect(direct).toBeHidden();
-  await expect(draft).toBeHidden();
-  await page.getByRole("button", { name: `${group.name} 하위 계정 펼치기` }).click();
-  await expect(direct).toContainText("$10.25");
-  await expect(draft).toHaveValue("1,234");
-
-  await page.getByRole("button", { name: `${group.name} 하위 계정 접기` }).click();
-  const secondTab = await context.newPage();
-  await blockExternalStyles(secondTab);
-  await secondTab.goto("/accounts");
-  await secondTab.getByRole("button", { name: `${childName} 더보기` }).click();
-  await secondTab.getByRole("menuitem", { name: `${childName} 보관` }).click();
-  try {
-    await expect(secondTab.locator(".archived-ledger")).toContainText(childName);
-    await secondTab.close();
-    const peerRow = page.getByRole("row").filter({ has: page.getByRole("link", { name: income.name, exact: true }) });
-    await peerRow.getByRole("button", { name: "설정", exact: true }).click();
-    await page.getByLabel(`${income.name} 이름`).fill(`${income.name}-수정`);
-    await page.getByRole("button", { name: "변경 저장" }).click();
-    await expect(page.locator(".archived-ledger")).toContainText(childName);
-    await expect(direct).toContainText("$10.25");
-  } finally {
-    expect((await request.post(`${base}/accounts/${childId}/restore`)).ok()).toBe(true);
-  }
-});
-
 test("USD 대사 뒤 카드 납부는 원화 잔액만 채우고 외화 내역은 달러로 표시한다", async ({ page, request }) => {
   const card = await account(request, "liability");
   const bank = await account(request, "asset");

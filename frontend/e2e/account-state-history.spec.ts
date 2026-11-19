@@ -1,9 +1,9 @@
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { expect, test as base } from "./test";
+import { blockExternalStyles, expect, test as base } from "./test";
 
 const test = base.extend<{ historyApi: string }>({
-  historyApi: async ({ page }, use, info) => {
+  historyApi: async ({ context }, use, info) => {
     const python = execFileSync("uv", ["run", "python", "-c", "import sys; print(sys.executable)"], { cwd: "../backend", encoding: "utf8" }).trim();
     const server = spawn(python, ["tests/fixtures/account_history_ledger.py", info.outputPath("ledger.db")], {
       cwd: "../backend", env: { ...process.env, MONEYMAP_CORS_ORIGINS: String(info.project.use.baseURL) },
@@ -21,7 +21,7 @@ const test = base.extend<{ historyApi: string }>({
         server.once("exit", () => reject(new Error(output)));
       });
       // Forward to the private FastAPI process. Every response and write is real.
-      await page.route(url => url.pathname.startsWith("/api/"), route => {
+      await context.route(url => url.pathname.startsWith("/api/"), route => {
         const url = new URL(route.request().url());
         return route.continue({ url: origin + url.pathname + url.search });
       });
@@ -171,4 +171,51 @@ test("a backdated last-child move keeps its former parent out of the June 2 pick
   await expect(pick.getByRole("radio", {name:"자산 > 새 그룹 > 이동할 계정"})).toBeVisible();
   await expect(pick.getByRole("radio", {name:"자산 > 이전 부모",exact:true})).toHaveCount(0);
   await expect(pick.getByRole("radio", {name:/6월 5일 자식/})).toHaveCount(0);
+});
+
+test("folding a reconciled group preserves drafts and exposes its USD-only posting after the last child is archived in another tab", async ({ page, context, request, historyApi }) => {
+  const response = await request.post(historyApi + "/accounts", { data: { name: "외화 통장", type: "asset" } });
+  expect(response.status()).toBe(201);
+  const group: { id: number; name: string } = await response.json();
+  const expense = { id: 3, name: "이력 비용" };
+  await page.goto("/accounts");
+  await page.getByRole("link", { name: "잔액 대사" }).click();
+  await page.getByLabel("대사 계정").selectOption(String(group.id));
+  await page.getByRole("combobox", { name: "통화" }).selectOption("USD");
+  await page.getByLabel("명세서 잔액").fill("10.25");
+  await page.getByRole("button", { name: "잔액 비교" }).click();
+  await page.getByLabel("상대 계정").selectOption(String(expense.id));
+  await page.getByLabel("조정 사유").fill("외화 입금");
+  await page.getByRole("button", { name: "조정 거래 확정" }).click();
+  await expect(page.getByRole("status")).toContainText("기록 완료");
+
+  const childName = "하위 통장";
+  const child = await request.post(historyApi + "/accounts", { data: { name: childName, type: "asset", parent_id: group.id } });
+  expect(child.status()).toBe(201);
+  await page.getByRole("button", { name: "계정·개시잔액", exact: true }).click();
+  const direct = page.getByRole("row").filter({ has: page.getByLabel(`${group.name} 미분류 이동 대상`) });
+  const draft = page.getByLabel(`${childName} 개시잔액`, { exact: true });
+  await expect(direct).toContainText("$10.25");
+  await draft.fill("1234");
+  await page.getByRole("button", { name: `${group.name} 하위 계정 접기` }).click();
+  await expect(direct).toBeHidden();
+  await expect(draft).toBeHidden();
+  await page.getByRole("button", { name: `${group.name} 하위 계정 펼치기` }).click();
+  await expect(direct).toContainText("$10.25");
+  await expect(draft).toHaveValue("1,234");
+
+  await page.getByRole("button", { name: `${group.name} 하위 계정 접기` }).click();
+  const secondTab = await context.newPage();
+  await blockExternalStyles(secondTab);
+  await secondTab.goto("/accounts");
+  await secondTab.getByRole("button", { name: `${childName} 더보기` }).click();
+  await secondTab.getByRole("menuitem", { name: `${childName} 보관` }).click();
+  await expect(secondTab.locator(".archived-ledger")).toContainText(childName);
+  await secondTab.close();
+  const peerRow = page.getByRole("row").filter({ has: page.getByRole("link", { name: expense.name, exact: true }) });
+  await peerRow.getByRole("button", { name: "설정", exact: true }).click();
+  await page.getByLabel(`${expense.name} 이름`).fill(`${expense.name}-수정`);
+  await page.getByRole("button", { name: "변경 저장" }).click();
+  await expect(page.locator(".archived-ledger")).toContainText(childName);
+  await expect(direct).toContainText("$10.25");
 });
