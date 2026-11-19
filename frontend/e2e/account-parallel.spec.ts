@@ -191,3 +191,36 @@ test("상위 그룹 이동은 출발·도착·하위 쓰기만 막고 유실된 
     expect((await serverRows(request, a.parent)).map(r => r.id)).toEqual([a.second.id]);
   } finally { pending.release(); }
 });
+
+test("최상위 분류 저장 중에도 다른 유형의 초안과 고급 계정 추가를 사용할 수 있다", async ({ page, request }) => {
+  const prefix = "유형별-" + Date.now();
+  const group = await request.post(api + "/accounts", { data: { name: prefix, type: "expense", is_placeholder: true } });
+  expect(group.status()).toBe(201);
+  const parent: Account = await group.json();
+  const pending = gate();
+  await page.route("**/api/accounts", async route => {
+    if (route.request().method() === "POST" && route.request().postDataJSON().name === prefix + "-자산") await pending.wait;
+    await route.continue();
+  });
+  await page.goto("/accounts");
+  const section = (name: string) => page.locator(".account-section").filter({ has: page.getByText(name, { exact: true }) });
+  try {
+    await section("자산").getByRole("button", { name: "새 분류" }).click();
+    const asset = page.getByLabel("자산 새 분류 이름");
+    await asset.fill(prefix + "-자산");
+    await asset.press("Enter");
+    await section("부채").getByRole("button", { name: "새 분류" }).click();
+    const liability = page.getByLabel("부채 새 분류 이름");
+    await liability.fill(prefix + "-초안");
+    await page.getByText("고급", { exact: true }).click();
+    await page.getByLabel("유형", { exact: true }).selectOption("expense");
+    await page.getByLabel("상위 그룹 (선택)").selectOption(String(parent.id));
+    await page.getByLabel("계정 이름", { exact: true }).fill(prefix + "-비용");
+    await page.getByRole("button", { name: "계정 추가", exact: true }).click();
+    await expect(page.getByRole("link", { name: prefix + "-비용", exact: true })).toBeVisible();
+    pending.release();
+    await expect(page.getByRole("link", { name: prefix + "-자산", exact: true })).toBeVisible();
+    await expect(liability).toHaveValue(prefix + "-초안");
+    expect((await serverRows(request, parent)).map(row => row.name)).toEqual([prefix + "-비용"]);
+  } finally { pending.release(); }
+});

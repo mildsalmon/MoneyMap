@@ -4,6 +4,7 @@ import type { AccountWrites, SiblingScope } from "./useAccountWrites";
 
 export function useAccountCreation(writes: AccountWrites, applySaved: (rows: Account[]) => void, refresh: () => void) {
   const uncertain = useRef(new Map<string, string>());
+  const [pending, setPending] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   async function create(form: string, scope: SiblingScope, name: string, overdraft: boolean, close: () => void) {
     if (!name.trim()) return;
@@ -13,6 +14,7 @@ export function useAccountCreation(writes: AccountWrites, applySaved: (rows: Acc
     const signature = JSON.stringify(body);
     const previous = uncertain.current.get(signature);
     const key = previous ?? crypto.randomUUID();
+    setPending(current => ({ ...current, [form]: true }));
     setErrors(current => ({ ...current, [form]: "" }));
     try {
       // A lost reply may hide a committed creation, even if it has since been renamed.
@@ -38,8 +40,9 @@ export function useAccountCreation(writes: AccountWrites, applySaved: (rows: Acc
       if (error instanceof ApiError && error.code === "account_parent_stale" && writes.holds(ticket)) refresh();
       if (writes.holds(ticket)) setErrors(current => ({ ...current, [form]: (error as Error).message }));
     } finally {
+      if (writes.holds(ticket)) setPending(current => ({ ...current, [form]: false }));
       writes.finish(ticket);
     }
   }
-  return { create, errors };
+  return { create, errors, pending };
 }

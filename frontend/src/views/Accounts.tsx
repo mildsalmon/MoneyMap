@@ -21,6 +21,7 @@ import { AccountStateHistory } from "./AccountStateHistory";
 import { AccountHistoryLink } from "./AccountHistoryLink";
 import { AccountSettingsPanel } from "./AccountSettingsPanel";
 import { OpeningBalanceControl, type OpeningDraft } from "./OpeningBalanceControl";
+import { scopeKey } from "./accountOrdering";
 import { scopesOverlap, useAccountWrites, type SiblingScope } from "./useAccountWrites";
 import { useAccountCreation } from "./useAccountCreation";
 import { useAccountOrdering } from "./useAccountOrdering";
@@ -36,14 +37,7 @@ const TYPE_LABEL: Record<AccountType, string> = {
 
 const DISPLAY_TYPES: AccountType[] = ["asset", "liability", "income", "expense"];
 
-interface RootDraft {
-  type: AccountType;
-  name: string;
-  isOverdraft: boolean;
-}
-
-interface ChildDraft {
-  parentId: number;
+interface InlineDraft extends SiblingScope {
   name: string;
   isOverdraft: boolean;
 }
@@ -74,15 +68,18 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   const [type, setType] = useState<AccountType>("asset");
   const [parentId, setParentId] = useState<number | "">("");
   const [advancedOverdraft, setAdvancedOverdraft] = useState(false);
-  const [rootDraft, setRootDraft] = useState<RootDraft | null>(null);
-  const [childDrafts, setChildDrafts] = useState<Record<number, ChildDraft>>({});
-  function setChildDraft(id: number, draft: ChildDraft | null) {
-    setChildDrafts(current => {
+  const [inlineDrafts, setInlineDrafts] = useState<Record<string, InlineDraft>>({});
+  function updateDraft(key: string, draft: InlineDraft | null) {
+    setInlineDrafts(current => {
       const next = { ...current };
-      if (draft) next[id] = draft;
-      else delete next[id];
+      if (draft) next[key] = draft;
+      else delete next[key];
       return next;
     });
+  }
+  function openDraft(scope: SiblingScope) {
+    const key = scopeKey(scope);
+    if (!inlineDrafts[key]) updateDraft(key, { ...scope, name: "", isOverdraft: false });
   }
   const [settingsIds, setSettingsIds] = useState<number[]>([]);
   const [reclassTargets, setReclassTargets] = useState<Record<number, number | "">>({});
@@ -194,9 +191,8 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   const advancedScope = { type, parent_id: parentId === "" ? null : parentId };
   const draftScopes: SiblingScope[] = [
     ...(accounts ?? []).filter(a => settingsIds.includes(a.id)),
-    ...(accounts ?? []).filter(a => childDrafts[a.id]).map(a => ({ type: a.type, parent_id: a.id })),
+    ...Object.values(inlineDrafts),
   ];
-  if (rootDraft) draftScopes.push({ type: rootDraft.type, parent_id: null });
   if (name.trim()) draftScopes.push(advancedScope);
   const orderBlocked = (owner: Account) => draftScopes.some(scope => scopesOverlap(accounts ?? [], scope, owner));
   const ordering = useAccountOrdering({ accounts, applySaved, loadAccounts, writes, blocked: orderBlocked });
@@ -249,17 +245,6 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     setParentId("");
     setAdvancedOverdraft(false);
   });
-
-  const createRoot = (type: AccountType) => rootDraft && creation.create(
-    "root", { type, parent_id: null }, rootDraft.name, type === "asset" && rootDraft.isOverdraft,
-    () => setRootDraft(null),
-  );
-
-  const createChild = (parent: Account) => {
-    const draft = childDrafts[parent.id];
-    if (draft) return creation.create(String(parent.id), { type: parent.type, parent_id: parent.id },
-      draft.name, parent.type === "asset" && draft.isOverdraft, () => setChildDraft(parent.id, null));
-  };
 
   const seedStandard = async () => {
     if (mutationPending || writes.pending || dragging) return;
@@ -509,35 +494,41 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     if (!confirmed) showToast(`${account.name} — 0원으로 확인됨 (기록할 거래 없음)`);
   };
 
-  const renderRootDraft = (sectionType: AccountType) => {
-    if (rootDraft?.type !== sectionType) return null;
-    const busy = writes.busy({ type: sectionType, parent_id: null });
+  const renderInlineDraft = (type: AccountType, parent?: Account, depth = 0) => {
+    const scope = { type, parent_id: parent?.id ?? null };
+    const key = scopeKey(scope);
+    const draft = inlineDrafts[key];
+    if (!draft) return null;
+    const busy = writes.busy(scope);
+    const save = () => creation.create(key, scope, draft.name, type === "asset" && draft.isOverdraft,
+      () => updateDraft(key, null));
     return (
-      <tr className="account-inline" key={`root-${sectionType}`}>
-        <td>
+      <tr className="account-inline" key={`draft-${key}`}>
+        <td style={parent ? { paddingLeft: 8 + (depth + 1) * 20 } : undefined}>
+          {parent && <span className="tree-guide">└ </span>}
           <input
             autoFocus
             disabled={busy}
             className="compact-input"
-            aria-label={`${TYPE_LABEL[sectionType]} 새 분류 이름`}
-            value={rootDraft.name}
-            onChange={(event) => setRootDraft({ ...rootDraft, name: event.target.value })}
+            aria-label={parent ? `${parent.name} 소분류 이름` : `${TYPE_LABEL[type]} 새 분류 이름`}
+            value={draft.name}
+            onChange={(event) => updateDraft(key, { ...draft, name: event.target.value })}
             onKeyDown={(event) => {
-              if (event.key === "Enter") void createRoot(sectionType);
-              if (event.key === "Escape") setRootDraft(null);
+              if (event.key === "Enter") void save();
+              if (event.key === "Escape") updateDraft(key, null);
             }}
             placeholder="이름"
           />
         </td>
         <td>
-          <span className="badge">{TYPE_LABEL[sectionType]}</span>
-          {sectionType === "asset" && (
+          <span className="badge">{TYPE_LABEL[type]}</span>
+          {type === "asset" && (
             <label className="overdraft-check">
               <input
                 type="checkbox"
                 disabled={busy}
-                checked={rootDraft.isOverdraft}
-                onChange={(event) => setRootDraft({ ...rootDraft, isOverdraft: event.target.checked })}
+                checked={draft.isOverdraft}
+                onChange={(event) => updateDraft(key, { ...draft, isOverdraft: event.target.checked })}
               />
               마이너스통장
             </label>
@@ -546,55 +537,9 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
         <td />
         <td />
         <td className="row-actions">
-          {creation.errors.root && <span role="alert">{creation.errors.root}</span>}
-          <button className="btn sm primary" disabled={busy || !rootDraft.name.trim()} onClick={() => void createRoot(sectionType)}>저장</button>
-          <button className="btn sm secondary" disabled={busy} onClick={() => setRootDraft(null)}>취소</button>
-        </td>
-      </tr>
-    );
-  };
-
-  const renderChildDraft = (parent: Account, depth: number) => {
-    const childDraft = childDrafts[parent.id];
-    if (!childDraft) return null;
-    const busy = writes.busy({ type: parent.type, parent_id: parent.id });
-    return (
-      <tr className="account-inline" key={`child-${parent.id}`}>
-        <td style={{ paddingLeft: 8 + (depth + 1) * 20 }}>
-          <span className="tree-guide">└ </span>
-          <input
-            autoFocus
-            disabled={busy}
-            className="compact-input"
-            aria-label={`${parent.name} 소분류 이름`}
-            value={childDraft.name}
-            onChange={(event) => setChildDraft(parent.id, { ...childDraft, name: event.target.value })}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") void createChild(parent);
-              if (event.key === "Escape") setChildDraft(parent.id, null);
-            }}
-            placeholder="이름"
-          />
-        </td>
-        <td>
-          <span className="badge">{TYPE_LABEL[parent.type]}</span>
-          {parent.type === "asset" && (
-            <label className="overdraft-check">
-              <input
-                type="checkbox" disabled={busy}
-                checked={childDraft.isOverdraft}
-                onChange={(event) => setChildDraft(parent.id, { ...childDraft, isOverdraft: event.target.checked })}
-              />
-              마이너스통장
-            </label>
-          )}
-        </td>
-        <td />
-        <td />
-        <td className="row-actions">
-          {creation.errors[parent.id] && <span role="alert">{creation.errors[parent.id]}</span>}
-          <button className="btn sm primary" disabled={busy || !childDraft.name.trim()} onClick={() => void createChild(parent)}>저장</button>
-          <button className="btn sm secondary" disabled={busy} onClick={() => setChildDraft(parent.id, null)}>취소</button>
+          {creation.errors[key] && <span role="alert">{creation.errors[key]}</span>}
+          <button className="btn sm primary" disabled={busy || !draft.name.trim()} onClick={() => void save()}>저장</button>
+          <button className="btn sm secondary" disabled={busy} onClick={() => updateDraft(key, null)}>취소</button>
         </td>
       </tr>
     );
@@ -674,7 +619,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
               <button type="button" className="badge group-badge group-disclosure"
                 aria-expanded={!folded.has(account.id)}
                 aria-label={`${account.name} 하위 계정 ${folded.has(account.id) ? "펼치기" : "접기"}`}
-                disabled={settingsIds.length > 0 || Object.keys(childDrafts).length > 0 || writes.busy(childScope)}
+                disabled={settingsIds.length > 0 || Object.keys(inlineDrafts).length > 0 || writes.busy(childScope)}
                 onClick={() => setGroupFolded(account.id, !folded.has(account.id))}>
                 {folded.has(account.id) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                 그룹 · 합산
@@ -728,7 +673,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
             <AccountRowMenu id={account.id} name={account.name} actions={[
               ...(group ? [{ label: "소분류", disabled: writes.busy(childScope), run: () => {
                 setGroupFolded(account.id, false);
-                if (!childDrafts[account.id]) setChildDraft(account.id, { parentId: account.id, name: "", isOverdraft: false });
+                openDraft(childScope);
               } }] : []),
               ...(!hasChildren && !account.is_overdraft ? [{
                 label: account.is_placeholder ? "그룹 해제" : "그룹으로",
@@ -782,10 +727,8 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
             <span>{TYPE_LABEL[sectionType]}</span>
             <button
               className="btn sm secondary"
-              disabled={writes.busy({ type: sectionType, parent_id: null }) || (!!rootDraft && writes.busy({ type: rootDraft.type, parent_id: null }))}
-              onClick={() => {
-                setRootDraft({ type: sectionType, name: "", isOverdraft: false });
-              }}
+              disabled={writes.busy({ type: sectionType, parent_id: null })}
+              onClick={() => openDraft({ type: sectionType, parent_id: null })}
             >
               <Plus size={13} aria-hidden="true" />
               새 분류
@@ -793,12 +736,12 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
           </div>
         </td>
       </tr>,
-      renderRootDraft(sectionType),
+      renderInlineDraft(sectionType),
     ];
 
     rows.forEach(({ account, depth }, index) => {
       output.push(renderAccountRow(account, depth));
-      output.push(renderChildDraft(account, depth));
+      output.push(renderInlineDraft(sectionType, account, depth));
       const virtuals = (virtualsByAfter.get(index) ?? []).sort((left, right) => right.depth - left.depth);
       for (const virtual of virtuals) output.push(renderUnclassified(virtual.account, virtual.depth));
     });
@@ -829,7 +772,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
 
       <details className="advanced-accounts">
         <summary>고급</summary>
-        <fieldset className="account-mutation-fields advanced-fields" disabled={writes.busy(advancedScope)}>
+        <fieldset className="account-mutation-fields advanced-fields" disabled={creation.pending.advanced}>
           <div className="field">
             <label htmlFor="advanced-account-name">계정 이름</label>
             <input
@@ -888,7 +831,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
               마이너스통장
             </label>
           )}
-          <button className="btn primary" disabled={!name.trim()} onClick={() => void create()}>계정 추가</button>
+          <button className="btn primary" disabled={!name.trim() || writes.busy(advancedScope)} onClick={() => void create()}>계정 추가</button>
           {creation.errors.advanced && <span role="alert">{creation.errors.advanced}</span>}
         </fieldset>
       </details>
