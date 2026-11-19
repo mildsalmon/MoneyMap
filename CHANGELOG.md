@@ -4,6 +4,9 @@ All notable changes to MoneyMap are documented in this file.
 
 ## Unreleased
 
+- Transaction entry and editing use account availability at the close of the selected Seoul date. In Accounts, open **계정 상태 이력** to see available periods, archive or restore an account from a chosen date, or correct the effective date of a recorded action.
+- Schema v12 captures the existing account tree at migration. Earlier dates display **이력 미상** and use current availability for new selections. Existing posting references survive migration and edits.
+
 - Compare a bank or card statement with the actual ledger for one account, currency, and closing date. Inspect the underlying entries or post a balanced adjustment with a reason and counterpart. An earlier edit requires a fresh comparison. Retrying a confirmation returns the original transaction receipt.
 - Schema v11 adds receipts for reconciliation confirmations. The migration preserves existing transactions and balances.
 

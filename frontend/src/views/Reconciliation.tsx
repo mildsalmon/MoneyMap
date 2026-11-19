@@ -31,13 +31,13 @@ function parseMinor(value: string, currency: Currency): string | null {
 }
 
 export function Reconciliation({ refresh }: { refresh: () => void }) {
-  const accounts = useQuery("reconciliation-accounts", api.accounts);
-  const model = useMemo(() => accountPickerModel(accounts.data ?? []), [accounts.data]);
   const [pending, setPending] = useState<Pending | undefined>(recover);
   const restored = pending?.command.statement;
   const [accountId, setAccountId] = useState(String(restored?.account_id ?? ""));
   const [currency, setCurrency] = useState<Currency>(restored?.currency as Currency ?? "KRW");
   const [date, setDate] = useState(() => restored?.closing_date ?? todayIso());
+  const accounts = useQuery(`reconciliation-accounts:${date}`, signal => api.datedAccounts(date, signal));
+  const model = useMemo(() => accountPickerModel(accounts.data ?? []), [accounts.data]);
   const [amount, setAmount] = useState(pending?.input ?? "");
   const [counterpart, setCounterpart] = useState("");
   const [reason, setReason] = useState("");
@@ -119,6 +119,7 @@ export function Reconciliation({ refresh }: { refresh: () => void }) {
   return <section className="reconciliation">
     <Link to="/accounts">계정 · 개시잔액</Link>
     <h1>잔액 대사</h1>
+    {accounts.data?.[0]?.history_known === false && <p>이력 미상 · 마감일이 이력 수집 전이라 현재 기장 가능한 계정을 표시합니다.</p>}
     {accounts.error && <p role="alert">{accounts.error} <button onClick={accounts.reload}>다시 불러오기</button></p>}
     {accounts.data && !assetOrDebt.length && <p>계정 화면에서 대사할 자산 또는 부채 계정을 추가하세요.</p>}
     <form className="panel" onSubmit={event => { event.preventDefault(); void calculate(); }}>
@@ -135,7 +136,7 @@ export function Reconciliation({ refresh }: { refresh: () => void }) {
           <input inputMode="decimal" maxLength={25} required value={amount} onChange={e => { reset(); setAmount(e.target.value); }} />
         </label>
         {liability && <p>갚을 금액을 양수로 입력하세요.</p>}
-        <button className="btn secondary" disabled={!accountId}>{preview || saved || error ? "잔액 다시 계산" : "잔액 비교"}</button>
+        <button className="btn secondary" disabled={!assetOrDebt.includes(Number(accountId))}>{preview || saved || error ? "잔액 다시 계산" : "잔액 비교"}</button>
       </fieldset>
     </form>
     {error && <p className="row-error" role="alert">{error}</p>}

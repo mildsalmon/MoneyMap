@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Route, type APIRequestContext } from "./test";
+import { accountListUrl, expect, test, type Page, type Route, type APIRequestContext } from "./test";
 import AxeBuilder from "@axe-core/playwright";
 import type { Txn } from "../src/api/types";
 import { editAccounts } from "./transactionEditFixtures";
@@ -19,7 +19,7 @@ function pageOf(list: Txn[], url: string) {
 }
 async function mockHistory(page: Page, list: Txn[], tagList = ["데이트", "여행 & Tea"]) {
   const requests: string[] = [];
-  await page.route("**/api/accounts", r => r.fulfill({ json: editAccounts }));
+  await page.route(accountListUrl, r => r.fulfill({ json: editAccounts }));
   await page.route("**/api/tags", r => r.fulfill({ json: tagList }));
   await page.route("**/api/transaction-history?*", r => { requests.push(r.request().url()); return r.fulfill({ json: pageOf(list, r.request().url()) }); });
   return requests;

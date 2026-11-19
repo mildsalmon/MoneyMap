@@ -17,6 +17,7 @@ import {
 import { fmtMoney, todayIso } from "../format";
 import type { ViewProps } from "../App";
 import { AccountRowMenu } from "./AccountRowMenu";
+import { AccountStateHistory } from "./AccountStateHistory";
 import { AccountHistoryLink } from "./AccountHistoryLink";
 import { AccountSettingsPanel } from "./AccountSettingsPanel";
 import { OpeningBalanceControl, type OpeningDraft } from "./OpeningBalanceControl";
@@ -70,9 +71,9 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   const [mutationPending, setMutationPending] = useState(false);
   const [dragRows, setDragRows] = useState<ReadonlySet<number> | null>(null);
   const dragging = dragRows !== null;
-  const [folded, setFolded] = useState<ReadonlySet<number>>(new Set());
+  const [foldedIds, setFoldedIds] = useState<ReadonlySet<number>>(new Set());
   function setGroupFolded(id: number, fold: boolean) {
-    setFolded(previous => {
+    setFoldedIds(previous => {
       const next = new Set(previous);
       if (fold) next.add(id);
       else next.delete(id);
@@ -158,6 +159,9 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   });
   const accountList = ordering.display;
   const visible = accountList.filter((account) => !account.is_system && !account.archived);
+  const visibleParentIds = new Set(visible.map(account => account.parent_id));
+  // A refresh can remove the last visible child and its disclosure button.
+  const folded = new Set([...foldedIds].filter(id => visibleParentIds.has(id)));
   const archivedList = accountList.filter((account) => !account.is_system && account.archived);
   const balanceOf = (id: number) => balances?.find((balance) => balance.account_id === id);
   const openingOf = (id: number) => openingRecords?.find((record) => record.account_id === id);
@@ -327,7 +331,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     const overdraftChanged = before.is_overdraft !== result.account.is_overdraft;
     if (result.effects.moved) {
       const byId = new Map((refreshed ?? accountList).map(account => [account.id, account]));
-      setFolded(previous => {
+      setFoldedIds(previous => {
         const next = new Set(previous);
         let parentId = result.account.parent_id;
         while (parentId !== null) {
@@ -380,7 +384,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     setMenuFocusId(null);
   }, [menuFocusId]);
 
-  const archive = async (account: Account) => {
+  const archive = async (account: Account, day?: string) => {
     if (!balances || rowTasks[account.id]) return;
     if (nativeBalances([account.id]).length && !window.confirm(
       `"${account.name}"에 잔액 ${formatBalances(account, [account.id])}이 남아 있습니다.\n` +
@@ -389,7 +393,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
 
     setRowTask(account.id, "archive");
     try {
-      await api.archiveAccount(account.id);
+      await api.archiveAccount(account.id, day);
       focusAfterRemoval(account.id, false);
       refresh();
       showToast(`"${account.name}" 보관됨 — 아래 보관된 계정에서 복원할 수 있습니다`);
@@ -401,11 +405,11 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     }
   };
 
-  const restore = async (account: Account) => {
+  const restore = async (account: Account, day?: string) => {
     if (rowTasks[account.id]) return;
     setRowTask(account.id, "restore");
     try {
-      await api.restoreAccount(account.id);
+      await api.restoreAccount(account.id, day);
       focusAfterRemoval(account.id, true);
       refresh();
       showToast(`"${account.name}" 복원됨`);
@@ -648,7 +652,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   const renderAccountRow = (account: Account, depth: number) => {
     const isNetWorthAccount = account.type === "asset" || account.type === "liability";
     const hasChildren = accountList.some((child) => child.parent_id === account.id);
-    const hasVisibleChildren = visible.some((child) => child.parent_id === account.id);
+    const hasVisibleChildren = visibleParentIds.has(account.id);
     const group = isGroup(accountList, account);
     const rollupIds = hasVisibleChildren ? withDescendants(visible, account.id) : [account.id];
     const cashLeaves = withDescendants(accountList, account.id).slice(1)
@@ -940,6 +944,8 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
           </div>
         </div>
       )}
+      <AccountStateHistory accounts={accountList} refresh={refresh} gen={gen} onPendingChange={setMutationPending}
+        archiveReady={!!balances && !balancesError} onArchiveChange={(account, day) => account.archived ? restore(account, day) : archive(account, day)} />
       </fieldset>
     </div>
     </AccountOrderProvider>

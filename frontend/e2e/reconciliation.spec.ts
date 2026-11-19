@@ -132,7 +132,7 @@ test("외화 명세서의 소수 단위와 마감일 거래 내역 링크", asyn
   expect(materializations).toBe(0);
 });
 
-test("folding a reconciled group hides its USD-only direct posting and preserves the child's draft", async ({ page, request }) => {
+test("folding a reconciled group preserves drafts and exposes its USD-only posting after the last child is archived in another tab", async ({ page, context, request }) => {
   const group = await account(request, "asset");
   const income = await account(request, "income");
   await page.goto("/accounts");
@@ -161,6 +161,22 @@ test("folding a reconciled group hides its USD-only direct posting and preserves
   await page.getByRole("button", { name: `${group.name} 하위 계정 펼치기` }).click();
   await expect(direct).toContainText("$10.25");
   await expect(draft).toHaveValue("1,234");
+
+  await page.getByRole("button", { name: `${group.name} 하위 계정 접기` }).click();
+  const secondTab = await context.newPage();
+  await blockExternalStyles(secondTab);
+  await secondTab.goto("/accounts");
+  await secondTab.getByRole("button", { name: `${childName} 더보기` }).click();
+  await secondTab.getByRole("menuitem", { name: `${childName} 보관` }).click();
+  await expect(secondTab.locator(".archived-ledger")).toContainText(childName);
+  await secondTab.close();
+
+  const peerRow = page.getByRole("row").filter({ has: page.getByRole("link", { name: income.name, exact: true }) });
+  await peerRow.getByRole("button", { name: "설정", exact: true }).click();
+  await page.getByLabel(`${income.name} 이름`).fill(`${income.name}-수정`);
+  await page.getByRole("button", { name: "변경 저장" }).click();
+  await expect(page.locator(".archived-ledger")).toContainText(childName);
+  await expect(direct).toContainText("$10.25");
 });
 
 test("USD 대사 뒤 카드 납부는 원화 잔액만 채우고 외화 내역은 달러로 표시한다", async ({ page, request }) => {

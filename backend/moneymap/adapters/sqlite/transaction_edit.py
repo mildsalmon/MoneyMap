@@ -12,7 +12,7 @@ from moneymap.domain.account import OPENING_BALANCE_ACCOUNT_NAME
 from moneymap.domain.errors import DomainConflictError, DomainNotFoundError, DomainValidationError
 from moneymap.domain.transaction_edit import TransactionDetail, TransactionEdit, edited_postings, validate_balanced
 from moneymap.domain.transaction_input import normalize_item_key
-from .accounts import SqliteAccountRepository
+from .account_history import dated_accounts
 from .common import _account_write
 from .transactions import SqliteTransactionRepository, _load_tags, _replace_tags
 
@@ -74,7 +74,8 @@ def update_transaction(conn: sqlite3.Connection, txn_id: int, command: Transacti
             raise DomainConflictError("다른 변경이 있습니다. 작성 내용은 유지하고 최신 거래를 확인하세요", code="transaction_version_conflict")
         if not original.editable:
             raise DomainValidationError("원화 일반 거래와 개시잔액만 수정할 수 있습니다. 원본은 유지했습니다", code="transaction_edit_unsupported")
-        postings = edited_postings(command, original, SqliteAccountRepository(conn).find_all())
+        accounts, _ = dated_accounts(conn, command.date)
+        postings = edited_postings(command, original, accounts)
         validate_balanced(command, postings)
         if original.kind != "regular" and command.opening.signed_amount != 0:
             existing = SqliteTransactionRepository(conn).find_opening_balances(command.opening.account_id)

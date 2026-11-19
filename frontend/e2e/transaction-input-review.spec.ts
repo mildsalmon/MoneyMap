@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./test";
+import { accountListUrl, expect, test, type Page } from "./test";
 
 const accounts = [
   { id: 101, name: "식비", type: "expense", is_placeholder: true },
@@ -14,7 +14,7 @@ const amount = (page: Page) => page.getByLabel("금액", { exact: true });
 const group = (page: Page, side = "차변") => page.getByRole("group", { name: `${side} 계정`, exact: true });
 
 test.beforeEach(async ({ page }) => {
-  await page.route("**/api/accounts", r => r.fulfill({ json: accounts }));
+  await page.route(accountListUrl, r => r.fulfill({ json: accounts }));
   await page.route("**/api/transaction-input/recent?*", r => r.fulfill({ json: [] }));
   await page.route("**/api/transaction-input/last-pair?*", r => r.fulfill({ json: { ...pair, item_key: new URL(r.request().url()).searchParams.get("item") } }));
   await page.goto("/transactions/new");

@@ -29,6 +29,7 @@ from moneymap.domain.services import (
 )
 from moneymap.domain.standard_accounts import StandardAccount
 
+from .account_history import account_action, dated_source_grouped
 from .common import _account_write
 from moneymap.domain.account_order import (
     AccountReorderCommand, AccountReorderEffects, AccountReorderResult, validate_reorder,
@@ -111,7 +112,7 @@ class SqliteAccountRepository:
         self,
         command: AccountSettingsCommand,
     ) -> AccountSettingsResult:
-        with _account_write(self._conn):
+        with _account_write(self._conn), account_action(self._conn, command.effective_date):
             current = self.find_by_id(command.account_id)
             if current is None:
                 raise DomainNotFoundError(
@@ -171,6 +172,8 @@ class SqliteAccountRepository:
                         (previous_parent.id, previous_parent.id),
                     )
                     source_parent_grouped = grouped.rowcount == 1
+                if command.effective_date is not None:
+                    source_parent_grouped = dated_source_grouped(self._conn)
 
             saved = self.find_by_id(command.account_id)
             assert saved is not None
@@ -183,8 +186,8 @@ class SqliteAccountRepository:
                 ),
             )
 
-    def set_archived(self, account_id: int, archived: bool) -> Account:
-        with _account_write(self._conn):
+    def set_archived(self, account_id: int, archived: bool, effective_date=None) -> Account:
+        with _account_write(self._conn), account_action(self._conn, effective_date):
             current = self.find_by_id(account_id)
             if current is None:
                 raise DomainNotFoundError("계정이 없습니다", code="account_not_found")
@@ -230,8 +233,8 @@ class SqliteAccountRepository:
             assert saved is not None
             return saved
 
-    def set_placeholder(self, account_id: int, is_placeholder: bool) -> Account:
-        with _account_write(self._conn):
+    def set_placeholder(self, account_id: int, is_placeholder: bool, effective_date=None) -> Account:
+        with _account_write(self._conn), account_action(self._conn, effective_date):
             current = self.find_by_id(account_id)
             if current is None:
                 raise DomainNotFoundError("계정이 없습니다", code="account_not_found")
@@ -288,9 +291,19 @@ class SqliteAccountRepository:
                 [item for item in items if len(item.path) > 1],
                 key=lambda item: len(item.path),
             )
+            unavailable_paths = set()
             for item in [*roots, *children]:
+                if (item.type, item.path[:-1]) in unavailable_paths:
+                    unavailable_paths.add((item.type, item.path))
+                    skipped += 1
+                    continue
                 existing_id = self._find_id_by_path(item.path, item.type)
                 if existing_id is not None:
+                    existing = self.find_by_id(existing_id)
+                    if existing.archived or existing.is_system or existing.include_in_cash or existing.is_overdraft:
+                        unavailable_paths.add((item.type, item.path))
+                        skipped += 1
+                        continue
                     if item.is_group:
                         self._conn.execute(
                             "UPDATE accounts SET is_placeholder=1, version=version+1 "

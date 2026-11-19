@@ -5,6 +5,7 @@ import datetime
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 
+from moneymap.adapters.sqlite.account_history import account_events, correct_date, dated_accounts
 from moneymap import app_services
 from moneymap.dependencies import repos, request_connection
 from moneymap.domain import (
@@ -31,11 +32,17 @@ class AccountIn(BaseModel):
 
 
 class AccountSettingsIn(BaseModel):
+    effective_date: datetime.date | None = None
     include_in_cash: bool | None = None
     name: str
     parent_id: int | None
     is_overdraft: bool
     version: int = Field(ge=1)
+
+
+class CorrectionIn(BaseModel):
+    effective_date: datetime.date
+    expected_revision: int = Field(ge=0)
 
 
 class PlaceholderIn(BaseModel):
@@ -49,8 +56,22 @@ class OpeningBalanceIn(BaseModel):
 
 
 @router.get("/api/accounts")
-def list_accounts(request: Request):
+def list_accounts(request: Request, on: datetime.date | None = None):
+    if on is not None:
+        accounts, known = dated_accounts(request.state.conn, on)
+        parents = dict(request.state.conn.execute("SELECT id,parent_id FROM accounts"))
+        return [dict(a.model_dump(), history_known=known, current_parent_id=parents[a.id]) for a in accounts]
     return [a.model_dump() for a in repos(request)["accounts"].find_all()]
+
+
+@router.get("/api/accounts/{account_id}/state-history")
+def state_history(account_id: int, request: Request):
+    return account_events(request.state.conn, account_id)
+
+
+@router.post("/api/accounts/{account_id}/state-history/{seq}/corrections")
+def correct_account_date(account_id: int, seq: int, body: CorrectionIn, request: Request):
+    return correct_date(request.state.conn, account_id, seq, body.effective_date, body.expected_revision)
 
 
 @router.post("/api/accounts", status_code=201)
@@ -80,6 +101,7 @@ def update_account_settings(
             is_overdraft=body.is_overdraft,
             include_in_cash=body.include_in_cash,
             version=body.version,
+            effective_date=body.effective_date,
         ),
         repos(request)["accounts"],
     )
@@ -94,22 +116,22 @@ def seed_standard_accounts(request: Request):
 
 
 @router.post("/api/accounts/{account_id}/placeholder")
-def set_placeholder(account_id: int, body: PlaceholderIn, request: Request):
+def set_placeholder(account_id: int, body: PlaceholderIn, request: Request, effective_date: datetime.date | None = None):
     return (
         repos(request)["accounts"]
-        .set_placeholder(account_id, body.is_placeholder)
+        .set_placeholder(account_id, body.is_placeholder, effective_date)
         .model_dump()
     )
 
 
 @router.post("/api/accounts/{account_id}/archive")
-def archive_account(account_id: int, request: Request):
-    return repos(request)["accounts"].set_archived(account_id, True).model_dump()
+def archive_account(account_id: int, request: Request, effective_date: datetime.date | None = None):
+    return repos(request)["accounts"].set_archived(account_id, True, effective_date).model_dump()
 
 
 @router.post("/api/accounts/{account_id}/restore")
-def restore_account(account_id: int, request: Request):
-    return repos(request)["accounts"].set_archived(account_id, False).model_dump()
+def restore_account(account_id: int, request: Request, effective_date: datetime.date | None = None):
+    return repos(request)["accounts"].set_archived(account_id, False, effective_date).model_dump()
 
 
 @router.post("/api/accounts/{account_id}/reclassify-direct")
