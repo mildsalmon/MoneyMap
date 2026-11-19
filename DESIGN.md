@@ -1,91 +1,77 @@
-# Design System — MoneyMap "잉크와 원장 (Ink & Ledger)"
+# Design System — MoneyMap "Violet Workspace"
 
-기억될 한 가지: **"숫자가 한 치도 안 틀리는 도구."** 모든 디자인 결정은 이 문장에 복무한다.
-첫인상 선언: "돈을 예쁘게 보여주는 곳이 아니라, 단 1원도 어긋나지 않게 붙잡는 곳."
+2026-11-15 사용자 제공 대시보드 이미지를 기준으로 공통 셸과 대시보드를 재설계한다. 이 요청은 기존 ‘잉크와 원장’의 색·카드·그림자·모서리 제한을 대체한다. 회계 값·입력/수정·필터·시나리오의 기능 계약은 유지한다.
 
 ## Product Context
-- **What this is:** 복식부기 개인 가계부 + What-if 미래 자산 시뮬레이터 (로컬 단일 사용자)
-- **Who it's for:** 소유자 본인 — 매일 거래를 입력하고 주간 단위로 시나리오를 검토
-- **Space/industry:** 개인 재무 도구 (whooing, Actual Budget, YNAB, ProjectionLab 인접)
-- **Project type:** 데스크톱 우선 반응형 웹앱 (localhost, 1440px 기준 + 720px 이하 모바일, 순수 APP UI — 마케팅 페이지 없음)
+
+- 개인용 복식부기 가계부와 What-if 미래 자산 시뮬레이터. 데스크톱 중심 반응형 React 앱이며 한국어 메뉴와 정확한 원 단위 숫자가 핵심이다.
+- 기억할 인상: 보라색 메뉴 옆의 밝고 정돈된 자산 작업 공간.
+- 참고: 사용자가 제공한 흰색 카드·보라 사이드바·라벤더 보조 패널 대시보드 이미지. 별도 경쟁사 조사는 하지 않는다.
 
 ## Aesthetic Direction
-- **Direction:** 종이 원장 모더니즘 — "100년 된 회계장부의 디지털 재제본". 정밀 계측기 같은 조용한 작업대.
-- **Decoration level:** minimal — 그림자·zebra striping·장식 요소 금지. 괘선(hairline rule)과 종이 톤, 타이포그래피가 전부.
-- **Mood:** 화려해서가 아니라 조용해서 믿음이 가는. "크다"가 아니라 "틀리지 않는다".
-- **카테고리 이탈 (의도적):** 남색 사이드바 + 흰 카드 + 보라 액센트의 핀테크 SaaS 문법을 폐기한다.
-- **Reference:** actualbudget.org, projectionlab.com (관습 확인용), whooing (입력 UX)
+
+- 연한 회색·라벤더 바탕 위에 둥근 앱 셸, 단색 보라색 사이드바와 흰 패널을 놓는다.
+- 상단 숫자 카드 → 넓은 자산 흐름 차트와 보조 영역 → 계정·지출 표의 위계를 만든다.
+- 패널 사이 여백과 미세한 그림자로 구분한다. 장식용 그라데이션·진행률·가짜 알림·프로필·데이터는 만들지 않는다.
+- 레퍼런스의 카드 구조와 색을 따르되 한국어 레이블과 표의 대비·밀도는 실사용에 맞춘다.
 
 ## Typography
-- **전체 (본문/UI/테이블):** Pretendard Variable — 한국어 숫자-heavy UI의 표준. CDN: jsdelivr `pretendard@v1.3.9` variable dynamic-subset.
-- **의식용 숫자 (히어로 순자산, 검산 합계 행만):** IBM Plex Mono 500/600 — "숫자는 다른 물질"이라는 선언. 이 두 자리 외에는 사용 금지 (남발하면 템플릿 냄새).
-- **모든 금액:** `font-variant-numeric: tabular-nums lining-nums` + 우측 정렬. 예외 없음.
-- **히어로 숫자는 원 단위까지 전체 표기** (`₩42,180,000`) — 축약 금지. 그 외 축약은 `4,218만`/`5.1억` ("M" 금지).
-- **Scale:** 11(메타/badge) · 12(라벨) · 13(테이블 본문) · 14(기본 UI) · 16(폼 입력/섹션 제목) · 20(스트립 값) · 28~44(히어로 순자산)
-- **Weights:** 400(본문) · 500(금액 기본) · 600(라벨/강조) · 650(핵심 잔액/선택 상태) · 750(화면 제목)
+
+- 본문·제목·폼·데이터: 기존 Pretendard Variable을 유지한다. 한국어 가독성과 기존 로딩 경로를 보존한다.
+- 숫자: `font-variant-numeric: tabular-nums lining-nums`, 금액은 원 단위 전체 표시·우측 정렬. 숫자가 길면 줄바꿈·크기 조정으로 컨테이너를 넘지 않게 한다.
+- IBM Plex Mono는 검산 같은 제한된 기존 자리에서 사용할 수 있다. 데이터 표에 무작정 확대 적용하지 않는다.
+- 규모: 보조 12px, 표 13px, 본문 14px, 섹션 16px, 화면 제목 24–28px, 지표 24–32px. 모바일 폼 입력은 16px 이상.
+- 두께: 본문 400, 숫자 600, 레이블·제목 650–750.
 
 ## Color
-- **Approach:** restrained — 색은 드물고, 나올 때마다 의미가 있다.
 
-라이트 (기본):
 ```css
---bg: #FAF6EE;               /* 미색 종이 */
---surface: #FFFDF7;
---surface-selected: #F0EDE2;
---ink: #211D17;              /* 먹 — 본문 텍스트 */
---muted: #6F6759;             /* 작은 보조 텍스트도 AA 대비 확보 */
---faint: #766F63;             /* 최소 4.5:1 대비 */
---line: #D8D5C9;             /* 괘선 */
---line-strong: #A8A290;
---accent: #1B6E4F;           /* 장부초록 — 주요 액션, 기준선, 긍정 변화 */
---accent-soft: #E2EEE7;
---scenario: #3563E9;         /* 청사진파랑 — 가설/시나리오 전용 */
+--bg: #ECECF5;
+--surface: #FFFFFF;
+--surface-selected: #F1EFFB;
+--workspace: #F8F9FD;
+--ink: #242057;
+--muted: #66657A;
+--faint: #6D6B80;
+--line: #E5E5F0;
+--line-strong: #B4B0C8;
+--accent: #5A49CF;
+--accent-soft: #EEEBFC;
+--sidebar: #6555D8;
+--sidebar-ink: #FFFFFF;
+--scenario: #3563E9;
 --scenario-soft: #E4EAFC;
---danger: #C2372B;           /* 인주빨강 — "나쁜 변화" 전용 */
---danger-soft: #F7E0DC;
---warning: #9A6B12;
+--danger: #B53229;
+--danger-soft: #FBEAE7;
+--warning: #8A5A10;
+--success: #22684C;
 ```
 
-다크 (토글): bg `#191713` / surface `#211E19` / ink `#EAE5DA` / muted `#97917F` / line `#38342C` / accent `#3E9C77` / scenario `#7793EE` / danger `#D7604F` — 채도 10~20% 감쇄, 종이의 온기 유지.
+- 보라색은 브랜드·기본 액션, 초록은 정상 상태, 빨강은 오류/위험이다. 부채 잔액 자체는 중립색으로 표시한다.
+- 계정 필터 거래 내역의 방향 색은 사용자 요청대로 빨강 `+금액`(#B53229), 파랑 `−금액`(#2858B8)을 유지한다. 화면에는 유입·유출 한글을 붙이지 않고 sr-only 설명만 제공한다.
+- 차트의 실제·기준·시나리오 색/선 스타일·도메인 의미는 기존 구현을 유지한다. 재무 곡선을 장식적인 부드러운 곡선으로 바꾸지 않는다.
+- 이번 방향은 라이트 테마다. 동작하지 않는 다크 모드 토글은 만들지 않는다. 본문·보조 텍스트 AA 대비와 키보드 포커스 표시를 확인한다.
 
-- **시맨틱 규칙 (절대):**
-  - 빨강은 사용자가 손해를 보거나 데이터가 잘못됐을 때만. **부채 잔액·대출 원금·카드 미지급금에 빨강 금지** — 부채는 나쁜 것이 아니라 장부의 한쪽. 중립색 + `−` 부호 + "부채" badge로.
-  - 차트: 실제=먹 실선 / 현재 패턴 유지=장부초록 실선 / 시나리오=청사진파랑 파선(+점선). **색만으로 구분 금지** — 선 스타일 병행 (색약 대비).
+## Spacing & Layout
 
-## Spacing
-- **Base unit:** 4px
-- **Density:** compact — 테이블 행 높이 32px, 헤더 12px/600, 본문 13px
-- **Scale:** 2xs(2) xs(4) sm(8) md(12) lg(16) xl(24) 2xl(32) 3xl(48)
-
-## Layout
-- **Approach:** grid-disciplined 작업대. 1440px 데스크톱을 기준으로 하되 720px 이하에서도 핵심 작업을 유지한다.
-- **구조:** 데스크톱은 좌측 사이드바(168px, 하단 장부 상태 스트립) + 메인 캔버스. 모바일은 상단 3열 내비게이션 + 단일 열 메인 캔버스. (승인 와이어프레임 v3 기준)
-- **대시보드 3영역:** 테두리 없는 순자산 스트립 → full-width 차트 워크벤치(카드에 가두지 않음) → 컴팩트 테이블.
-- **카드 사용 규칙:** 카드(테두리 박스)는 "분리된 작업 패널"(복식 미리보기, 시나리오 편집기)에만. 정보 나열에 카드 금지.
-- **테이블:** zebra 금지, 괘선과 여백으로 읽힘. hover는 배경만 미세하게. 검산 합계 행은 상단 실선 + **하단 이중선**(부기 관습).
-- **Border radius:** sm 4px / md 6px — 그 이상 금지 (bubbly 금지).
+- 4px 단위. 간격 4/8/12/16/24/32/48px, 패널 안쪽 20–24px, 모바일 16px.
+- 데스크톱 바깥 여백 20–28px, 앱 셸 radius 24px, 사이드바 184px 전후·radius16px. 레이블이 있는 8개 메뉴와 하단 실제 상태를 유지한다.
+- 컨트롤 radius8px, 지표·콘텐츠 패널 radius16–18px. 그림자는 `0 8px 24px rgb(37 32 87 / 4%)` 수준이다.
+- 1280px 이상: 요약4개, 차트+260px 보조 영역. 721–1279px: 지표2×2, 보조 영역을 아래에 배치. 하단 계정·지출 표는 1200px 미만에서 한 열로 쌓는다. 720px 이하: 상단3열 메뉴와 한 열 콘텐츠, 최소44px 조작부. 390px에서도 페이지 자체가 가로로 넘치지 않는다.
+- 계정·거래·설정 표는 자체 수평 스크롤을 유지한다. 계정 잔액과 월별 지출을 임의로 잘라 숨기거나 별도 내부 세로 스크롤에 가두지 않는다.
+- `.main`은 기존 스크롤·수정 복귀의 소유자다. 중첩 전역 스크롤 영역을 만들지 않는다.
 
 ## Motion
-- **Approach:** minimal-functional — 이해를 돕는 전환만.
-- **Easing:** enter(ease-out) exit(ease-in) move(ease-in-out)
-- **Duration:** micro 100ms(hover/focus) · short 150-250ms(상태 전환, 토스트) — 그 이상의 안무 금지. 입장 애니메이션 금지.
 
-## Anti-slop (금지 목록)
-보라 그라데이션 / navy sidebar+white cards+purple CTA / 3열 아이콘 그리드 / 전부 가운데 정렬 / decorative blob·glassmorphism / 카드 중첩 / 이모지 아이콘(Lucide만) / system-ui 폰트 / zebra striping / 카테고리 무지개색 / 부채를 빨강으로 겁주기
-
-## 관련 문서
-- UI 동작 명세: `~/.gstack/projects/MoneyMap/mildsalmon-master-ui-spec-20260705.md` (D6~D22 결정)
-- 와이어프레임: `~/.gstack/projects/MoneyMap/designs/dashboard-whatif-20260704/wireframes.html`
-- 이 시스템의 프리뷰: `~/.gstack/projects/MoneyMap/designs/design-system-20260705/preview.html`
+- hover/focus 등 100–180ms 기능적 전환만 사용한다. 입장 애니메이션과 재무 숫자 카운트업은 넣지 않는다. reduced-motion을 존중한다.
 
 ## Decisions Log
+
 | Date | Decision | Rationale |
 |------|----------|-----------|
-| 2026-07-05 | 초기 시스템 "잉크와 원장" 작성 | /design-consultation — 리서치(Actual/ProjectionLab) + Codex + 독립 Claude 3자 수렴. 기억될 한 가지="숫자가 한 치도 안 틀리는 도구" |
-| 2026-07-05 | Plex Mono는 히어로·검산에만 | Codex(단독 Pretendard) vs 독립안(전면 모노)의 절충 — 도장 찍는 자리에만 다른 잉크 |
-| 2026-07-05 | 사이드바 유지 (독립안의 폐지 제안 기각) | 승인 와이어프레임 v3·상태 스트립과 충돌, 매일 쓰는 도구의 관습 가치 |
-| 2026-07-05 | "마감(締) 리추얼" 백로그 | 독립안 아이디어 — 하루 마감 시 이중 밑줄+검산. v1.5 후보 |
-| 2026-08-19 | muted/faint 대비를 WCAG AA로 상향 | 11~13px 보조 텍스트가 종이 배경에서도 4.5:1 이상 읽히도록 조정 |
+| 2026-07-05 | 최초 ‘잉크와 원장’ | 역사적 디자인이며 현재 색·카드 제한은 아래 사용자 요청으로 대체됨 |
+| 2026-11-15 | Violet Workspace로 개편 | 사용자가 이미지와 함께 같은 느낌의 디자인을 명시적으로 요청 |
+| 2026-11-15 | Pretendard·실제 데이터·수치/흐름 의미 유지 | 새 인상과 한국어·회계 도구의 읽기 정확성을 함께 확보 |
 
 ## 거래 입력 (2026-09-05)
 

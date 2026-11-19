@@ -188,18 +188,24 @@ def test_forecast_scenario_and_unposted_actual_are_not_actual_statistics(client)
     assert body['summary']['income'] == body['summary']['net_worth'] == 0
 
 
-def test_sqlite_intermediate_sum_overflow_returns_domain_error(client):
-    bank = account(client, 'bank', 'asset')
-    income = account(client, 'income', 'income')
-    conn = connect(client.app.state.db_path)
-    with conn:
-        for sign in [1, -1]:
-            for _ in range(1025):
-                tid = conn.execute("INSERT INTO transactions(scenario_id,date,description) VALUES(1,'2026-01-01','overflow')").lastrowid
-                amount = sign * 9_007_199_254_740_991
-                conn.executemany("INSERT INTO postings(txn_id,account_id,amount,currency) VALUES(?,?,?,'KRW')", [(tid, bank, amount), (tid, income, -amount)])
-                conn.execute('UPDATE transactions SET posted=1 WHERE id=?', (tid,))
-    conn.close()
-    response = client.get('/api/statistics?start=2026-01-01&end=2026-01-01')
-    assert response.status_code == 400
-    assert response.json()['detail']['code'] == 'statistics_amount_out_of_range'
+def test_sqlite_intermediate_sum_overflow_returns_domain_error(tmp_path):
+    # Retain the statistics adapter's legacy-ledger overflow guard. Schema v9
+    # rejects this ledger at write time rather than storing inexact balances.
+    from unittest.mock import patch
+    from moneymap.adapters.sqlite import database
+    with patch.object(database, 'MIGRATIONS', database.MIGRATIONS[:8]):
+        with TestClient(create_app(str(tmp_path / 'legacy-overflow.db'))) as client:
+            bank = account(client, 'bank', 'asset')
+            income = account(client, 'income', 'income')
+            conn = connect(client.app.state.db_path)
+            with conn:
+                for sign in [1, -1]:
+                    for _ in range(1025):
+                        tid = conn.execute("INSERT INTO transactions(scenario_id,date,description) VALUES(1,'2026-01-01','overflow')").lastrowid
+                        amount = sign * 9_007_199_254_740_991
+                        conn.executemany("INSERT INTO postings(txn_id,account_id,amount,currency) VALUES(?,?,?,'KRW')", [(tid, bank, amount), (tid, income, -amount)])
+                        conn.execute('UPDATE transactions SET posted=1 WHERE id=?', (tid,))
+            conn.close()
+            response = client.get('/api/statistics?start=2026-01-01&end=2026-01-01')
+            assert response.status_code == 400
+            assert response.json()['detail']['code'] == 'statistics_amount_out_of_range'

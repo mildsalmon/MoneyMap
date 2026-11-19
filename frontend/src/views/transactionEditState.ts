@@ -65,8 +65,12 @@ export function historyReturn(value: unknown): HistoryReturn {
   const raw = candidate?.query;
   const criteria = (v: unknown): HistoryCriteria | null => {
     const c = v as Partial<HistoryCriteria> | null;
+    if (c && ((c.accountId !== undefined && (typeof c.accountId !== "string" || c.accountId.length > 16))
+      || (c.accountScope !== undefined && c.accountScope !== "direct" && c.accountScope !== "subtree"))) return null;
     return typeof c?.start === "string" && c.start.length <= 10 && typeof c.end === "string" && c.end.length <= 10 && typeof c.tag === "string"
-      ? { start: c.start, end: c.end, tag: c.tag } : null;
+      ? { start: c.start, end: c.end, tag: c.tag,
+        ...(typeof c.accountId === "string" && c.accountId.length <= 16 ? { accountId: c.accountId } : {}),
+        ...(c.accountScope === "direct" || c.accountScope === "subtree" ? { accountScope: c.accountScope } : {}) } : null;
   };
   const valid = criteria(raw);
   return { tagFilter: typeof candidate?.tagFilter === "string" ? candidate.tagFilter : "",

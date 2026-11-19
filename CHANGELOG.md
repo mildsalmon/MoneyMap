@@ -2,6 +2,22 @@
 
 All notable changes to MoneyMap are documented in this file.
 
+## [0.13.0.0] - 2026-11-19
+
+### Added
+
+- Open filtered transaction history from account names in the dashboard, accounts, statistics, and transaction history. Choose whether to include child accounts.
+- See each transaction’s direction and the balance immediately after it for the selected account or group. The balance includes earlier transactions outside the displayed period.
+
+### Changed
+
+- Use the violet dashboard to check net worth, monthly cash flow, account balances, and projections, or jump to a new transaction and recurring rules.
+- Dashboard totals and forecasts use won-denominated transactions and rules. A foreign posting or account excludes the entire transaction. History keeps the original currency.
+- Large cash-flow and balance totals retain every won. The dashboard identifies any curve that exceeds the chart’s exact numeric range.
+- Schema v9 builds a balance history from existing postings during migration. Backdated entries, edits, and deletions update the later balances in the same transaction. The dashboard reads balances, postings, and tags in batches.
+- Schema v10 speeds up backdated entries by summing their postings once per account and currency before updating later balances.
+- Select deposit or overdraft use with larger touch targets when entering an opening balance on mobile.
+
 ## [0.12.0.0] - 2026-11-05
 
 ### Added

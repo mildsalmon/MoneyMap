@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useBlocker, useLocation, useNavigate, useParams } from "react-router-dom";
-import { api, ApiError, type TransactionDetail, type TransactionEditBody, type TransactionEditResult } from "../api";
+import { api, ApiError, withDescendants, type TransactionDetail, type TransactionEditBody, type TransactionEditResult } from "../api";
 import type { ViewProps } from "../App";
 import { TransactionForm } from "./TransactionForm";
 import { accountPickerModel } from "./TransactionAccountPicker";
@@ -71,7 +71,9 @@ function EditSession({ initial, gen, refresh, showToast }: ViewProps & { initial
   const field = (name: "date" | "item" | "memo" | "amount", value: string) => change(d => editField(d, name, value));
   const back = (saved?: TransactionDetail) => {
     const filter = returnTo.query?.tag ?? returnTo.tagFilter;
-    const filtered = saved && ((filter && !saved.tags.includes(filter))
+    const accountId = returnTo.query?.accountId;
+    const accountIds = accountId ? (returnTo.query?.accountScope === "direct" ? [Number(accountId)] : withDescendants(accounts.data ?? [], Number(accountId))) : null;
+    const filtered = saved && ((accountIds && !saved.postings.some(p => accountIds.includes(p.account_id))) || (filter && !saved.tags.includes(filter))
       || (returnTo.query && (saved.date < returnTo.query.start || saved.date > returnTo.query.end)));
     const notice = saved ? (filtered ? "수정한 거래가 현재 조회 조건에 해당하지 않아 목록에 표시되지 않습니다." : "거래를 수정했습니다.") : undefined;
     if (saved) allowExit.current = true;

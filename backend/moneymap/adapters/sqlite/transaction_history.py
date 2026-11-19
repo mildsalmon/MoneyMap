@@ -4,7 +4,9 @@ from __future__ import annotations
 import datetime
 import sqlite3
 
+from moneymap.amounts_json import preserve_posting_precision
 from moneymap.domain import ACTUAL_SCENARIO_ID, Money, Posting, Transaction
+from .balance_history import selected_balances_after
 
 PAGE_SIZE = 100
 
@@ -13,7 +15,8 @@ class SqliteTransactionHistory:
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
 
-    def page(self, start: datetime.date, end: datetime.date, tag: str, page: int) -> dict:
+    def page(self, start: datetime.date, end: datetime.date, tag: str, page: int,
+             account_id: int | None = None, include_descendants: bool = True) -> dict:
         where = "t.scenario_id=? AND t.posted=1 AND t.date>=? AND t.date<=?"
         params: list[object] = [ACTUAL_SCENARIO_ID, start.isoformat(), end.isoformat()]
         if tag:
@@ -23,6 +26,19 @@ class SqliteTransactionHistory:
                 "JOIN transaction_tags tt ON tt.tag_id=g.id WHERE g.name=?)"
             )
             params.append(tag)
+        if account_id is not None:
+            # Filter transaction IDs, not hydrated posting rows: retain the full
+            # double-entry transaction and count transfers/split entries once.
+            if include_descendants:
+                where += """ AND t.id IN (
+                  WITH RECURSIVE selected(id) AS (
+                    SELECT id FROM accounts WHERE id=?
+                    UNION SELECT a.id FROM accounts a JOIN selected s ON a.parent_id=s.id
+                  ) SELECT p.txn_id FROM postings p WHERE p.account_id IN (SELECT id FROM selected)
+                )"""
+            else:
+                where += " AND t.id IN (SELECT txn_id FROM postings WHERE account_id=?)"
+            params.append(account_id)
         total = self.conn.execute(
             f"SELECT COUNT(*) FROM transactions t WHERE {where}", params
         ).fetchone()[0]
@@ -58,4 +74,9 @@ class SqliteTransactionHistory:
             description=row["description"], memo=row["memo"], source_rule_id=row["source_rule_id"],
             postings=postings[row["id"]], tags=tags[row["id"]],
         ).model_dump(mode="json") for row in rows]
+        if account_id is not None:
+            balances = selected_balances_after(self.conn, ids, account_id, include_descendants)
+            for item in result["items"]:
+                item["balance_after"] = balances[item["id"]]
+                preserve_posting_precision(item)
         return result

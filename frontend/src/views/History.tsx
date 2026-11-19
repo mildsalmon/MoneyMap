@@ -1,13 +1,14 @@
 /** Period-bounded actual ledger. URL is applied state; input fields are drafts. */
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { api, ApiError, type Account, type Txn } from "../api";
-import { fmtWon } from "../format";
+import { api, ApiError, accountTree, withDescendants, type Account, type Txn } from "../api";
+import { fmtMoney, fmtWon } from "../format";
 import type { ViewProps } from "../App";
 import { useQuery } from "./scenarios/useQuery";
 import { historyReturn, recalledHistory, rememberHistory } from "./transactionEditState";
 import { criteriaKey, historyCriteriaError, historyKey, historyPreset, historySearch, readHistoryQuery,
   type HistoryCriteria, type HistoryPreset, type HistoryQuery } from "./historyQueryState";
+import { AccountHistoryLink } from "./AccountHistoryLink";
 import "./history.css";
 
 // Owned by App so in-flight and uncertain deletions survive route changes.
@@ -57,6 +58,17 @@ function HistorySession({ gen, refresh, showToast, accounts, tags, tagCache, unc
   const dirty = !!applied && criteriaKey(draft) !== criteriaKey(applied);
   const tagOptions = [...new Set([...(tags.data ?? tagCache), ...(draft.tag ? [draft.tag] : [])])];
   const names = useMemo(() => new Map(accounts.data?.map(a => [a.id, a.name])), [accounts.data]);
+  const selectedAccounts = useMemo(() => applied?.accountId ? new Set(applied.accountScope === "direct"
+    ? [Number(applied.accountId)] : withDescendants(accounts.data ?? [], Number(applied.accountId))) : null,
+  [applied?.accountId, applied?.accountScope, accounts.data]);
+  const accountOptions = useMemo(() => {
+    const path: string[] = [];
+    return accountTree(accounts.data ?? []).map(({ account, depth }) => {
+      path.length = depth; path.push(account.name);
+      return { id: String(account.id), label: path.join(" / ") + (account.archived ? " (보관)" : "") };
+    });
+  }, [accounts.data]);
+  const accountLabel = (id?: string) => accountOptions.find(a => a.id === id)?.label ?? `#${id}`;
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
   useEffect(() => {
@@ -135,8 +147,26 @@ function HistorySession({ gen, refresh, showToast, accounts, tags, tagCache, unc
   };
   const flow = (t: Txn) => {
     const side = (positive: boolean) => t.postings.filter(p => positive ? p.amount.amount > 0 : p.amount.amount < 0)
-      .map(p => names.get(p.account_id) ?? `#${p.account_id}`).join("+");
-    return `${side(false)} → ${side(true)}`;
+      .map((p, index) => <Fragment key={index}>{index > 0 && "+"}<AccountHistoryLink accountId={p.account_id}
+        start={applied!.start} end={applied!.end} tag={applied!.tag} includeChildren={false}>{names.get(p.account_id) ?? `#${p.account_id}`}</AccountHistoryLink></Fragment>);
+    return <>{side(false)} → {side(true)}</>;
+  };
+  const amount = (t: Txn) => {
+    if (!selectedAccounts) return fmtWon(t.postings.filter(p => p.amount.amount > 0).reduce((sum, p) => sum + p.amount.amount, 0));
+    // Transactions balance within one currency. Direction follows the flow arrow
+    // (credit → debit), independent of the account's natural balance sign.
+    const postings = t.postings.filter(p => selectedAccounts.has(p.account_id));
+    const net = postings.reduce((sum, p) => sum + BigInt(p.exact_minor ?? p.amount.amount), 0n);
+    const currency = postings[0]?.amount.currency ?? "KRW";
+    const magnitude = net < 0n ? -net : net;
+    const formatted = fmtMoney(magnitude, currency);
+    return <span className={net > 0 ? "history-inflow" : net < 0 ? "history-outflow" : "history-neutral"}>
+      <span className="sr-only">{net > 0 ? "유입 " : net < 0 ? "유출 " : "변동 없음 "}</span>{net > 0 ? "+" : net < 0 ? "−" : ""}{formatted}</span>;
+  };
+  const balanceAfter = (t: Txn) => {
+    const type = accounts.data?.find(a => String(a.id) === applied?.accountId)?.type;
+    const multiplier = type === "liability" || type === "income" || type === "equity" ? -1 : 1;
+    return t.balance_after?.length ? t.balance_after.map(b => <div key={b.currency}>{fmtMoney(BigInt(b.amount) * BigInt(multiplier), b.currency)}</div>) : "—";
   };
   const savedElsewhere = ready && Number.isSafeInteger(location.state?.savedId) && !page.items.some(t => t.id === location.state.savedId);
   const presets: [HistoryPreset, string][] = [["recent", "최근 한 달"], ["this-month", "이번 달"], ["last-month", "지난달"]];
@@ -144,11 +174,21 @@ function HistorySession({ gen, refresh, showToast, accounts, tags, tagCache, unc
     <h1 id="history-title" tabIndex={-1}>거래 내역</h1>
     <div className="history-presets" aria-label="빠른 기간 선택">{presets.map(([value, label]) => {
       const dates = historyPreset(value);
-      const samePending = pending && dates.start === applied?.start && dates.end === applied?.end && draft.tag === applied?.tag;
+      const samePending = pending && dates.start === applied?.start && dates.end === applied?.end && draft.tag === applied?.tag && draft.accountId === applied?.accountId && draft.accountScope === applied?.accountScope;
       return <button type="button" className="btn secondary" key={value} disabled={deleting !== null || samePending}
-        aria-pressed={dates.start === draft.start && dates.end === draft.end} onClick={() => apply({ ...historyPreset(value), tag: draft.tag })}>{label}</button>;
+        aria-pressed={dates.start === draft.start && dates.end === draft.end} onClick={() => apply({ ...draft, ...historyPreset(value), tag: draft.tag })}>{label}</button>;
     })}</div>
     <form className="history-query" onSubmit={e => { e.preventDefault(); if ((!pending || dirty) && !deletingRef.current) apply(draft); }}>
+      <div className="history-account-filter">
+        <div className="history-account-choice"><label htmlFor="history-account">계정과목</label><select id="history-account" value={draft.accountId ?? ""} disabled={!accounts.data} onChange={e => {
+          const { accountId: _id, accountScope: _scope, ...rest } = draft;
+          setDraft(e.target.value ? { ...rest, accountId: e.target.value, accountScope: "subtree" } : rest); setFormError(undefined);
+        }}><option value="">전체 계정</option>
+          {draft.accountId && !accountOptions.some(a => a.id === draft.accountId) && <option value={draft.accountId}>계정 #{draft.accountId}</option>}
+          {accountOptions.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
+        </select></div>
+        <label className="history-account-scope"><input type="checkbox" disabled={!draft.accountId} checked={draft.accountScope !== "direct"} onChange={e => setDraft(d => ({ ...d, accountScope: e.target.checked ? "subtree" : "direct" }))} />하위 계정 포함</label>
+      </div>
       <label htmlFor="history-start">시작일<input id="history-start" type="date" required value={draft.start} aria-describedby={formError || parsed.error ? "history-form-error" : undefined} onChange={e => change("start", e.target.value)} /></label>
       <label htmlFor="history-end">종료일<input id="history-end" type="date" required value={draft.end} aria-describedby={formError || parsed.error ? "history-form-error" : undefined} onChange={e => change("end", e.target.value)} /></label>
       <div className="history-tag-field"><div className="history-tag-label"><label htmlFor="history-tag">태그</label>{!tags.data && !tags.error && <span role="status">목록 확인 중…</span>}</div><select id="history-tag" value={draft.tag} onChange={e => change("tag", e.target.value)}><option value="">전체</option>{tagOptions.map(tag => <option key={tag}>{tag}</option>)}</select>
@@ -166,17 +206,20 @@ function HistorySession({ gen, refresh, showToast, accounts, tags, tagCache, unc
       <button type="button" className="btn secondary" disabled={pending} onClick={retry}>목록 다시 조회</button></div>}
     {deleting !== null && <p role="status">거래를 삭제하고 있습니다…</p>}
     <section className="history-results" aria-label="조회 결과" aria-busy={pending}>
-      {applied && dirty && (pending || error) && <p className="history-notice">{error ? "재시도할 조건" : "조회 중인 조건"}: {applied.start} ~ {applied.end} · {applied.tag ? `태그 ${applied.tag}` : "태그 전체"} · {applied.page}페이지</p>}
+      {applied && dirty && (pending || error) && <p className="history-notice">{error ? "재시도할 조건" : "조회 중인 조건"}: {applied.start} ~ {applied.end} · {applied.tag ? `태그 ${applied.tag}` : "태그 전체"} · {applied.accountId ? `${accountLabel(applied.accountId)} (${applied.accountScope === "direct" ? "이 계정만" : "하위 포함"}) · ` : ""}{applied.page}페이지</p>}
       {applied && error && <div id="history-query-error" tabIndex={-1} role="alert"><p>거래 내역을 불러오지 못했습니다. {error}</p><button type="button" className="btn secondary" onClick={retry}>다시 조회</button></div>}
       {pending && <p role="status">거래 내역을 조회하고 있습니다…</p>}
       {ready && <>
+        {applied.accountId && <><p className="history-account-applied">현재 계정: {accountLabel(applied.accountId)} · {applied.accountScope === "direct" ? "이 계정만" : "하위 계정 포함"}</p>
+          <p className="history-direction-help">선택 계정 기준: <span className="history-inflow">+ 빨간색</span> · <span className="history-outflow">− 파란색</span> · 범위 안 이동은 상계합니다.</p></>}
+        {selectedAccounts && <p className="history-balance-help">거래 후 잔고는 조회 조건 밖의 이전 거래도 포함합니다. 같은 날짜는 거래 번호 순으로 계산합니다.</p>}
         <h2 id="history-result-title" tabIndex={-1}>{page.total ? `전체 ${page.total.toLocaleString("ko-KR")}건 · 최신순` : "0건"}</h2>
-        {!page.total ? <div className="history-empty"><span>선택한 기간과 태그에 해당하는 거래가 없습니다.</span><button className="btn secondary" onClick={() => document.getElementById("history-start")?.focus()}>조회 조건 변경</button></div>
+        {!page.total ? <div className="history-empty"><span>{applied.accountId ? "선택한 기간·태그·계정과목에 해당하는 거래가 없습니다." : "선택한 기간과 태그에 해당하는 거래가 없습니다."}</span><button className="btn secondary" onClick={() => document.getElementById("history-start")?.focus()}>조회 조건 변경</button></div>
           : <><div className="table-scroll history-scroll" ref={scrollRef} role="region" aria-label="거래 표, 가로 스크롤 가능" tabIndex={0}>
-            <table className="ledger"><thead><tr><th>날짜</th><th>내역</th><th className="num">금액</th><th>흐름</th><th>작업</th></tr></thead><tbody>
+            <table className="ledger"><thead><tr><th>날짜</th><th>내역</th><th className="num">{selectedAccounts ? "계정 변동액" : "금액"}</th>{selectedAccounts && <th className="num">거래 후 잔고</th>}<th>흐름</th><th>작업</th></tr></thead><tbody>
               {page.items.map(t => <tr key={t.id}><td className="history-date">{t.date}</td><td className="history-description">{t.description || "—"} {t.source_rule_id && <span className="badge auto">자동</span>} {(t.tags ?? []).map(tag => <span className="badge tag" key={tag}>{tag}</span>)}
                 {t.memo && <details className="transaction-memo"><summary>메모 보기</summary><p>{t.memo}</p></details>}</td>
-                <td className="num">{fmtWon(t.postings.filter(p => p.amount.amount > 0).reduce((sum, p) => sum + p.amount.amount, 0))}</td><td className="history-flow">{flow(t)}</td>
+                <td className="num history-amount">{amount(t)}</td>{selectedAccounts && <td className="num history-balance">{balanceAfter(t)}</td>}<td className="history-flow">{flow(t)}</td>
                 <td className="history-actions"><button id={`edit-transaction-${t.id}`} className="btn sm secondary" disabled={deleting !== null} onClick={() => edit(t.id)}>수정</button>{" "}<button className="btn sm danger" disabled={deleting !== null || Object.hasOwn(uncertainDeletes, t.id)} onClick={() => void remove(t)}>삭제</button></td></tr>)}
             </tbody></table></div>
             <nav className="history-pager" aria-label="거래 페이지"><span>{((page.page - 1) * 100 + 1).toLocaleString("ko-KR")}–{Math.min(page.page * 100, page.total).toLocaleString("ko-KR")} / {page.total.toLocaleString("ko-KR")}건</span>

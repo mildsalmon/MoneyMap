@@ -37,9 +37,11 @@ export interface AccountSettingsResult {
 export interface Posting {
   account_id: number;
   amount: { amount: number; currency: string };
+  exact_minor?: string;
 }
 
 export interface Txn {
+  balance_after?: { amount: string | number; currency: string }[];
   memo: string;
   tags: string[];
   id: number;

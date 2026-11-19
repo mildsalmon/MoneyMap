@@ -6,17 +6,15 @@ import datetime as dt
 import sqlite3
 
 from .accounts import SqliteAccountRepository
+from .krw_reporting import KRW_TRANSACTION
 from moneymap.domain.account import reporting_type
 from moneymap.domain.errors import DomainValidationError
 
 # Excluding individual postings would break double-entry identities. Legacy data
 # can reference an account whose currency does not match the posting currency.
-_COHORT = """
+_COHORT = f"""
 WITH cohort AS (
- SELECT t.id,t.date,NOT EXISTS (
-   SELECT 1 FROM postings p JOIN accounts a ON a.id=p.account_id
-   WHERE p.txn_id=t.id AND (p.currency<>'KRW' OR a.currency<>'KRW')
- ) AS eligible
+ SELECT t.id,t.date,{KRW_TRANSACTION} AS eligible
  FROM transactions t WHERE t.scenario_id=1 AND t.posted=1 AND t.date<=:end
 )
 """

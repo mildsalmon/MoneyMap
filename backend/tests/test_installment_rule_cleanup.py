@@ -48,7 +48,7 @@ def test_v7_upgrade_preserves_linked_allocation_and_allows_rule_cleanup(tmp_path
         assert snapshot() == before
         conn = connect(path)
         try:
-            assert conn.execute("PRAGMA user_version").fetchone()[0] == 8
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == len(database.MIGRATIONS)
             assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
         finally:
             conn.close()

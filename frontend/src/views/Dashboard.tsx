@@ -1,4 +1,8 @@
+import { AccountHistoryLink } from "./AccountHistoryLink";
+import { historyPreset } from "./historyQueryState";
 import { useMemo, useState } from "react";
+import { ArrowDownLeft, ArrowUpRight, CalendarDays, PenLine, Repeat, ScrollText, Wallet } from "lucide-react";
+import "./dashboard.css";
 import { DashboardBalances } from "./DashboardBalances";
 import { api, chartToggles } from "../api";
 import { fmtWon, todayIso } from "../format";
@@ -7,15 +11,15 @@ import type { ViewProps } from "../App";
 import { useQuery } from "./scenarios/useQuery";
 
 const FUTURE = [
+  { m: 3, label: "3개월" },
   { m: 6, label: "6개월" },
   { m: 12, label: "1년" },
-  { m: 3, label: "3개월" },
 ];
 
 export function Dashboard({ gen, go }: ViewProps) {
   const [months, setMonths] = useState(12);
-  const supportQuery = useQuery(`dashboard-inputs:${gen}`, signal => Promise.all([api.accounts(signal), api.transactions(1, signal), api.rules(1, signal)]));
-  const balancesQuery = useQuery(`dashboard-balances:${gen}`, signal => api.balances(1, signal));
+  const supportQuery = useQuery(`dashboard-inputs:${gen}`, signal => Promise.all([api.accounts(signal), api.transactions(1, signal, true), api.rules(1, signal)]));
+  const balancesQuery = useQuery(`dashboard-balances:${gen}`, api.dashboardBalances);
   const projectionQuery = useQuery(`dashboard-projection:${months}:${gen}`, signal => api.projection(months, chartToggles.get(), signal));
   const accounts = supportQuery.data?.[0] ?? [];
   const txns = supportQuery.data?.[1] ?? [];
@@ -24,25 +28,27 @@ export function Dashboard({ gen, go }: ViewProps) {
   const series = projectionQuery.data?.series.filter(series => series.points.length > 0);
 
   const month = todayIso().slice(0, 7);
-  const typeOf = useMemo(() => new Map(accounts.map((a) => [a.id, a.type])), [accounts]);
+  const accountById = useMemo(() => new Map(accounts.map(a => [a.id, a])), [accounts]);
 
   const { income, expense, expensesByAccount } = useMemo(() => {
-    let income = 0, expense = 0;
-    const byExpense = new Map<number, number>();
+    let income = 0n, expense = 0n;
+    const byExpense = new Map<number, bigint>();
     for (const t of txns) {
       if (!t.date.startsWith(month)) continue;
+      if (!t.postings.every(p => p.amount.currency === "KRW" && accountById.get(p.account_id)?.currency === "KRW")) continue;
       for (const p of t.postings) {
-        const ty = typeOf.get(p.account_id);
-        if (ty === "income") income += -p.amount.amount; // 수익은 대변(−)
+        const ty = accountById.get(p.account_id)?.type;
+        const minor = BigInt(p.exact_minor ?? p.amount.amount);
+        if (ty === "income") income -= minor; // 수익은 대변(−)
         if (ty === "expense") {
-          expense += p.amount.amount;
-          byExpense.set(p.account_id, (byExpense.get(p.account_id) ?? 0) + p.amount.amount);
+          expense += minor;
+          byExpense.set(p.account_id, (byExpense.get(p.account_id) ?? 0n) + minor);
         }
       }
     }
-    const expensesByAccount = [...byExpense.entries()].sort((a, b) => b[1] - a[1]);
+    const expensesByAccount = [...byExpense.entries()].sort((a, b) => a[1] > b[1] ? -1 : a[1] < b[1] ? 1 : 0);
     return { income, expense, expensesByAccount };
-  }, [txns, month, typeOf]);
+  }, [txns, month, accountById]);
 
   // 온보딩 (D11): 3단계 완료 전에는 빈 차트를 보여주지 않는다
   const hasAccounts = accounts.some((a) => (a.type === "asset" || a.type === "liability") && !a.archived);
@@ -92,61 +98,100 @@ export function Dashboard({ gen, go }: ViewProps) {
   }
 
   return (
-    <div>
-      {supportQuery.error && <p role="alert">장부 정보를 불러오지 못했습니다. {supportQuery.error} <button className="btn secondary" onClick={supportQuery.reload}>다시 불러오기</button></p>}
+    <div className="dashboard-page">
+      <header className="dashboard-heading">
+        <div>
+          <h1>나의 자산 한눈에</h1>
+          <p>원화(KRW) 기준 · 분개와 계정이 모두 원화인 거래만 집계합니다.</p>
+        </div>
+        <time dateTime={todayIso()}><CalendarDays size={16} aria-hidden="true" />{new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" }).format(new Date(`${todayIso()}T12:00:00`))}</time>
+      </header>
+      {supportQuery.error && <p className="banner err" role="alert">장부 정보를 불러오지 못했습니다. {supportQuery.error} <button className="btn secondary" onClick={supportQuery.reload}>다시 불러오기</button></p>}
       {!supportQuery.data && !supportQuery.error && <p role="status">장부 정보 확인 중…</p>}
-      {/* 상단: 테두리 없는 순자산 스트립 (D6) */}
-      <div className="strip">
-        <div className="cell">
-          <span className="metric-label" aria-hidden="true">순자산 (오늘)</span>
-          <h1 className="hero" aria-label={`대시보드, 오늘 순자산 ${balances ? fmtWon(balances.net_worth) : "확인 중"}`}>
-            {balances ? fmtWon(balances.net_worth) : "…"}
-          </h1>
+      <div className="dashboard-workspace">
+        <div className="dashboard-overview">
+          <div className="strip">
+            <div className="cell">
+              <span className="dashboard-metric-icon" aria-hidden="true"><Wallet size={23} /></span>
+              <span className="metric-label" aria-hidden="true">순자산 (오늘)</span>
+              <h2 className="hero" aria-label={`대시보드, 오늘 순자산 ${balances ? fmtWon(balances.net_worth) : "확인 중"}`}>
+                {balances ? fmtWon(balances.net_worth) : "…"}
+              </h2>
+            </div>
+            <div className="cell">
+              <span className="dashboard-metric-icon" aria-hidden="true"><ArrowDownLeft size={23} /></span>
+              <span className="metric-label">이번 달 수입</span>
+              <div className="v num">{supportQuery.data ? fmtWon(income) : "…"}</div>
+            </div>
+            <div className="cell">
+              <span className="dashboard-metric-icon" aria-hidden="true"><ArrowUpRight size={23} /></span>
+              <span className="metric-label">이번 달 지출</span>
+              <div className="v num">{supportQuery.data ? fmtWon(expense) : "…"}</div>
+            </div>
+            <div className="cell">
+              <span className="dashboard-metric-icon" aria-hidden="true"><Wallet size={23} /></span>
+              <span className="metric-label">이번 달 순수입</span>
+              <div className="v num">{supportQuery.data ? fmtWon(income - expense) : "…"}</div>
+            </div>
+          </div>
+
+          <section className="dashboard-projection" aria-labelledby="dashboard-projection-heading">
+            <div className="dashboard-panel-heading">
+              <div><h2 id="dashboard-projection-heading">자산의 흐름</h2><p>기록에서 시작해 앞으로의 순자산까지</p></div>
+              <div className="filters">
+                <span>미래</span>
+                <div className="seg" role="group" aria-label="미래 전망 기간">
+                  {FUTURE.map((f) => (
+                    <button key={f.m} className={months === f.m ? "on" : ""} aria-pressed={months === f.m} onClick={() => setMonths(f.m)}>
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <p className="dashboard-chart-note">실제는 기록 시작일부터 오늘까지, 미래는 원화 거래와 원화 반복 규칙 기준입니다. 시나리오 탭에서 최대 3개를 선택할 수 있습니다.</p>
+            <p id="dashboard-chart-scroll-hint" className="dashboard-chart-scroll-hint">차트는 좌우로 스크롤할 수 있습니다. 표로도 확인할 수 있어요.</p>
+            <div className="dashboard-chart-content" role="region" aria-label="자산 흐름 차트와 표" aria-describedby="dashboard-chart-scroll-hint" tabIndex={0}>
+              {projectionQuery.data?.warnings?.map(w => <p className="banner info" key={w}>{w}</p>)}
+              {projectionQuery.error && <p role="alert">전망을 불러오지 못했습니다. {projectionQuery.error} <button className="btn secondary" onClick={projectionQuery.reload}>다시 계산</button></p>}
+              {!projectionQuery.data && !projectionQuery.error && <p role="status">전망 계산 중…</p>}
+              {projectionQuery.data && series?.length === 0 && <p>표시할 전망이 없습니다.</p>}
+              {series && series.length > 0 && <ProjectionChart series={series} today={todayIso()} />}
+            </div>
+          </section>
         </div>
-        <div className="cell">
-          <span className="metric-label">이번 달 수입</span>
-          <div className="v num">{supportQuery.data ? fmtWon(income) : "…"}</div>
-        </div>
-        <div className="cell">
-          <span className="metric-label">이번 달 지출</span>
-          <div className="v num">{supportQuery.data ? fmtWon(expense) : "…"}</div>
-        </div>
+
+        <aside className="dashboard-context" aria-label="장부 관리">
+          <section className="dashboard-rules-summary">
+            <span className="dashboard-context-icon" aria-hidden="true"><Repeat size={22} /></span>
+            <h2>반복되는 돈의 흐름</h2>
+            <p>등록한 반복 규칙</p>
+            <div className="dashboard-rule-count">{supportQuery.data ? <>{rulesCount.toLocaleString("ko-KR")}<span>개</span></> : "…"}</div>
+            <p className="dashboard-context-note">월급과 고정 지출을 관리하고 미래 자산 전망에 반영하세요.</p>
+            <button className="btn primary" onClick={() => go("rules")}>반복 규칙 관리</button>
+          </section>
+          <section className="dashboard-quick-actions" aria-labelledby="dashboard-quick-heading">
+            <h2 id="dashboard-quick-heading">바로 시작하기</h2>
+            <button onClick={() => go("input")}><span className="dashboard-context-icon" aria-hidden="true"><PenLine size={18} /></span><span>새 거래 기록<small>오늘의 수입과 지출 남기기</small></span><ArrowUpRight size={16} aria-hidden="true" /></button>
+            <button onClick={() => go("history")}><span className="dashboard-context-icon" aria-hidden="true"><ScrollText size={18} /></span><span>거래 모두 보기<small>지난 기록 확인하고 수정하기</small></span><ArrowUpRight size={16} aria-hidden="true" /></button>
+          </section>
+        </aside>
       </div>
 
-      {/* 필터 한 줄 — 미래 창 (D19) */}
-      <div className="filters">
-        미래:
-        <div className="seg">
-          {FUTURE.map((f) => (
-            <button key={f.m} className={months === f.m ? "on" : ""} onClick={() => setMonths(f.m)}>
-              {f.label}
-            </button>
-          ))}
-        </div>
-        <span style={{ color: "var(--faint)" }}>· 과거는 기록 시작일부터 · 시나리오 표시는 시나리오 탭에서 (최대 3개)</span>
-      </div>
-
-      {/* 차트 워크벤치 — full-width, 카드에 가두지 않음 */}
-      <div>
-        {projectionQuery.data?.warnings?.map(w => <p className="banner info" key={w}>{w}</p>)}
-        {projectionQuery.error && <p role="alert">전망을 불러오지 못했습니다. {projectionQuery.error} <button className="btn secondary" onClick={projectionQuery.reload}>다시 계산</button></p>}
-        {!projectionQuery.data && !projectionQuery.error && <p role="status">전망 계산 중…</p>}
-        {projectionQuery.data && series?.length === 0 && <p>표시할 전망이 없습니다.</p>}
-        {series && series.length > 0 && <ProjectionChart series={series} today={todayIso()} />}
-      </div>
-
-      {/* 하단: 컴팩트 테이블 */}
+      {/* 모든 계정과 월별 지출을 생략 없이 표시한다. */}
       <div className="two">
         <DashboardBalances accounts={accounts} balances={balances}
           ready={!!supportQuery.data && !!balances} unavailable={!!supportQuery.error || !!balancesQuery.error}
           error={balancesQuery.error} reload={balancesQuery.reload} />
-        <div>
+        <section className="dashboard-expenses" aria-label="이번 달 계정별 지출">
+          <h2>지출 살펴보기</h2>
+          <p className="dashboard-section-note">이번 달 계정별 기록 · 환급 포함</p>
           <table className="ledger">
             <thead><tr><th>이번 달 지출</th><th className="num">₩</th></tr></thead>
             <tbody>
               {expensesByAccount.map(([id, amt]) => (
                 <tr key={id}>
-                  <td>{accounts.find((a) => a.id === id)?.name ?? id}</td>
+                  <td><AccountHistoryLink accountId={id} start={historyPreset("this-month").start} end={historyPreset("this-month").end} includeChildren={false}>{accounts.find((a) => a.id === id)?.name ?? id}</AccountHistoryLink></td>
                   <td className="num">{amt.toLocaleString("ko-KR")}</td>
                 </tr>
               ))}
@@ -155,7 +200,7 @@ export function Dashboard({ gen, go }: ViewProps) {
               )}
             </tbody>
           </table>
-        </div>
+        </section>
       </div>
     </div>
   );

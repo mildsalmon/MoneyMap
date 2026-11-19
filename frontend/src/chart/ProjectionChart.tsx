@@ -60,7 +60,10 @@ function niceTicks(min: number, max: number, count = 4): number[] {
   const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= step0) ?? mag * 10;
   const start = Math.ceil(min / step) * step;
   const out: number[] = [];
-  for (let v = start; v <= max; v += step) out.push(v);
+  for (let v = start; v <= max; v += step) {
+    out.push(v);
+    if (v + step === v) break;
+  }
   return out;
 }
 
@@ -270,14 +273,14 @@ export function ProjectionChart({
             {withStyle.map(({ s, st }) => {
               const v = valueAt(s, hoverX);
               if (v === null) return null;
-              const delta = s.kind === "scenario" && hoverBaseVal !== null ? v - hoverBaseVal : null;
+              const delta = s.kind === "scenario" && hoverBaseVal !== null ? BigInt(v) - BigInt(hoverBaseVal) : null;
               return (
                 <div className="row" key={String(s.id)}>
                   <span className="k" style={{ borderColor: st.color, borderTopStyle: st.dash ? "dashed" : "solid" }} />
                   <span className="name">{s.name}</span>
                   <span>
                     <span className="val">{fmtWon(v)}</span>
-                    {delta !== null && delta !== 0 && (
+                    {delta !== null && delta !== 0n && (
                       <span className="sub"> ({fmtDelta(delta)} 기준 대비)</span>
                     )}
                   </span>

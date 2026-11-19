@@ -166,3 +166,90 @@ def test_count_and_items_share_request_snapshot(ledger):
     finally:
         client.app.dependency_overrides.clear()
         writer.close()
+
+
+def test_account_subtree_direct_archived_split_and_tag_pagination(ledger):
+    conn, ids, client = ledger
+    repo = SqliteAccountRepository(conn)
+    root = repo.create(Account(name='계정 그룹', type=AccountType.EXPENSE, is_placeholder=True)).id
+    child = repo.create(Account(name='하위', type=AccountType.EXPENSE, parent_id=root)).id
+    leaf = repo.create(Account(name='보관 후손', type=AccountType.EXPENSE, parent_id=child)).id
+    unrelated = repo.create(Account(name='다른 계정', type=AccountType.EXPENSE)).id
+    direct = seed(conn, [root, ids[0]], 1)[0]  # Historical direct group posting.
+    children = seed(conn, [child, ids[0]], 105)
+    archived = seed(conn, [leaf, ids[0]], 1)[0]
+    split = seed(conn, [child, leaf], 1)[0]  # Matches two postings, one transaction.
+    seed(conn, [unrelated, ids[0]], 2)
+    with conn:
+        conn.execute('UPDATE accounts SET archived=1 WHERE id=?', (leaf,))
+        conn.execute("INSERT INTO tags(id,name,name_key) VALUES(50,'선택 태그','선택 태그')")
+        conn.executemany('INSERT INTO transaction_tags(txn_id,tag_id) VALUES(?,50)', [(tid,) for tid in children[:103]])
+    before = client.get('/api/transactions').json()
+    first = query(client, account_id=root).json()
+    second = query(client, account_id=root, page=2).json()
+    assert first['total'] == 108
+    assert [row['id'] for row in first['items'] + second['items']] == [split, archived, *children[::-1], direct]
+    assert all(len(row['postings']) == 2 for row in first['items'])
+    assert query(client, account_id=root, include_descendants=False).json()['items'][0]['id'] == direct
+    assert query(client, account_id=root, include_descendants=False).json()['total'] == 1
+    assert query(client, account_id=leaf).json()['total'] == 2
+    assert query(client, account_id=root, tag='選択').json()['total'] == 0
+    tagged = query(client, account_id=root, tag='선택 태그', page=2).json()
+    assert tagged['total'] == 103 and [t['id'] for t in tagged['items']] == children[:3][::-1]
+    assert query(client, account_id=unrelated).json()['total'] == 2
+    assert client.get('/api/transactions').json() == before
+
+
+@pytest.mark.parametrize('suffix', [
+    '&account_id=0', '&account_id=-1', '&account_id=nope', '&account_id=9007199254740992',
+    '&account_id=1&account_id=2', '&include_descendants=false',
+    '&account_id=1&include_descendants=invalid', '&account_id=1&include_descendants=true&include_descendants=false',
+])
+def test_invalid_account_filter_never_falls_back_to_unfiltered(ledger, suffix):
+    response = ledger[2].get('/api/transaction-history?start=2026-09-15&end=2026-09-15' + suffix)
+    assert response.status_code == 422
+
+
+def test_unknown_account_is_not_an_unfiltered_history_and_query_count_is_bounded(ledger):
+    conn, ids, client = ledger
+    assert query(client, account_id=999999).status_code == 404
+    seed(conn, ids, 110)
+    statements = []
+    conn.set_trace_callback(statements.append)
+    try:
+        conn.execute('BEGIN')
+        body = SqliteTransactionHistory(conn).page(dt.date(2026, 9, 15), dt.date(2026, 9, 15), '', 1, ids[0])
+        assert body['total'] == 110 and len(body['items']) == 100
+    finally:
+        conn.rollback(); conn.set_trace_callback(None)
+    # One extra batch read for all 100 after-balances, never per row.
+    assert sum(s.lstrip().upper().startswith(('SELECT', 'WITH')) for s in statements) == 5
+
+
+def test_filtered_history_preserves_exact_legacy_split_postings(ledger):
+    conn, (outside, _), client = ledger
+    repo = SqliteAccountRepository(conn)
+    parent = repo.create(Account(name="그룹", type=AccountType.ASSET, is_placeholder=True)).id
+    child = repo.create(Account(name="하위", type=AccountType.ASSET, parent_id=parent)).id
+    bank = repo.create(Account(name="그룹 통장", type=AccountType.ASSET, parent_id=parent)).id
+    limit = 2**53 - 1
+    for legs in [[(bank, limit), (outside, -limit)],
+                 [(bank, limit + 2), (child, -(limit + 2))],
+                 [(bank, -limit - 2), (child, limit), (outside, 2)]]:
+        SqliteTransactionRepository(conn).save(Transaction(date=dt.date(2026, 9, 15), scenario_id=1,
+            postings=[Posting(account_id=aid, amount=Money(amount=n)) for aid, n in legs]))
+    filtered = query(client, account_id=parent).json()["items"]
+    raw = query(client).json()["items"]
+    assert client.get("/api/transactions").json() == raw[::-1]
+    exact = client.get("/api/transactions?exact_minor=true").json()
+    assert [item["postings"] for item in exact] == [row["postings"] for row in filtered[::-1]]
+    for row, original in zip(filtered, raw, strict=True):
+        for p, old in zip(row["postings"], original["postings"], strict=True):
+            assert p["amount"] == old["amount"]
+            assert "exact_minor" not in old
+            if abs(old["amount"]["amount"]) > limit:
+                assert p["exact_minor"] == str(old["amount"]["amount"])
+            else:
+                assert "exact_minor" not in p
+    assert [sum(int(p.get("exact_minor", p["amount"]["amount"])) for p in row["postings"]
+                if p["account_id"] in (bank, child)) for row in filtered] == [-2, 0, limit]

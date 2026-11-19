@@ -1,12 +1,16 @@
+import { AccountHistoryLink } from "./AccountHistoryLink";
 import { accountTree } from "../api/accountTree";
-import type { Account, BalanceRow } from "../api/types";
+import type { Account } from "../api/types";
+import type { reportingApi } from "../api/reporting";
 import { fmtWon } from "../format";
 
-type BalanceItem = { balance: BalanceRow; label: string };
-type BalanceGroup = { id: number; name: string | null; items: BalanceItem[]; total: number };
+type DashboardBalancesResult = Awaited<ReturnType<typeof reportingApi.dashboardBalances>>;
+type DashboardBalance = DashboardBalancesResult["accounts"][number];
+type BalanceItem = { balance: DashboardBalance; label: string };
+type BalanceGroup = { id: number; name: string | null; items: BalanceItem[]; total: bigint };
 
 /** API balances are own balances, never subtree totals. Sum each visible row once. */
-export function groupDashboardBalances(accounts: Account[], balances: BalanceRow[]) {
+export function groupDashboardBalances(accounts: Account[], balances: DashboardBalance[]) {
   const rows = new Map(balances.map(b => [b.account_id, b]));
   const parents = new Set(accounts.map(a => a.parent_id));
   const groups = { asset: new Map<number, BalanceGroup>(), liability: new Map<number, BalanceGroup>() };
@@ -18,13 +22,13 @@ export function groupDashboardBalances(accounts: Account[], balances: BalanceRow
     if (account.archived || !b || (account.type !== "asset" && account.type !== "liability")) continue;
     if (b.reporting_type !== "asset" && b.reporting_type !== "liability") continue;
     const isGroup = account.is_placeholder || parents.has(account.id);
-    if (isGroup && b.balance === 0) continue;
+    if (isGroup && b.balance === 0n) continue;
     const root = ancestors[0];
     const grouped = root.is_placeholder || parents.has(root.id);
     const bucket = groups[b.reporting_type];
     let group = bucket.get(root.id);
     if (!group) {
-      group = { id: root.id, name: grouped ? root.name : null, items: [], total: 0 };
+      group = { id: root.id, name: grouped ? root.name : null, items: [], total: 0n };
       bucket.set(root.id, group);
     }
     const path = ancestors.slice(grouped ? 1 : 0).map(a => a.name).join(" / ");
@@ -37,7 +41,7 @@ export function groupDashboardBalances(accounts: Account[], balances: BalanceRow
 
 export function DashboardBalances({ accounts, balances, ready, unavailable, error, reload }: {
   accounts: Account[];
-  balances: { accounts: BalanceRow[]; net_worth: number } | undefined;
+  balances: DashboardBalancesResult | undefined;
   ready: boolean;
   unavailable: boolean;
   error: string | undefined;
@@ -51,11 +55,11 @@ export function DashboardBalances({ accounts, balances, ready, unavailable, erro
           <thead><tr><th>{type === "asset" ? "자산" : "부채"}</th><th className="num">₩</th></tr></thead>
           {groups[type].map(group => (
             <tbody key={group.id}>
-              {group.name !== null && <tr className="balance-group"><th colSpan={2} scope="rowgroup">{group.name}</th></tr>}
+              {group.name !== null && <tr className="balance-group"><th colSpan={2} scope="rowgroup"><AccountHistoryLink accountId={group.id}>{group.name}</AccountHistoryLink></th></tr>}
               {group.items.map(({ balance: b, label }) => (
                 <tr key={b.account_id}>
                   <td className={`dashboard-account-cell${group.name !== null ? " balance-child" : ""}`}>
-                    {label}
+                    <AccountHistoryLink accountId={b.account_id} includeChildren={false}>{label}</AccountHistoryLink>
                     {b.reporting_type === "liability" && <span className="badge account-state-badge">
                       {b.type === "asset" ? "부채 · 마이너스 사용 중" : "부채"}
                     </span>}
@@ -72,7 +76,7 @@ export function DashboardBalances({ accounts, balances, ready, unavailable, erro
         </table>
       ))}
       {error && <p className="cell-error" role="alert">계정 잔액을 불러오지 못함 <button className="retry-action" type="button" onClick={reload}>다시 시도</button></p>}
-      <p className="balance-scope">소계는 표시된 활성 계정만 포함합니다.</p>
+      <p className="balance-scope">소계는 표시된 활성 계정만 포함합니다. 계정명으로 여는 거래내역에는 보관된 하위 계정의 과거 기록도 포함됩니다.</p>
       <table className="ledger" aria-label="전체 순자산">
         <tbody><tr className="sum"><td>전체 순자산 (보관 계정 포함)</td><td className="num">{balances ? fmtWon(balances.net_worth) : "…"}</td></tr></tbody>
       </table>

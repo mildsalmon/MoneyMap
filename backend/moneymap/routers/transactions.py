@@ -5,6 +5,7 @@ import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from moneymap.amounts_json import preserve_posting_precision
 
 from moneymap.adapters.sqlite.transaction_input import SqliteTransactionInputQueries
 from moneymap.adapters.sqlite.transaction_history import SqliteTransactionHistory
@@ -66,11 +67,13 @@ def list_opening_balances(request: Request):
 
 @router.get("/api/transactions")
 def list_transactions(
-    request: Request, scenario_id: int = Query(default=1, ge=1, le=1)
+    request: Request, scenario_id: int = Query(default=1, ge=1, le=1), exact_minor: bool = False,
 ):
-    return [
-        t.model_dump() for t in repos(request)["txns"].find_by_scenario(scenario_id)
-    ]
+    items = [t.model_dump() for t in repos(request)["txns"].find_by_scenario(scenario_id)]
+    if exact_minor:
+        for item in items:
+            preserve_posting_precision(item)
+    return items
 
 
 @router.get("/api/tags")
@@ -90,14 +93,23 @@ def transaction_history(
     end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
     tag: str = Query(default=""),
     page: int = Query(default=1, ge=1),
+    account_id: int | None = Query(default=None, gt=0, le=9_007_199_254_740_991),
+    include_descendants: bool = Query(default=True),
 ):
+    for key in ("account_id", "include_descendants"):
+        if len(request.query_params.getlist(key)) > 1:
+            raise HTTPException(422, detail="계정 조회 조건은 하나씩 지정하세요")
+    if account_id is None and "include_descendants" in request.query_params:
+        raise HTTPException(422, detail="하위 계정 조회에는 계정과목을 지정하세요")
+    if account_id is not None and not request.state.conn.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone():
+        raise HTTPException(404, detail="계정과목을 찾을 수 없습니다")
     try:
         start_date, end_date = datetime.date.fromisoformat(start), datetime.date.fromisoformat(end)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="올바른 시작일과 종료일을 입력하세요") from exc
     if start_date > end_date:
         raise HTTPException(status_code=422, detail="종료일은 시작일과 같거나 이후여야 합니다")
-    return SqliteTransactionHistory(request.state.conn).page(start_date, end_date, tag, page)
+    return SqliteTransactionHistory(request.state.conn).page(start_date, end_date, tag, page, account_id, include_descendants)
 
 
 @router.post("/api/transactions", status_code=201)
