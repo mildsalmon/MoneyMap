@@ -9,6 +9,7 @@ from moneymap.domain.projection import ProjectionEvent, ProjectionInputs
 from moneymap.domain.money import Money
 from moneymap.domain.transaction import Posting, Transaction
 from .scenarios import ScenarioWriter
+from .reporting import SqliteLedgerQueries
 from .rules import ScenarioRuleWriter
 from .krw_reporting import KRW_TRANSACTION
 
@@ -38,14 +39,7 @@ class ProjectionInputReader:
         ).fetchall()
         account_types = tuple((r["id"], r["type"]) for r in accounts)
         cash_ids = tuple(r["id"] for r in accounts if r["include_in_cash"])
-        balances = tuple(
-            (r["account_id"], r["balance"])
-            for r in self.conn.execute(
-                "SELECT p.account_id,sum(p.amount) balance FROM transactions t JOIN postings p ON p.txn_id=t.id WHERE t.scenario_id=1 AND t.posted=1 AND t.date<=?"
-                f" AND {KRW_TRANSACTION} GROUP BY p.account_id",
-                (scenario.fork_date.isoformat(),),
-            )
-        )
+        balances = SqliteLedgerQueries(self.conn).actual_krw_balances(scenario.fork_date)
         rules = ScenarioRuleWriter(self.conn)
         actual = tuple(rules.find_by_scenario(1, krw_only=True))
         owned = () if sid == 1 else tuple(rules.find_by_scenario(sid, krw_only=True))
@@ -76,7 +70,7 @@ class ProjectionInputReader:
             revisions["actual_ledger_revision"],
             revisions["actual_rule_revision"],
             account_types,
-            balances,
+            tuple(balances.items()),
             actual,
             owned,
             tuple(planned),
