@@ -177,12 +177,11 @@ test("a backdated last-child move keeps its former parent out of the June 2 pick
 });
 
 test("folding a reconciled group preserves drafts and exposes its USD-only posting after the last child is archived in another tab", async ({ page, context, request, historyApi }) => {
-  const response = await request.post(historyApi + "/accounts", { data: { name: "외화 통장", type: "asset" } });
-  expect(response.status()).toBe(201);
-  const group: { id: number; name: string } = await response.json();
+  const group = { id: 6, name: "이동할 계정" };
   const expense = { id: 3, name: "이력 비용" };
   await page.goto("/accounts");
   await page.getByRole("link", { name: "잔액 대사" }).click();
+  await page.getByLabel("마감일", { exact: true }).fill("2025-03-31");
   await page.getByLabel("대사 계정").selectOption(String(group.id));
   await page.getByRole("combobox", { name: "통화" }).selectOption("USD");
   await page.getByLabel("명세서 잔액").fill("10.25");
