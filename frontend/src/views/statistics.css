@@ -30,3 +30,17 @@
   .statistics-query .filters { gap: 8px; flex-wrap: wrap; }
   .statistics-query .filters button { min-height: 44px; }
 }
+.statistics-comparison .filters { flex-wrap: wrap; gap: 12px; }
+.statistics-comparison select { max-width: 100%; }
+.statistics-comparison .table-scroll { overflow-x: auto; }
+.statistics-comparison .ledger { min-width: 600px; }
+.statistics-comparison th { overflow-wrap: anywhere; }
+.statistics-comparison .num { white-space: nowrap; }
+
+.statistics-details td { overflow-wrap: anywhere; }
+.statistics-comparison .filters label { min-width: 0; }
+@media (max-width: 720px) {
+  .statistics-comparison select { min-height: 44px; font-size: 16px; }
+  .statistics-comparison td a, .statistics-details a { display: inline-flex; align-items: center; min-height: 44px; }
+  .statistics-details button { white-space: normal; }
+}

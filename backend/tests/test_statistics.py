@@ -210,3 +210,69 @@ def test_sqlite_intermediate_sum_overflow_returns_domain_error(tmp_path):
             response = client.get('/api/statistics?start=2026-01-01&end=2026-01-01')
             assert response.status_code == 400
             assert response.json()['detail']['code'] == 'statistics_amount_out_of_range'
+
+
+@pytest.mark.parametrize(("start", "end", "mode", "expected"), [
+    ("2025-03-01", "2025-03-10", "month", ("2025-02-01", "2025-02-10", 10)),
+    ("2025-03-01", "2025-03-31", "month", ("2025-02-01", "2025-02-28", 28)),
+    ("2024-03-01", "2024-03-30", "month", ("2024-02-01", "2024-02-29", 29)),
+    ("2025-02-01", "2025-02-28", "month", ("2025-01-01", "2025-01-31", 31)),
+    ("2025-01-01", "2025-01-01", "month", ("2024-12-01", "2024-12-01", 1)),
+    ("2025-03-01", "2025-03-10", "days", ("2025-02-19", "2025-02-28", 10)),
+    ("0001-01-01", "0001-01-01", "days", None),
+])
+def test_comparison_calendar_and_inclusive_days(client, start, end, mode, expected):
+    r = client.get('/api/statistics', params=dict(start=start, end=end, comparison=mode))
+    assert r.status_code == 200, r.text
+    comparison = r.json()["comparison"]
+    prior = comparison["previous"]
+    assert (tuple(prior[k] for k in ("start", "end", "days")) if prior else None) == expected
+    assert comparison["current"]["days"] == (dt.date.fromisoformat(end) - dt.date.fromisoformat(start)).days + 1
+
+
+def test_comparison_counts_eligible_legs_once_and_pages_tagged_details(client):
+    cost = account(client, '비용', 'expense')
+    bank = account(client, '원화', 'asset')
+    income = account(client, '수익', 'income')
+    category = client.post('/api/living-categories', json={'name': '투자'}).json()['id']
+    conn = connect(client.app.state.db_path)
+    foreign = SqliteAccountRepository(conn).create(Account(name='외화', type=AccountType.ASSET, currency='USD')).id
+    conn.close()
+    post(client, '2025-02-10', (bank, -2000), (cost, 2000))
+    post(client, '2025-02-11', (bank, -999), (cost, 999))
+    post(client, '2025-03-08', (foreign, -100), (cost, 100))
+    for i in range(51):
+        r = client.post('/api/transactions', json={'date': '2025-03-10', 'tags': ['A', 'B'], 'postings': [
+            {'account_id': cost, 'amount': 80, 'category_id': category}, {'account_id': cost, 'amount': 40},
+            {'account_id': income, 'amount': 5}, {'account_id': bank, 'amount': -125}]})
+        assert r.status_code == 201, r.text
+    def compare(**kwargs):
+        r = client.get('/api/statistics', params={'start': '2025-03-01', 'end': '2025-03-10',
+                                                  'comparison': 'month', **kwargs})
+        assert r.status_code == 200, r.text
+        return r.json()['comparison']
+
+    result = compare()
+    assert result['overall'] == {'current': {'expense': 6120, 'income': -255},
+                                 'previous': {'expense': 2000, 'income': 0}}
+    assert [tag['current'] for tag in result['tags']] == [result['overall']['current']] * 2
+    tag_id = result['tags'][0]['tag_id']
+    selection = dict(tag_id=tag_id, category_id=category, detail='current')
+    first = compare(**selection)['details']
+    second = compare(**selection, page=2)['details']
+    assert first['has_more'] and not second['has_more']
+    all_items = first['items'] + second['items']
+    assert len({r['id'] for r in all_items}) == len(all_items) == 51
+    assert all(r['expense'] == 80 and r['income'] == 0 for r in all_items)
+    assert compare(category_id='unclassified')['overall']['current'] == {'expense': 2040, 'income': -255}
+    assert compare(tag_id=tag_id, detail='previous')['details']['items'] == []
+    assert compare(detail='previous')['details']['items'][0]['expense'] == 2000
+
+
+@pytest.mark.parametrize("extra", [
+    "comparison=month&comparison=days", "comparison=no", "detail=current",
+    "comparison=days&page=2", "comparison=month&category_id=0",
+    "comparison=month&tag_id=0", "comparison=days&detail=other",
+])
+def test_comparison_rejects_ambiguous_or_invalid_filters(client, extra):
+    assert client.get(f"/api/statistics?start=2025-03-01&end=2025-03-10&{extra}").status_code == 422

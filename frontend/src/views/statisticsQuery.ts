@@ -31,15 +31,44 @@ export function statisticsPeriodError(period: StatisticsPeriod, today = statisti
   const days = (Date.parse(`${period.end}T00:00:00Z`) - Date.parse(`${period.start}T00:00:00Z`)) / 86_400_000 + 1;
   if (days > 3660) return "최대 3660일 범위로 조회하세요.";
 }
-export function statisticsSearch(period: StatisticsPeriod): string {
-  return `?${new URLSearchParams({ start: period.start, end: period.end })}`;
+export interface StatisticsSelection extends StatisticsPeriod {
+  comparison?: "month" | "days";
+  category_id?: string;
+  tag_id?: string;
+  detail?: "current" | "previous";
+  page?: string;
 }
+
+export function statisticsSearch(query: StatisticsSelection): string {
+  const params = new URLSearchParams({ start: query.start, end: query.end });
+  for (const key of ["comparison", "category_id", "tag_id", "detail", "page"] as const) {
+    if (query[key]) params.set(key, query[key]!);
+  }
+  return `?${params}`;
+}
+
 export function readStatisticsPeriod(search: string) {
   const params = new URLSearchParams(search);
   const missing = !params.has("start") && !params.has("end");
   const draft = missing ? statisticsPreset("this-year") : { start: params.get("start") ?? "", end: params.get("end") ?? "" };
-  const error = statisticsPeriodError(draft)
-    ?? ([...params.keys()].some(key => !["start", "end"].includes(key)) || ["start", "end"].some(key => params.getAll(key).length > 1)
-      ? "시작일과 종료일을 하나씩 지정하세요." : undefined);
-  return { draft, error, query: error ? undefined : draft };
+  const comparison = params.get("comparison");
+  const category_id = params.get("category_id"), tag_id = params.get("tag_id");
+  const detail = params.get("detail"), page = params.get("page");
+  const validId = (value: string) => /^[1-9]\d*$/.test(value) && Number.isSafeInteger(Number(value));
+  const allowed = ["start", "end", "comparison", "category_id", "tag_id", "detail", "page"];
+  const invalid = [...params.keys()].some(key => !allowed.includes(key) || params.getAll(key).length > 1)
+    || (comparison !== null && comparison !== "month" && comparison !== "days")
+    || (comparison === "month" && (!draft.start.endsWith("-01") || draft.start.slice(0, 7) !== draft.end.slice(0, 7)))
+    || (category_id !== null && category_id !== "unclassified" && !validId(category_id))
+    || (tag_id !== null && !validId(tag_id))
+    || (detail !== null && detail !== "current" && detail !== "previous")
+    || (page !== null && (!detail || !validId(page) || Number(page) > 100_000_000));
+  const error = statisticsPeriodError(draft) ?? (invalid ? "기간과 비교 조회 조건을 확인하세요." : undefined);
+  const query: StatisticsSelection = { ...draft };
+  if (comparison === "month" || comparison === "days") query.comparison = comparison;
+  if (category_id) query.category_id = category_id;
+  if (tag_id) query.tag_id = tag_id;
+  if (detail === "current" || detail === "previous") query.detail = detail;
+  if (page) query.page = page;
+  return { draft, error, query: error ? undefined : query };
 }
