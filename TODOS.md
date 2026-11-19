@@ -189,7 +189,7 @@
 
 계정·통화·실제 거래별 거래 후 잔고를 파생 테이블에 저장하고, 과거 변경 시 영향을 받는 계정의 이후 잔고를 같은 트랜잭션에서 보정한다. 계정으로 필터한 거래내역에 거래 후 잔고를 표시한다. `/balances`는 실제의 저장 잔고를 일괄 조회하고 시나리오의 fork 의미론을 보존하는 집계 SQL을 사용한다. 전체 거래 hydration도 3회 일괄 조회로 바꿨다.
 
-**Completed:** 로컬 구현, 미출시 (2026-11-15). 기존 P3 `/balances` 단일 집계 TODO를 완료했다.
+**Completed:** v0.13.0.0 릴리스 후보 (2026-11-19). 기존 P3 `/balances` 단일 집계 TODO를 완료했다.
 **Design:** [거래 후 잔고](docs/designs/transaction-balances.md).
 **Verification:** [검증 기록](docs/verification/transaction-balances.md).
 
@@ -198,7 +198,7 @@
 
 계정관리·대시보드·통계·거래내역 흐름의 계정명을 눌러 해당 계정으로 필터링한다. 그룹의 하위·보관 계정 포함/직접 기록만 조회를 선택하고, 날짜·태그·100건 페이지와 수정 후 조건·위치 복귀를 유지한다. 한 거래의 여러 분개가 일치해도 거래를 한 번만 집계한다.
 
-**Completed:** 로컬 구현, 미출시 (2026-11-14).
+**Completed:** v0.13.0.0 릴리스 후보 (2026-11-19).
 **Design:** [계정별 조회](docs/designs/account-history-filter.md).
 **Verification:** [검증 기록](docs/verification/account-history-filter.md).
 
