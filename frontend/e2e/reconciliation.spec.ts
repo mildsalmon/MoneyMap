@@ -150,6 +150,7 @@ test("folding a reconciled group preserves drafts and exposes its USD-only posti
   const childName = `하위-${crypto.randomUUID()}`;
   const child = await request.post(base + "/accounts", { data: { name: childName, type: "asset", parent_id: group.id } });
   expect(child.status()).toBe(201);
+  const { id: childId } = await child.json();
   await page.getByRole("button", { name: "계정·개시잔액", exact: true }).click();
   const direct = page.getByRole("row").filter({ has: page.getByLabel(`${group.name} 미분류 이동 대상`) });
   const draft = page.getByLabel(`${childName} 개시잔액`, { exact: true });
@@ -168,15 +169,18 @@ test("folding a reconciled group preserves drafts and exposes its USD-only posti
   await secondTab.goto("/accounts");
   await secondTab.getByRole("button", { name: `${childName} 더보기` }).click();
   await secondTab.getByRole("menuitem", { name: `${childName} 보관` }).click();
-  await expect(secondTab.locator(".archived-ledger")).toContainText(childName);
-  await secondTab.close();
-
-  const peerRow = page.getByRole("row").filter({ has: page.getByRole("link", { name: income.name, exact: true }) });
-  await peerRow.getByRole("button", { name: "설정", exact: true }).click();
-  await page.getByLabel(`${income.name} 이름`).fill(`${income.name}-수정`);
-  await page.getByRole("button", { name: "변경 저장" }).click();
-  await expect(page.locator(".archived-ledger")).toContainText(childName);
-  await expect(direct).toContainText("$10.25");
+  try {
+    await expect(secondTab.locator(".archived-ledger")).toContainText(childName);
+    await secondTab.close();
+    const peerRow = page.getByRole("row").filter({ has: page.getByRole("link", { name: income.name, exact: true }) });
+    await peerRow.getByRole("button", { name: "설정", exact: true }).click();
+    await page.getByLabel(`${income.name} 이름`).fill(`${income.name}-수정`);
+    await page.getByRole("button", { name: "변경 저장" }).click();
+    await expect(page.locator(".archived-ledger")).toContainText(childName);
+    await expect(direct).toContainText("$10.25");
+  } finally {
+    expect((await request.post(`${base}/accounts/${childId}/restore`)).ok()).toBe(true);
+  }
 });
 
 test("USD 대사 뒤 카드 납부는 원화 잔액만 채우고 외화 내역은 달러로 표시한다", async ({ page, request }) => {
