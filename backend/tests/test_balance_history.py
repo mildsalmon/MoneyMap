@@ -153,11 +153,52 @@ def test_v8_migration_backfills_preserves_and_rolls_back(tmp_path):
         with pytest.raises(RuntimeError): init_db(c)
     assert c.execute('PRAGMA user_version').fetchone()[0] == 8
     assert not c.execute("SELECT 1 FROM sqlite_master WHERE name='account_balance_history'").fetchone()
-    init_db(c); assert_matches_ledger(c); init_db(c)
+    with patch.object(database, 'MIGRATIONS', old[:9]): init_db(c)
+    assert_matches_ledger(c)
     assert c.execute('PRAGMA user_version').fetchone()[0] == 9
+    rows = list(c.execute('SELECT * FROM account_balance_history ORDER BY account_id,currency,txn_id'))
+    changes = c.total_changes
+    init_db(c); init_db(c)
+    assert c.execute('PRAGMA user_version').fetchone()[0] == 10
+    assert c.total_changes == changes
+    assert list(c.execute('SELECT * FROM account_balance_history ORDER BY account_id,currency,txn_id')) == rows
     assert [tuple(r) for r in c.execute('SELECT * FROM postings')] == before
     assert c.execute('PRAGMA foreign_key_check').fetchall() == []
     c.close()
+
+
+def test_cyclic_backdating_bounds_sql_work_and_preserves_every_balance(ledger):
+    c, (bank, income, _) = ledger
+    # Match the projection fixture: stage all legs, then publish by ID as
+    # the dates wrap back to January after the 364th transaction.
+    start = dt.date(2025, 1, 1)
+    txns = [(tid, (start + dt.timedelta(days=tid % 365)).isoformat()) for tid in range(1, 501)]
+    with c:
+        c.executemany("INSERT INTO transactions(id,scenario_id,date) VALUES(?,1,?)", txns)
+        c.executemany("INSERT INTO postings(txn_id,account_id,amount) VALUES(?,?,?)",
+                      ((tid, aid, amount) for tid, _ in txns for aid, amount in ((bank, 1000), (income, -1000))))
+    # Count SQLite VM instructions to catch repeated account-wide scans.
+    # Unlike a wall-clock budget this also runs reliably on a busy CI host.
+    batches = 0
+    def guard():
+        nonlocal batches
+        batches += 1
+        return batches > 20_000  # 20 million VM instructions
+
+    c.set_progress_handler(guard, 1000)
+    try:
+        with c:
+            c.execute("UPDATE transactions SET posted=1")
+        assert_matches_ledger(c)
+        with c:
+            c.execute("UPDATE transactions SET posted=0 WHERE id=365")
+        assert_matches_ledger(c)
+        with c:
+            c.execute("UPDATE postings SET amount=amount*2 WHERE txn_id=365")
+            c.execute("UPDATE transactions SET date='2024-12-31',posted=1 WHERE id=365")
+        assert_matches_ledger(c)
+    finally:
+        c.set_progress_handler(None, 0)
 
 
 def test_request_history_page_tag_and_balances_share_posted_snapshot(tmp_path):

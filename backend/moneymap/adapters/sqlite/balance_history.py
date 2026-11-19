@@ -21,7 +21,7 @@ WHERE (account_id,currency) IN (
 DELETE FROM account_balance_history WHERE txn_id=OLD.id;
 """
 
-ADD_EFFECT = """
+_V9_SHIFT = """
 UPDATE account_balance_history SET balance = balance + (
   SELECT SUM(p.amount) FROM postings p WHERE p.txn_id=NEW.id
     AND p.account_id=account_balance_history.account_id
@@ -30,6 +30,23 @@ UPDATE account_balance_history SET balance = balance + (
 WHERE NEW.scenario_id=1 AND NEW.posted=1 AND (account_id,currency) IN (
   SELECT account_id,currency FROM postings WHERE txn_id=NEW.id
 ) AND (date,txn_id) > (NEW.date,NEW.id);
+"""
+
+# Aggregate split legs once per affected account and currency. The date index
+# then locates just the later balances that must change.
+_SHIFT = """
+UPDATE account_balance_history SET balance = balance + change.delta
+FROM (
+  SELECT p.account_id,p.currency,SUM(p.amount) AS delta FROM postings p
+  WHERE p.txn_id=NEW.id AND NEW.scenario_id=1 AND NEW.posted=1
+  GROUP BY p.account_id,p.currency
+) AS change
+WHERE account_balance_history.account_id=change.account_id
+  AND account_balance_history.currency=change.currency
+  AND (date,txn_id) > (NEW.date,NEW.id);
+"""
+
+_INSERT = """
 INSERT INTO account_balance_history(account_id,currency,txn_id,date,delta,balance)
 SELECT p.account_id,p.currency,NEW.id,NEW.date,SUM(p.amount),SUM(p.amount)+COALESCE((
   SELECT b.balance FROM account_balance_history b
@@ -69,12 +86,22 @@ def migrate_balance_history(conn: sqlite3.Connection) -> None:
         FROM transactions t JOIN postings p ON p.txn_id=t.id
         WHERE t.scenario_id=1 AND t.posted=1 GROUP BY p.account_id,p.currency,t.id,t.date)""")
     conn.execute("INSERT INTO account_balance_keys SELECT DISTINCT account_id,currency FROM account_balance_history")
+    _create_change_trigger(conn, _V9_SHIFT)
+    conn.execute(f"""CREATE TRIGGER balance_history_deleted BEFORE DELETE ON transactions
+      BEGIN {REMOVE_EFFECT} END""")
+
+
+def _create_change_trigger(conn: sqlite3.Connection, shift: str) -> None:
     conn.execute(f"""CREATE TRIGGER balance_history_changed
       AFTER UPDATE OF posted,date,scenario_id ON transactions
       WHEN OLD.posted!=NEW.posted OR OLD.date!=NEW.date OR OLD.scenario_id!=NEW.scenario_id
-      BEGIN {REMOVE_EFFECT} {ADD_EFFECT} END""")
-    conn.execute(f"""CREATE TRIGGER balance_history_deleted BEFORE DELETE ON transactions
-      BEGIN {REMOVE_EFFECT} END""")
+      BEGIN {REMOVE_EFFECT} {shift} {_INSERT} END""")
+
+
+def migrate_balance_history_shift(conn: sqlite3.Connection) -> None:
+    """Replace the v9 write trigger without rewriting existing balances."""
+    conn.execute("DROP TRIGGER balance_history_changed")
+    _create_change_trigger(conn, _SHIFT)
 
 
 def selected_balances_after(conn: sqlite3.Connection, txn_ids: list[int], account_id: int,

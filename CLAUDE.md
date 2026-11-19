@@ -26,7 +26,7 @@
 - 계정별 거래내역(v0.13.0.0 릴리스 후보): 계정명 링크와 계정/하위 범위 필터를 제공하고 날짜·태그·페이지·수정 복귀를 보존한다. [설계](docs/designs/account-history-filter.md), [검증](docs/verification/account-history-filter.md).
 - 진행 상태: 로컬 `WORKING.md`가 있을 때 참고
 
-- 거래 후 잔고(v0.13.0.0 릴리스 후보, 스키마 v9): 실제 거래별 계정·통화 누적 잔고를 저장하고 과거 삽입·수정·삭제 시 이후 잔고를 원자적으로 보정한다. 계정별 거래내역에 `거래 후 잔고`를 표시하며 날짜·태그·페이지로 누적값을 초기화하지 않는다. 그룹 합계는 통화별 Python 정수로 계산하고 새 잔고 API 필드는 10진 문자열로 전달해 BigInt로 표시한다. `/balances`의 계정별 반복 합산과 전체 거래의 분개·태그별 반복 조회를 제거했다. [설계](docs/designs/transaction-balances.md), [검증](docs/verification/transaction-balances.md).
+- 거래 후 잔고(v0.13.0.0 릴리스 후보, 스키마 v10): 실제 거래별 계정·통화 누적 잔고를 저장하고 과거 삽입·수정·삭제 시 이후 잔고를 원자적으로 보정한다. 계정별 거래내역에 `거래 후 잔고`를 표시하며 날짜·태그·페이지로 누적값을 초기화하지 않는다. 그룹 합계는 통화별 Python 정수로 계산하고 새 잔고 API 필드는 10진 문자열로 전달해 BigInt로 표시한다. `/balances`의 계정별 반복 합산과 전체 거래의 분개·태그별 반복 조회를 제거했다. [설계](docs/designs/transaction-balances.md), [검증](docs/verification/transaction-balances.md).
 
 ## Design System
 2026-11-15 사용자 제공 이미지에 따라 Violet Workspace로 공통 셸·대시보드를 개편했다. 보라색 사이드바·밝은 배경·흰색 둥근 카드가 현재 기준이다. 기존 잉크와 원장의 색·카드 제한은 대체되며, 한국어·원 단위 숫자·차트 의미·계정 거래 흐름의 빨강 +/파랑 −는 유지한다. [설계](docs/designs/violet-workspace.md), [검증](docs/verification/violet-workspace.md).

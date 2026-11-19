@@ -62,7 +62,12 @@ def fixture(path):
                 )
             ),
         )
-        conn.execute("UPDATE transactions SET posted=1")
+        # Measure reads on the same ledger on both revisions. Keep IDs, dates
+        # and postings intact while publishing in ledger order, so constructing
+        # the fixture does not replay 50,000 backdated balance corrections.
+        publication_order = sorted(txns, key=lambda txn: (txn[2], txn[0]))
+        conn.executemany("UPDATE transactions SET posted=1 WHERE id=?",
+                         ((tid,) for tid, _, _ in publication_order))
         conn.executemany(
             "INSERT INTO recurring_rules(scenario_id,from_account_id,to_account_id,amount,schedule,start_date) VALUES(?,?,?,?,?,?)",
             [
@@ -107,7 +112,10 @@ def main():
         parser.error("samples >= 1 and warmups >= 0 required")
     with tempfile.TemporaryDirectory(prefix="projection-benchmark-") as tmp:
         path = Path(tmp) / "ledger.db"
+        setup_start = time.perf_counter()
         conn = fixture(path)
+        setup_seconds = time.perf_counter() - setup_start
+        print(f"Projection fixture ready in {setup_seconds:.2f}s", file=sys.stderr, flush=True)
         modern = (
             Path(__file__).resolve().parents[1] / "moneymap/domain/projection.py"
         ).exists()
@@ -189,6 +197,7 @@ def main():
         "samples": args.samples,
         "months": args.months,
         "fixture": {
+            "setup_seconds": setup_seconds,
             "accounts": 250,
             "actual_transactions": 50000,
             "actual_rules": 200,
