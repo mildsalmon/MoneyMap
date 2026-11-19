@@ -32,7 +32,7 @@ async function accounts(request: APIRequestContext): Promise<TestAccount[]> {
 async function createAccount(
   request: APIRequestContext,
   name: string,
-  options: { parentId?: number | null; isPlaceholder?: boolean } = {},
+  options: { parentId?: number | null; isPlaceholder?: boolean; isOverdraft?: boolean } = {},
 ): Promise<TestAccount> {
   const response = await request.post(`${API_BASE}/accounts`, {
     data: {
@@ -40,7 +40,7 @@ async function createAccount(
       type: "asset",
       parent_id: options.parentId ?? null,
       is_placeholder: options.isPlaceholder ?? false,
-      is_overdraft: false,
+      is_overdraft: options.isOverdraft ?? false,
     },
   });
   expect(response.ok()).toBe(true);
@@ -376,4 +376,56 @@ test.describe("계정 행 메뉴", () => {
     await page.getByRole("menuitem", { name: "소분류" }).tap();
     await expect(page.getByLabel(`${group.name} 소분류 이름`)).toBeFocused();
   });
+});
+
+test("folded groups preserve each opening balance draft and overdraft choice", async ({ page, request }) => {
+  const root = await createAccount(request, "초안-상위", { isPlaceholder: true });
+  const group = await createAccount(request, "초안-중간", { parentId: root.id, isPlaceholder: true });
+  const asset = await createAccount(request, "초안-대출", { parentId: group.id, isOverdraft: true });
+  const sibling = await createAccount(request, "초안-예금", { parentId: root.id, isOverdraft: true });
+  await page.goto("/accounts");
+  const amount = page.getByLabel(`${asset.name} 개시잔액`, { exact: true });
+  const otherAmount = page.getByLabel(`${sibling.name} 개시잔액`, { exact: true });
+  const negative = accountRow(page, asset.name).getByRole("radio", { name: "마이너스 사용" });
+  const positive = accountRow(page, sibling.name).getByRole("radio", { name: "예금" });
+  await amount.fill("123456");
+  await negative.check();
+  await otherAmount.fill("789");
+  await positive.check();
+  await page.getByRole("button", { name: `${group.name} 하위 계정 접기` }).click();
+  await page.getByRole("button", { name: `${root.name} 하위 계정 접기` }).click();
+  await expect(amount).toBeHidden();
+  await expect(otherAmount).toBeHidden();
+  await page.getByRole("button", { name: `${root.name} 하위 계정 펼치기` }).click();
+  await expect(amount).toBeHidden();
+  await expect(otherAmount).toHaveValue("789");
+  await expect(positive).toBeChecked();
+  await page.getByRole("button", { name: `${group.name} 하위 계정 펼치기` }).click();
+  await expect(amount).toHaveValue("123,456");
+  await expect(negative).toBeChecked();
+});
+
+test("moving into nested folded groups reveals the settings focus and preserves other folds", async ({ page, request }) => {
+  const root = await createAccount(request, "이동-루트", { isPlaceholder: true });
+  const target = await createAccount(request, "이동-목적지", { parentId: root.id, isPlaceholder: true });
+  const beside = await createAccount(request, "이동-이웃", { parentId: root.id, isPlaceholder: true });
+  const moved = await createAccount(request, "이동-원본");
+  await createAccount(request, "이동-목적지 자식", { parentId: target.id });
+  const nested = await createAccount(request, "이동-이웃 자식", { parentId: beside.id });
+  await page.goto("/accounts");
+  for (const group of [target, beside, root]) {
+    await page.getByRole("button", { name: `${group.name} 하위 계정 접기`, exact: true }).click();
+  }
+  const settings = accountRow(page, moved.name).getByRole("button", { name: "설정", exact: true });
+  await settings.click();
+  await page.getByLabel(`${moved.name} 상위 그룹`).selectOption(String(target.id));
+  await page.getByRole("button", { name: "변경 저장" }).click();
+  await expect(page.locator(".toast")).toContainText(target.name);
+  await expect(settings).toBeFocused();
+  for (const group of [root, target]) {
+    await expect(page.getByRole("button", { name: `${group.name} 하위 계정 접기`, exact: true })).toHaveAttribute("aria-expanded", "true");
+  }
+  await expect(page.getByRole("button", { name: `${beside.name} 하위 계정 펼치기`, exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(accountRow(page, nested.name)).toBeHidden();
+  expect((await accounts(request)).find(account => account.id === moved.id)?.parent_id).toBe(target.id);
 });

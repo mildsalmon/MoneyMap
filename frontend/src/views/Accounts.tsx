@@ -5,6 +5,7 @@ import {
   api,
   isGroup,
   isPostable,
+  postableAccountIds,
   withDescendants,
   type Account,
   type AccountSettingsResult,
@@ -17,7 +18,7 @@ import type { ViewProps } from "../App";
 import { AccountRowMenu } from "./AccountRowMenu";
 import { AccountHistoryLink } from "./AccountHistoryLink";
 import { AccountSettingsPanel } from "./AccountSettingsPanel";
-import { OpeningBalanceControl } from "./OpeningBalanceControl";
+import { OpeningBalanceControl, type OpeningDraft } from "./OpeningBalanceControl";
 import { useAccountOrdering } from "./useAccountOrdering";
 import { AccountOrderControls, AccountOrderProvider } from "./AccountOrderControls";
 
@@ -54,6 +55,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   const [openingsError, setOpeningsError] = useState("");
   const [pageError, setPageError] = useState("");
   const [rowErrors, setRowErrors] = useState<Record<number, string>>({});
+  const [openingDrafts, setOpeningDrafts] = useState<Record<number, OpeningDraft & { isOverdraft: boolean }>>({});
   const [rowTasks, setRowTasks] = useState<Record<number, RowTask | undefined>>({});
 
   const [name, setName] = useState("");
@@ -93,6 +95,11 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
       const result = await api.accounts(AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]));
       if (controller.signal.aborted) return undefined;
       setAccounts(result);
+      // Keep drafts across visibility changes, but discard obsolete account controls.
+      const postable = postableAccountIds(result);
+      setOpeningDrafts(previous => Object.fromEntries(result
+        .filter(account => postable.has(account.id) && previous[account.id]?.isOverdraft === account.is_overdraft)
+        .map(account => [account.id, previous[account.id]])));
       return result;
     } catch (caught) {
       if (controller.signal.aborted) return undefined;
@@ -299,12 +306,22 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
 
   const settingsSaved = async (before: Account, result: AccountSettingsResult) => {
     setSettingsAccountId(null);
-    await loadAccounts();
+    const refreshed = await loadAccounts();
     refresh();
 
     const nameChanged = before.name !== result.account.name;
     const overdraftChanged = before.is_overdraft !== result.account.is_overdraft;
     if (result.effects.moved) {
+      const byId = new Map((refreshed ?? accountList).map(account => [account.id, account]));
+      setFolded(previous => {
+        const next = new Set(previous);
+        let parentId = result.account.parent_id;
+        while (parentId !== null) {
+          next.delete(parentId);
+          parentId = byId.get(parentId)?.parent_id ?? null;
+        }
+        return next;
+      });
       const parent = result.account.parent_id === null
         ? `${TYPE_LABEL[result.account.type]} 최상위`
         : accountList.find((candidate) => candidate.id === result.account.parent_id)?.name ?? "새 상위 그룹";
@@ -668,7 +685,11 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
                 disabled={Boolean(pending)}
                 pending={pending === "opening"}
                 error={rowErrors[account.id]}
-                onChange={() => clearRowError(account.id)}
+                draft={openingDrafts[account.id]}
+                onDraftChange={draft => {
+                  setOpeningDrafts(previous => ({ ...previous, [account.id]: { ...draft, isOverdraft: account.is_overdraft } }));
+                  clearRowError(account.id);
+                }}
                 onRetry={loadOpeningRecords}
                 onRecord={(amount, state) => recordOpening(account, amount, state)}
                 onZero={() => toggleZero(account)}
