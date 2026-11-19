@@ -6,7 +6,8 @@ import type { Statistics as StatisticsData } from "../api/statistics";
 import type { ViewProps } from "../App";
 import { fmtAbbrev, fmtWon } from "../format";
 import { useQuery } from "./scenarios/useQuery";
-import { readStatisticsPeriod, statisticsPeriodError, statisticsPreset, statisticsSearch, statisticsToday, type StatisticsPeriod, type StatisticsPreset } from "./statisticsQuery";
+import { readStatisticsPeriod, statisticsPeriodError, statisticsPreset, statisticsSearch, statisticsToday, type StatisticsPeriod, type StatisticsPreset, type StatisticsSelection } from "./statisticsQuery";
+import { Comparison } from "./StatisticsComparison";
 import { groupStatistics } from "./statisticsGroups";
 import "./statistics.css";
 
@@ -63,8 +64,12 @@ export function Statistics({ gen }: ViewProps) {
   const [formError, setFormError] = useState<string>();
   const results = useRef<HTMLHeadingElement>(null), focusNext = useRef(false);
   const key = parsed.query ? statisticsSearch(parsed.query) : "invalid";
-  const query = useQuery(`statistics:${key}:${gen}`, signal => parsed.query
-    ? api.statistics(parsed.query.start, parsed.query.end, signal) : Promise.resolve(null));
+  const query = useQuery(`statistics:${key}:${gen}`, signal => {
+    if (!parsed.query) return Promise.resolve(null);
+    const params = new URLSearchParams(key);
+    params.set("comparison", parsed.query.comparison ?? "days");
+    return api.statistics(parsed.query.start, parsed.query.end, signal, params);
+  });
   const data = query.data;
   const { start, end } = parsed.draft;
   useEffect(() => {
@@ -77,11 +82,12 @@ export function Statistics({ gen }: ViewProps) {
     }
   }, [key, location.search, navigate]);
   useEffect(() => { if (data && focusNext.current) { focusNext.current = false; results.current?.focus(); } }, [data]);
-  const apply = (period: StatisticsPeriod) => {
+  const apply = (period: StatisticsSelection) => {
     const error = statisticsPeriodError(period); setFormError(error);
     if (error) return;
     focusNext.current = true;
-    const search = statisticsSearch(period);
+    const search = statisticsSearch({ category_id: data ? parsed.query?.category_id : undefined,
+      tag_id: data ? parsed.query?.tag_id : undefined, ...period });
     if (search === location.search) {
       setDraft(period);
       query.reload();
@@ -89,12 +95,12 @@ export function Statistics({ gen }: ViewProps) {
       navigate({ search });
     }
   };
-  const dirty = !!parsed.query && statisticsSearch(draft) !== key;
+  const dirty = !!parsed.query && (draft.start !== start || draft.end !== end);
   const presets: [StatisticsPreset, string][] = [["this-month", "이번 달"], ["last-month", "지난달"], ["this-year", "올해"], ["recent-year", "최근 12개월"]];
   return <div className="statistics-page"><h1>통계</h1>
     <p className="muted">기록된 원화 장부의 수익·비용과 자산 변화를 확인합니다. 투자손익도 포함한 전체 계정 집계입니다.</p>
     <form className="statistics-query" onSubmit={e => { e.preventDefault(); apply(draft); }} aria-label="통계 조회 조건">
-      <div className="filters">{presets.map(([preset, label]) => <button type="button" className="btn secondary" key={preset} onClick={() => apply(statisticsPreset(preset))}>{label}</button>)}</div>
+      <div className="filters">{presets.map(([preset, label]) => <button type="button" className="btn secondary" key={preset} onClick={() => apply({ ...statisticsPreset(preset), comparison: preset.endsWith("month") ? "month" : undefined })}>{label}</button>)}</div>
       <div className="statistics-dates">
         <div className="field"><label htmlFor="statistics-start">시작일</label><input id="statistics-start" type="date" required value={draft.start} max={statisticsToday()} onChange={e => setDraft({ ...draft, start: e.target.value })} /></div>
         <div className="field"><label htmlFor="statistics-end">종료일</label><input id="statistics-end" type="date" required value={draft.end} max={statisticsToday()} onChange={e => setDraft({ ...draft, end: e.target.value })} /></div>
@@ -107,11 +113,13 @@ export function Statistics({ gen }: ViewProps) {
       {parsed.query && !data && !query.error && <p role="status">통계를 계산하고 있습니다…</p>}
       {query.error && <div role="alert"><p>통계를 불러오지 못했습니다. {query.error}</p>
         <p>재시도할 기간: {parsed.query?.start} ~ {parsed.query?.end}</p><button className="btn secondary" onClick={query.reload}>다시 조회</button></div>}
-      {data && <>
+      {data?.comparison && parsed.query?.detail && <Comparison data={data} comparison={data.comparison} selection={parsed.query} />}
+      {data && !parsed.query?.detail && <>
         <h2 ref={results} tabIndex={-1} className="statistics-result-title">{data.start} ~ {data.end} · {data.transaction_count.toLocaleString("ko-KR")}건</h2>
         <p className="muted">서울 기준 {data.as_of}까지 · KRW만 집계 · 보관 계정 포함 · 현재 계정 계층 기준</p>
         {data.excluded_transaction_count > 0 && <p className="banner info" role="status">종료일까지 비원화 계정·분개가 포함된 거래 {data.excluded_transaction_count}건 전체를 제외했습니다. 기간 전 잔액에 영향을 주는 거래도 포함한 건수입니다.</p>}
         {data.summary.reconciliation_difference !== 0 && <p role="alert">원장 검산 차이: {fmtWon(data.summary.reconciliation_difference)}. 장부 기록을 확인하세요.</p>}
+        {data.comparison && parsed.query && <Comparison data={data} comparison={data.comparison} selection={parsed.query} />}
         <h2>기간 수입과 지출</h2><dl className="statistics-summary" aria-label="기간 수입과 지출">
           <Metric label="수입" value={data.summary.income} /><Metric label="지출" value={data.summary.expense} /><Metric label="수지 · 수입 − 지출" value={data.summary.net_income} />
         </dl>

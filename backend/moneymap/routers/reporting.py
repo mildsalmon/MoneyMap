@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 from enum import IntEnum
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -34,9 +35,18 @@ def statistics(
     request: Request,
     start: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
     end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    comparison: Literal["days", "month"] | None = None,
+    category_id: str | None = Query(None, pattern=r"^(unclassified|[1-9][0-9]{0,15})$"),
+    tag_id: int | None = Query(None, gt=0, le=MAX_SAFE_INTEGER),
+    detail: Literal["current", "previous"] | None = None,
+    page: int = Query(1, ge=1, le=100_000_000),
 ):
-    if set(request.query_params) != {"start", "end"} or any(len(request.query_params.getlist(key)) != 1 for key in ("start", "end")):
-        raise HTTPException(422, detail="시작일과 종료일은 하나씩 지정하세요")
+    keys = set(request.query_params)
+    allowed = {"start", "end", "comparison", "category_id", "tag_id", "detail", "page"}
+    if keys - allowed or any(len(request.query_params.getlist(key)) != 1 for key in keys):
+        raise HTTPException(422, detail="통계 조회 조건은 각각 하나씩 지정하세요")
+    if (keys & {"category_id", "tag_id", "detail", "page"} and not comparison) or ("page" in keys and not detail):
+        raise HTTPException(422, detail="기간 비교와 거래 조회 조건을 확인하세요")
     try:
         first, last = datetime.date.fromisoformat(start), datetime.date.fromisoformat(end)
     except ValueError as exc:
@@ -46,7 +56,9 @@ def statistics(
         raise HTTPException(422, detail="시작일 이후, 최대 3660일 범위로 조회하세요")
     if last > today:
         raise HTTPException(422, detail=f"통계 종료일은 서울 기준 오늘({today.isoformat()})까지 지정하세요")
-    return {"as_of": today.isoformat(), **read_statistics(request.state.conn, first, last)}
+    return {"as_of": today.isoformat(), **read_statistics(
+        request.state.conn, first, last, comparison=comparison, category_id=category_id,
+        tag_id=tag_id, detail=detail, page=page)}
 
 
 @router.get("/api/balances")
