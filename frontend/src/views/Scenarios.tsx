@@ -160,25 +160,27 @@ export function Scenarios({
                   </td>
                   {!archived && (
                     <td>
-                      <input
-                        type="checkbox"
-                        aria-label={`${s.name} 차트에 표시`}
-                        checked={checked.includes(s.id)}
-                        onChange={() => {
-                          if (!checked.includes(s.id) && checked.length >= 3) {
-                            setError(
-                              "차트에는 최대 3개 시나리오만 표시할 수 있습니다",
-                            );
-                            return;
-                          }
-                          const next = checked.includes(s.id)
-                            ? checked.filter((id) => id !== s.id)
-                            : [...checked, s.id];
-                          chartToggles.set(next);
-                          setChecked(next);
-                          setError("");
-                        }}
-                      />
+                      <label className="scenario-chart-toggle">
+                        <input
+                          type="checkbox"
+                          aria-label={`${s.name} 차트에 표시`}
+                          checked={checked.includes(s.id)}
+                          onChange={() => {
+                            if (!checked.includes(s.id) && checked.length >= 3) {
+                              setError(
+                                "차트에는 최대 3개 시나리오만 표시할 수 있습니다",
+                              );
+                              return;
+                            }
+                            const next = checked.includes(s.id)
+                              ? checked.filter((id) => id !== s.id)
+                              : [...checked, s.id];
+                            chartToggles.set(next);
+                            setChecked(next);
+                            setError("");
+                          }}
+                        />
+                      </label>
                     </td>
                   )}
                   <td>
