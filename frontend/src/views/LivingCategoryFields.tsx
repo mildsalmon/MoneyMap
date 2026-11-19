@@ -20,6 +20,7 @@ export function CategorySelect({ label, value, catalog, change }: {
 }
 
 export function CategoryManager({ catalog }: { catalog: Catalog }) {
+  const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -38,8 +39,8 @@ export function CategoryManager({ catalog }: { catalog: Catalog }) {
   }
   return <>
     {catalog.error && <p role="alert">생활 분류를 불러오지 못했습니다. <button className="btn secondary" type="button" onClick={catalog.reload}>분류 다시 불러오기</button></p>}
-    <details className="category-manager"><summary>생활 분류 관리</summary>
-      <fieldset disabled={busy || !catalog.data}>
+    <details className="category-manager" onToggle={event => setOpen(event.currentTarget.open)}><summary>생활 분류 관리</summary>
+      {open && <fieldset disabled={busy || !catalog.data}>
         <legend>분류 추가 · 이름 변경</legend>
         <label className="field">관리할 분류<select value={selected ?? ""} onChange={event => {
           const id = Number(event.target.value) || null;
@@ -51,7 +52,7 @@ export function CategoryManager({ catalog }: { catalog: Catalog }) {
         </select></label>
         <label className="field">분류 이름<input value={name} maxLength={50} onChange={event => setName(event.target.value)} /></label>
         <button className="btn secondary" type="button" disabled={!name.trim()} onClick={save}>{selected === null ? "분류 추가" : "분류 이름 변경"}</button>
-      </fieldset>
+      </fieldset>}
       {error && <p role="alert">{error}</p>}
       {notice && <p role="status">{notice}</p>}
     </details>

@@ -40,6 +40,7 @@
     z-index:7;
   }
 }
+.edit-draft-summary li { overflow-wrap: anywhere; }
 .edit-recovery pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 
 .category-manager { margin-block: 1rem; }

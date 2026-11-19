@@ -116,7 +116,7 @@ export function Statistics({ gen }: ViewProps) {
           <Metric label="수입" value={data.summary.income} /><Metric label="지출" value={data.summary.expense} /><Metric label="수지 · 수입 − 지출" value={data.summary.net_income} />
         </dl>
         {data.categories && <section><h2>생활 분류별 수입과 지출</h2>
-          <table className="ledger" aria-label="생활 분류별 수입과 지출">
+          <table className="ledger category-totals" aria-label="생활 분류별 수입과 지출">
             <thead><tr><th>생활 분류</th><th className="num">수입</th><th className="num">지출</th></tr></thead>
             <tbody>{data.categories.map(row => <tr key={row.category_id ?? "unclassified"}>
               <th scope="row">{row.name}</th><td className="num">{fmtWon(row.income)}</td><td className="num">{fmtWon(row.expense)}</td>

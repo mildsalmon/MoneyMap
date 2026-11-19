@@ -56,7 +56,8 @@ export function editField(draft: Draft, field: "date" | "item" | "memo" | "amoun
 // Changing the ledger account keeps the posting's explicit category whenever
 // the new account can carry it. Send null to clear a persisted assignment.
 export function categoryForAccount(row: Pick<Choice, "categoryId" | "postingId">, eligible: boolean) {
-  return eligible ? row.categoryId : row.postingId === undefined ? undefined : null;
+  if (eligible || row.categoryId === undefined) return row.categoryId;
+  return row.postingId === undefined ? undefined : null;
 }
 
 export function chooseAccount(draft: Draft, side: Side, account: number, eligible = false): Draft {
@@ -82,7 +83,7 @@ export function applyPair(draft: Draft, token: LookupToken, pair: LastPair, conf
     const account = pair[`${side}_account_id`]!;
     const source = confirmed ? "manual" : "auto";
     if (account !== draft[side].account || source !== draft[side].source) {
-      next = { ...next, [side]: { ...draft[side], categoryId: account === draft[side].account ? draft[side].categoryId : draft[side].postingId ? null : undefined, account, source }, revision: draft.revision + 1 };
+      next = { ...next, [side]: { ...draft[side], categoryId: categoryForAccount(draft[side], account === draft[side].account), account, source }, revision: draft.revision + 1 };
     }
   }
   return next;

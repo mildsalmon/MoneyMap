@@ -3,7 +3,8 @@ import { useBlocker, useLocation, useNavigate, useParams } from "react-router-do
 import { api, ApiError, withDescendants, type TransactionDetail, type TransactionEditBody, type TransactionEditResult } from "../api";
 import type { ViewProps } from "../App";
 import { TransactionForm } from "./TransactionForm";
-import { accountPickerModel } from "./TransactionAccountPicker";
+import type { LivingCategory } from "../api/livingCategories";
+import { accountPickerModel, type AccountPickerModel } from "./TransactionAccountPicker";
 import { useLivingCategories } from "./LivingCategoryFields";
 import { useQuery } from "./scenarios/useQuery";
 import { editField, validateDraft, type Draft } from "./transactionInputState";
@@ -18,11 +19,24 @@ export function TxnEdit(props: ViewProps) {
   return <EditSession key={id} {...props} initial={query.data} />;
 }
 
-function DraftSummary({ draft }: { draft: Draft }) {
+function DraftSummary({ draft, categories, model }: {
+  draft: Draft; categories: LivingCategory[]; model: AccountPickerModel;
+}) {
+  const rows = draft.mode === "split" ? draft.rows : [
+    { ...draft.debit, debit: true, amount: draft.amount },
+    { ...draft.credit, debit: false, amount: draft.amount },
+  ];
+  const names = new Map(categories.map(category => [category.id, category.name]));
   return <details className="edit-draft-summary"><summary>저장하지 못한 작성 내용</summary>
     <p>{draft.date} · {draft.item || "내역 없음"}</p><pre>{draft.memo}</pre><p>태그: {draft.tags.join(", ") || "없음"}</p>
-    <p>{draft.mode === "basic" ? `차변 계정 #${draft.debit.account} / 대변 계정 #${draft.credit.account} · ${draft.amount}원`
-      : draft.rows.map(r => `계정 #${r.account} ${r.debit ? "차변" : "대변"} ${r.amount}원`).join(" / ")}</p>
+    <ol>{rows.map((row, index) => {
+      const account = row.account === null ? undefined : model.byId.get(row.account);
+      const eligible = account?.type === "expense" || account?.type === "income";
+      const category = row.categoryId == null ? (eligible ? "미분류" : "")
+        : `${names.get(row.categoryId) ?? "생활 분류"} (#${row.categoryId})`;
+      return <li key={index}>{row.debit ? "차변" : "대변"} · {account?.name ?? `계정 #${row.account ?? "—"}`} · {row.amount}원
+        {category && <> · {category}</>}</li>;
+    })}</ol>
   </details>;
 }
 
@@ -155,10 +169,10 @@ function EditSession({ initial, gen, refresh, showToast }: ViewProps & { initial
     footer={<div className="edit-recovery">
       {message && <p role={phase === "editing" ? "status" : "alert"}>{message}</p>}
       {(phase === "uncertain" || phase === "resolving") && <button className="btn secondary" disabled={phase === "resolving"} onClick={() => void checkResult()}>{phase === "resolving" ? "결과 확인 중…" : "저장 결과 다시 확인"}</button>}
-      {phase === "conflict" && <><DraftSummary draft={draft} /><button className="btn secondary" disabled={loadingLatest} onClick={() => void loadLatest()}>최신 거래 확인</button>
+      {phase === "conflict" && <><DraftSummary draft={draft} categories={categories.data ?? []} model={model} /><button className="btn secondary" disabled={loadingLatest} onClick={() => void loadLatest()}>최신 거래 확인</button>
         {latest === null && <p>거래가 삭제되었습니다. 다시 생성하지 않습니다.</p>}
         {latest && <section><h2>현재 저장된 거래</h2><p>{latest.date} · {latest.description}</p><pre>{latest.memo}</pre><button className="btn secondary" onClick={useLatest}>최신 값으로 다시 수정</button></section>}</>}
-      {previousDraft && <DraftSummary draft={previousDraft} />}
+      {previousDraft && <DraftSummary draft={previousDraft} categories={categories.data ?? []} model={model} />}
       <button className="btn secondary" onClick={() => back()}>취소하고 거래 내역으로</button>
     </div>}
   />;

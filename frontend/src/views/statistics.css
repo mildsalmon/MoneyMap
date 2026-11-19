@@ -17,6 +17,8 @@
 .statistics-tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 24px; }
 .statistics-account, .statistics-tables th { overflow-wrap: anywhere; }
 .statistics-account .badge { margin-left: 6px; }
+.category-totals th[scope="row"] { overflow-wrap: anywhere; }
+.category-totals .num { white-space: nowrap; }
 .statistics-subtotal th { text-align: left; font-weight: 500; }
 .statistics-subtotal td { border-top: 1px solid var(--line); }
 .statistics-tables td.num { white-space: nowrap; }
