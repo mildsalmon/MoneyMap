@@ -85,6 +85,28 @@ test("drafts wait for apply; presets, URL/back, grouping and amounts remain expl
   await expect(page.getByText(/거래 2건 전체를 제외/)).toBeVisible();
 });
 
+test("Back during preset navigation keeps the form on the restored period", async ({ page }) => {
+  await setup(page);
+  await page.goto(`/statistics?${range}`);
+  await ready(page);
+  // Traverse back as soon as the preset enters browser history, before React
+  // necessarily commits the intermediate location.
+  const wentBack = page.evaluate(() => new Promise<void>(resolve => {
+    const pushState = history.pushState;
+    history.pushState = function (...args) {
+      pushState.apply(this, args);
+      history.pushState = pushState;
+      window.addEventListener("popstate", () => resolve(), { once: true });
+      history.back();
+    };
+  }));
+  await page.getByRole("button", { name: "이번 달", exact: true }).click();
+  await wentBack;
+  await expect(page).toHaveURL(url => url.search === `?${range}`);
+  await expect(page.getByLabel("종료일", { exact: true })).toHaveValue("2026-02-28");
+  await expect(page.locator(".statistics-result-title")).toContainText("2026-02-28");
+});
+
 test("pending results hide old amounts, failures retry applied criteria and late responses cannot win", async ({ page }) => {
   await setup(page); await page.goto(`/statistics?${range}`); await ready(page);
   const held: Route[] = []; await page.route(endpoint, r => { held.push(r); });

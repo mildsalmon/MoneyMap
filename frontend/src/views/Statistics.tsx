@@ -76,9 +76,14 @@ export function Statistics({ gen }: ViewProps) {
   const apply = (period: StatisticsPeriod) => {
     const error = statisticsPeriodError(period); setFormError(error);
     if (error) return;
-    setDraft(period); focusNext.current = true;
+    focusNext.current = true;
     const search = statisticsSearch(period);
-    if (search === location.search) query.reload(); else navigate({ search });
+    if (search === location.search) {
+      setDraft(period);
+      query.reload();
+    } else {
+      navigate({ search });
+    }
   };
   const dirty = !!parsed.query && statisticsSearch(draft) !== key;
   const presets: [StatisticsPreset, string][] = [["this-month", "이번 달"], ["last-month", "지난달"], ["this-year", "올해"], ["recent-year", "최근 12개월"]];
