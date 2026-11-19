@@ -1,8 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import type { Account, OpeningBalanceRecord } from "../api";
 import { commaInput } from "../format";
 
 type OpeningReadState = "loading" | "ready" | "error";
+
+export interface OpeningDraft {
+  amountInput: string;
+  state: "positive" | "negative" | null;
+}
+const emptyDraft: OpeningDraft = { amountInput: "", state: null };
 
 interface OpeningBalanceControlProps {
   account: Account;
@@ -12,7 +18,8 @@ interface OpeningBalanceControlProps {
   disabled: boolean;
   pending: boolean;
   error?: string;
-  onChange: () => void;
+  draft?: OpeningDraft;
+  onDraftChange: (draft: OpeningDraft) => void;
   onRetry: () => void;
   onRecord: (amount: number, state: "positive" | "negative") => Promise<boolean>;
   onZero: () => void;
@@ -27,14 +34,14 @@ export function OpeningBalanceControl({
   disabled,
   pending,
   error,
-  onChange,
+  draft = emptyDraft,
+  onDraftChange,
   onRetry,
   onRecord,
   onZero,
   onUndo,
 }: OpeningBalanceControlProps) {
-  const [amountInput, setAmountInput] = useState("");
-  const [state, setState] = useState<"positive" | "negative" | null>(null);
+  const { amountInput, state } = draft;
   const recordedButtonRef = useRef<HTMLButtonElement>(null);
   const focusRecordedAfterSave = useRef(false);
   const amount = commaInput(amountInput).value;
@@ -107,8 +114,7 @@ export function OpeningBalanceControl({
     if (!canRecord || selectedState === null) return;
     const succeeded = await onRecord(amount, selectedState);
     if (succeeded) {
-      setAmountInput("");
-      setState(null);
+      onDraftChange(emptyDraft);
       focusRecordedAfterSave.current = true;
     }
   };
@@ -125,10 +131,7 @@ export function OpeningBalanceControl({
                 name={`opening-state-${account.id}`}
                 value={value}
                 checked={state === value}
-                onChange={() => {
-                  setState(value);
-                  onChange();
-                }}
+                onChange={() => onDraftChange({ ...draft, state: value })}
               />
               {value === "positive" ? "예금" : "마이너스 사용"}
             </label>
@@ -143,10 +146,7 @@ export function OpeningBalanceControl({
           placeholder="0"
           value={amountInput}
           disabled={disabled}
-          onChange={(event) => {
-            setAmountInput(commaInput(event.target.value).display);
-            onChange();
-          }}
+          onChange={event => onDraftChange({ ...draft, amountInput: commaInput(event.target.value).display })}
           onKeyDown={(event) => {
             if (event.key === "Enter") void submit();
           }}

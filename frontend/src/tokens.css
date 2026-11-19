@@ -522,6 +522,13 @@ textarea:focus-visible,
 .order-panel p { overflow-wrap: anywhere; margin-bottom: 8px; }
 .order-panel button + button { margin-left: 8px; }
 .order-drag-overlay { position: fixed; padding: 6px 10px; max-width: 280px; overflow-wrap: anywhere; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 8px; font-size: 13px; }
+.accounts-ledger tbody [data-drag-member] > td { background: var(--accent-soft); }
+.accounts-ledger [data-drag-member] > td:first-child { box-shadow: inset 3px 0 var(--accent); }
+.group-disclosure { display: inline-flex; align-items: center; gap: 2px; min-height: 24px; cursor: pointer; }
+/* dnd-kit sizes feedback to its activator. Let the account summary size itself. */
+:root .order-drag-overlay[data-dnd-dragging] {
+  width: max-content; max-width: min(280px, 90vw); height: auto; max-height: none;
+}
 .order-drag-overlay:empty { display: none; }
 .order-drop-target { pointer-events: none; }
 .order-insertion { position: fixed; height: 2px; background: var(--accent); pointer-events: none; z-index: 35; }
@@ -534,6 +541,7 @@ textarea:focus-visible,
   .order-name-cell .account-name { white-space: normal; overflow-wrap: anywhere; }
   .order-mobile { order: 10; flex-basis: 100%; }
   .order-mobile ~ .tree-guide { display: none; }
+  .group-disclosure { min-width: 44px; min-height: 44px; }
   .order-move { width: 44px; height: 44px; }
 }
 .dashboard-balances > .ledger + .ledger { margin-top: 20px; }

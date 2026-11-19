@@ -1,10 +1,10 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { DragDropProvider, DragOverlay, useDraggable, useDroppable } from "@dnd-kit/react";
 import { PointerSensor, PointerActivationConstraints, Accessibility } from "@dnd-kit/dom";
 import { GripVertical, ArrowUp, ArrowDown } from "lucide-react";
 import type { Account } from "../api";
-import { insertOrder, projectBlocks, scopeKey, siblings, swapOrder } from "./accountOrdering";
+import { insertOrder, projectBlocks, scopeKey, siblings, swapOrder, type ReorderBlock } from "./accountOrdering";
 
 interface Context { accounts: Account[]; disabled: boolean; save: (a: Account, ids: number[]) => Promise<void>; panel: number | null; setPanel: (id: number | null) => void; dragging: boolean }
 const OrderContext = createContext<Context | null>(null);
@@ -18,20 +18,34 @@ function BoundaryTarget({ boundary }: { boundary: Boundary }) {
   return <div ref={ref} aria-hidden="true" className="order-drop-target" style={{ position: "fixed", top: boundary.top, left: boundary.left, width: boundary.width, height: boundary.height }} />;
 }
 export function AccountOrderProvider({ accounts, disabled, save, children, onDragging }: {
-  accounts: Account[]; disabled: boolean; save: Context["save"]; children: ReactNode; onDragging: (value: boolean) => void;
+  accounts: Account[]; disabled: boolean; save: Context["save"]; children: ReactNode; onDragging: (rows: ReadonlySet<number> | null) => void;
 }) {
-  const [source, setSource] = useState<Account | null>(null);
+  const [block, setBlock] = useState<ReorderBlock | null>(null);
+  const source = block?.owner;
+  const landing = useRef<ReadonlySet<number> | null>(null);
+  useLayoutEffect(() => {
+    const ids = landing.current;
+    landing.current = null;
+    if (!ids || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    // The optimistic reorder is now in the DOM. Fade the moved rows in place.
+    for (const row of document.querySelectorAll<HTMLElement>(".accounts-ledger [data-order-row]")) {
+      if (ids.has(Number(row.dataset.orderRow))) {
+        row.animate([{ backgroundColor: "var(--accent-soft)" }, { backgroundColor: "transparent" }],
+          { duration: 120, easing: "ease-out" });
+      }
+    }
+  }, [block]);
   const [panel, setPanel] = useState<number | null>(null);
   const [boundaries, setBoundaries] = useState<Boundary[]>([]);
   const [marker, setMarker] = useState<Boundary | null>(null);
   const lastPointer = useRef<{ x: number; y: number } | null>(null);
-  function measure(owner: Account) {
+  function measure(blocks: ReorderBlock[], owner: Account) {
     const clip = document.querySelector(".accounts-ledger-wrap")?.getBoundingClientRect();
     if (!clip) return [];
-    return projectBlocks(accounts, owner).flatMap(block => {
+    const rows = [...document.querySelectorAll<HTMLElement>(".accounts-ledger [data-order-row]")];
+    return blocks.flatMap(block => {
       if (block.owner.id === owner.id) return [];
-      const elements = [...document.querySelectorAll<HTMLElement>("[data-order-row]")]
-        .filter(row => block.rowIds.includes(Number(row.dataset.orderRow)));
+      const elements = rows.filter(row => block.rowIds.includes(Number(row.dataset.orderRow)));
       if (!elements.length) return [];
       const top = elements[0].getBoundingClientRect().top;
       const bottom = elements[elements.length - 1].getBoundingClientRect().bottom;
@@ -40,13 +54,14 @@ export function AccountOrderProvider({ accounts, disabled, save, children, onDra
         left: clip.left, width: clip.width, height: (bottom - top) / 2 }));
     });
   }
+  const blocks = useRef<ReorderBlock[]>([]);
   function targetAt(owner: Account, point: { x: number; y: number }) {
-    return measure(owner).find(b => point.x >= b.left && point.x <= b.left + b.width
+    return measure(blocks.current, owner).find(b => point.x >= b.left && point.x <= b.left + b.width
       && point.y >= b.top && point.y <= b.top + b.height) ?? null;
   }
   useEffect(() => {
     if (!source) return;
-    const update = () => { setBoundaries(measure(source)); if (lastPointer.current) setMarker(targetAt(source, lastPointer.current)); };
+    const update = () => { setBoundaries(measure(blocks.current, source)); if (lastPointer.current) setMarker(targetAt(source, lastPointer.current)); };
     window.addEventListener("scroll", update, true); window.addEventListener("resize", update);
     return () => { window.removeEventListener("scroll", update, true); window.removeEventListener("resize", update); };
   }, [source, accounts]);
@@ -59,20 +74,32 @@ export function AccountOrderProvider({ accounts, disabled, save, children, onDra
       onDragStart={event => {
         const owner = accounts.find(a => a.id === event.operation.source?.id);
         if (!owner) return;
-        setPanel(null); setSource(owner); setBoundaries(measure(owner)); onDragging(true);
+        blocks.current = projectBlocks(accounts, owner);
+        const moving = blocks.current.find(candidate => candidate.owner.id === owner.id)!;
+        setPanel(null); setBlock(moving); setBoundaries(measure(blocks.current, owner));
+        onDragging(new Set(moving.rowIds));
       }}
       onDragMove={event => {
         if (!source) return;
-        const point = event.operation.position.current;
+        // dnd-kit dispatches dragmove before committing its position snapshot.
+        const point = event.to ?? event.operation.position.current;
         lastPointer.current = point; setMarker(targetAt(source, point));
       }}
       onDragEnd={event => {
         const owner = source, target = owner ? targetAt(owner, event.operation.position.current) : null;
-        setSource(null); setMarker(null); setBoundaries([]); onDragging(false); lastPointer.current = null;
-        if (owner && target && !event.canceled) void save(owner, insertOrder(siblings(accounts, owner).map(a => a.id), owner.id, target.owner.id, target.after));
+        setBlock(null); setMarker(null); setBoundaries([]); onDragging(null); lastPointer.current = null;
+        blocks.current = [];
+        if (!block || !target || event.canceled) return;
+        const before = siblings(accounts, block.owner).map(a => a.id);
+        const after = insertOrder(before, block.owner.id, target.owner.id, target.after);
+        if (before.every((id, index) => id === after[index])) return;
+        landing.current = new Set(block.rowIds);
+        void save(block.owner, after);
       }}>
       {children}
-      <DragOverlay dropAnimation={null} className="order-drag-overlay">{source ? `${source.name} · ${accounts.find(a => a.id === source.parent_id)?.name ?? "최상위"}` : null}</DragOverlay>
+      <DragOverlay dropAnimation={null} className="order-drag-overlay">{source && block
+        ? `${source.name} · ${accounts.find(a => a.id === source.parent_id)?.name ?? "최상위"} · 하위 계정 ${block.rowIds.length - 1}개`
+        : null}</DragOverlay>
       {source && createPortal(<>{boundaries.map(b => <BoundaryTarget key={b.id} boundary={b} />)}
         {marker && <div className="order-insertion" data-testid="order-insertion" style={{ top: marker.after ? marker.top + marker.height : marker.top, left: marker.left, width: marker.width }} />}</>, document.body)}
     </DragDropProvider>
