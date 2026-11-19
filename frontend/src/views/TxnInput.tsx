@@ -121,7 +121,8 @@ export function TxnInput({ gen, refresh, inputUndoVersion, showToast, go }: View
     try {
       const balances = await api.balances(1);
       if (!stillCurrent()) return;
-      const balance = balances.accounts.find(a => a.account_id === captured.debit.account)?.balance ?? 0;
+      const card = balances.accounts.find(a => a.account_id === captured.debit.account);
+      const balance = BigInt(card?.by_currency?.KRW ?? card?.balance ?? 0);
       if (balance < 0) field("amount", amountInput(String(-balance)));
       else setDebtMessage("오늘 갚을 부채 잔액이 없습니다. 입력한 금액은 유지했습니다.");
     } catch { if (stillCurrent()) setDebtMessage("잔액을 불러오지 못했습니다. 다시 시도하거나 금액을 입력하세요."); }

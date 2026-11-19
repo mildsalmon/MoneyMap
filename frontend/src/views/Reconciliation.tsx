@@ -151,7 +151,7 @@ export function Reconciliation({ refresh }: { refresh: () => void }) {
         <div><dt>명세서</dt><dd>{money(preview.statement.statement_minor)}</dd></div>
         <div><dt>차이</dt><dd>{delta > 0n ? "+" : ""}{money(delta.toString())}</dd></div>
       </dl>
-      <Link target="_blank" rel="noopener" to={{ pathname: "/transactions", search: historySearch({
+      <Link target="_blank" rel="noopener" to={{ pathname: "/accounts/reconciliation/history", search: historySearch({
         start: "0001-01-01", end: date, accountId, accountScope: "direct", page: 1, tag: "",
       }) }}>마감일까지 거래 내역 열기 (새 탭)</Link>
       {delta === 0n ? <p role="status">잔액이 일치합니다.</p> :

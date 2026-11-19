@@ -157,3 +157,19 @@ def test_exact_minor_units_above_javascript_safe_integer(client, ledger):
     assert p["difference_minor"] == "-1"
     assert client.post(CONFIRM, json=command(s, p, ids[1])).is_success
     assert preview(client, s)["ledger_minor"] == str(raw - 1)
+
+
+def test_foreign_card_adjustment_keeps_native_balances_and_recent_amount(client, ledger):
+    conn, ids = ledger
+    card, other = ids[2], ids[1]
+    with conn:
+        insert(conn, [card, other], -5300, CLOSE)
+    s = statement(card, currency="USD", statement_minor="1025")
+    txn = client.post(CONFIRM, json=command(s, preview(client, s), other)).json()["transaction_id"]
+    balances = client.get("/api/balances", params={"at": CLOSE}).json()["accounts"]
+    row = next(r for r in balances if r["account_id"] == card)
+    assert row["balance"] == -100300
+    assert row["by_currency"] == {"KRW": "-100300", "USD": "-1025"}
+    recent = client.get("/api/transaction-input/recent").json()[0]
+    assert (recent["id"], recent["currency"], recent["exact_minor"]) == (txn, "USD", "1025")
+    assert preview(client, s)["difference_minor"] == "0"

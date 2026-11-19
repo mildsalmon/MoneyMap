@@ -13,7 +13,7 @@ import {
   type BalanceRow,
   type OpeningBalanceRecord,
 } from "../api";
-import { fmtWon, todayIso } from "../format";
+import { fmtMoney, todayIso } from "../format";
 import type { ViewProps } from "../App";
 import { AccountHistoryLink } from "./AccountHistoryLink";
 import { AccountSettingsPanel } from "./AccountSettingsPanel";
@@ -142,7 +142,20 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   const archivedList = accountList.filter((account) => !account.is_system && account.archived);
   const balanceOf = (id: number) => balances?.find((balance) => balance.account_id === id);
   const openingOf = (id: number) => openingRecords?.find((record) => record.account_id === id);
-  const displayAmount = (account: Account, raw: number) => account.type === "income" ? -raw : raw;
+  const nativeBalances = (ids: number[]) => {
+    const totals = new Map<string, bigint>();
+    for (const id of ids) {
+      const row = balanceOf(id);
+      for (const [currency, amount] of Object.entries(row?.by_currency ?? { KRW: row?.balance ?? 0 })) {
+        totals.set(currency, (totals.get(currency) ?? 0n) + BigInt(amount));
+      }
+    }
+    return [...totals].filter(([, amount]) => amount !== 0n)
+      .sort(([a], [b]) => a === b ? 0 : a === "KRW" ? -1 : b === "KRW" ? 1 : a.localeCompare(b));
+  };
+  const formatBalances = (account: Account, ids: number[]) => nativeBalances(ids)
+    .map(([currency, amount]) => fmtMoney(account.type === "income" ? -amount : amount, currency))
+    .join(" · ") || fmtMoney(0, account.currency);
 
   const [zeroConfirmed, setZeroConfirmed] = useState<number[]>(() => {
     try {
@@ -313,9 +326,8 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
 
   const archive = async (account: Account) => {
     if (!balances || rowTasks[account.id]) return;
-    const balance = balanceOf(account.id)?.balance ?? 0;
-    if (balance !== 0 && !window.confirm(
-      `"${account.name}"에 잔액 ${fmtWon(balance)}이 남아 있습니다.\n` +
+    if (nativeBalances([account.id]).length && !window.confirm(
+      `"${account.name}"에 잔액 ${formatBalances(account, [account.id])}이 남아 있습니다.\n` +
       "회계 관습상 이체·조정으로 잔액을 비운 뒤 보관하는 것이 정석입니다.\n그래도 보관할까요?",
     )) return;
 
@@ -527,8 +539,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
 
   const renderUnclassified = (account: Account, depth: number) => {
     if (!balances) return null;
-    const raw = balanceOf(account.id)?.balance ?? 0;
-    if (raw === 0) return null;
+    if (!nativeBalances([account.id]).length) return null;
     const targets = visible.filter((candidate) => candidate.parent_id === account.id && isPostable(accountList, candidate));
     const target = reclassTargets[account.id] ?? "";
     return (
@@ -537,7 +548,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
           <span className="tree-guide">└ </span>(미분류)
         </td>
         <td><span className="badge">직접 기장</span></td>
-        <td className="num">{fmtWon(displayAmount(account, raw))}</td>
+        <td className="num">{formatBalances(account, [account.id])}</td>
         <td />
         <td className="row-actions">
           <select
@@ -571,8 +582,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
       );
     }
     if (!balances) return <span className="cell-loading" aria-label="잔액 확인 중">…</span>;
-    const rawSum = rollupIds.reduce((sum, id) => sum + (balanceOf(id)?.balance ?? 0), 0);
-    return fmtWon(displayAmount(account, rawSum));
+    return formatBalances(account, rollupIds);
   };
 
   const renderAccountRow = (account: Account, depth: number) => {
@@ -688,7 +698,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     const rows = accountTree(visible.filter((account) => account.type === sectionType));
     const virtualsByAfter = new Map<number, { account: Account; depth: number }[]>();
     rows.forEach(({ account, depth }, index) => {
-      if (!balances || !isGroup(accountList, account) || (balanceOf(account.id)?.balance ?? 0) === 0) return;
+      if (!balances || !isGroup(accountList, account) || !nativeBalances([account.id]).length) return;
       let last = index;
       for (let cursor = index + 1; cursor < rows.length && rows[cursor].depth > depth; cursor += 1) last = cursor;
       virtualsByAfter.set(last, [...(virtualsByAfter.get(last) ?? []), { account, depth }]);
@@ -855,7 +865,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
                         {account.is_overdraft && <span className="badge account-state-badge">마이너스통장</span>}
                       </td>
                       <td className="num">
-                        {balancesError ? "불러오지 못함" : balances ? fmtWon(balanceOf(account.id)?.balance ?? 0) : "…"}
+                        {balancesError ? "불러오지 못함" : balances ? formatBalances(account, [account.id]) : "…"}
                       </td>
                       <td className="row-actions">
                         <button className="btn sm secondary" disabled={Boolean(pending)} onClick={() => void restore(account)}>

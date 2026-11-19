@@ -131,3 +131,72 @@ test("외화 명세서의 소수 단위와 마감일 거래 내역 링크", asyn
   expect((await krw.json()).difference_minor).toBe("0");
   expect(materializations).toBe(0);
 });
+
+test("USD 대사 뒤 카드 납부는 원화 잔액만 채우고 외화 내역은 달러로 표시한다", async ({ page, request }) => {
+  const card = await account(request, "liability");
+  const bank = await account(request, "asset");
+  await post(request, card.id, bank.id, -100300);
+  await page.goto("/accounts/reconciliation");
+  await page.getByLabel("대사 계정").selectOption(String(card.id));
+  await page.getByRole("combobox", { name: "통화" }).selectOption("USD");
+  await page.getByLabel("마감일", { exact: true }).fill(close);
+  await page.getByLabel("명세서 미상환액").fill("10.25");
+  await page.getByRole("button", { name: "잔액 비교" }).click();
+  await page.getByLabel("상대 계정").selectOption(String(bank.id));
+  await page.getByLabel("조정 사유").fill("외화 카드 명세서");
+  await page.getByRole("button", { name: "조정 거래 확정" }).click();
+  await expect(page.getByRole("status")).toContainText("기록 완료");
+  await page.getByRole("button", { name: "거래 입력", exact: true }).click();
+  await page.getByRole("group", { name: "차변 계정", exact: true }).getByRole("radio", { name: new RegExp(card.name) }).check();
+  await page.getByRole("group", { name: "대변 계정", exact: true }).getByRole("radio", { name: new RegExp(bank.name) }).check();
+  await page.getByRole("button", { name: "오늘 부채 잔액으로 채우기" }).click();
+  await expect(page.getByLabel("금액", { exact: true })).toHaveValue("100,300");
+  await expect(page.locator(".txn-recent tr").filter({ hasText: "잔액 대사 조정" }).first()).toContainText("$10.25");
+  await page.getByRole("button", { name: "계정·개시잔액", exact: true }).click();
+  const cardRow = page.locator("tr.account-row").filter({ has: page.getByRole("link", { name: card.name, exact: true }) });
+  await expect(cardRow).toContainText("−₩100,300");
+  await expect(cardRow).toContainText("$10.25");
+});
+
+test("대사 내역 새 탭에서 재조회·새로고침·취소까지 기한이 된 700원 규칙을 기장하지 않는다", async ({ page, context, request }) => {
+  const bank = await account(request, "asset"), income = await account(request, "income");
+  await post(request, bank.id, income.id, 100);
+  const description = "대사 기한 " + crypto.randomUUID();
+  const rule = await request.post(base + "/rules", { data: { from_account_id: income.id, to_account_id: bank.id,
+    description, amount: 700, schedule: "monthly:31", start_date: close, end_date: close } });
+  expect(rule.status()).toBe(201);
+  const { id } = await rule.json();
+  const generated = async () => (await (await request.get(base + "/transactions")).json() as { source_rule_id: number }[])
+    .filter(t => t.source_rule_id === id).length;
+  let writes = 0;
+  context.on("request", req => { if (req.method() === "POST" && req.url().endsWith("/api/materialize")) writes++; });
+  try {
+    await blockExternalStyles(context);
+    await page.goto("/accounts/reconciliation/");
+    await page.getByLabel("대사 계정").selectOption(String(bank.id));
+    await page.getByLabel("마감일", { exact: true }).fill(close);
+    await page.getByLabel("명세서 잔액").fill("200");
+    await page.getByRole("button", { name: "잔액 비교" }).click();
+    const opened = page.waitForEvent("popup");
+    await page.getByRole("link", { name: /마감일까지 거래 내역/ }).click();
+    const popup = await opened;
+    const txn = popup.getByRole("row").filter({ hasText: "대사 검산" });
+    await expect(txn).toHaveCount(1);
+    await txn.getByRole("link", { name: income.name }).click();
+    await expect(popup.getByLabel("계정과목", { exact: true })).toHaveValue(String(income.id));
+    await popup.getByRole("button", { name: "조회", exact: true }).click();
+    await popup.reload();
+    await expect(txn).toHaveCount(1);
+    await popup.close();
+    await page.getByRole("button", { name: "잔액 다시 계산" }).click();
+    await page.getByRole("button", { name: "취소" }).click();
+    expect(await generated()).toBe(0);
+    expect(writes).toBe(0);
+    await page.getByRole("button", { name: "거래 내역", exact: true }).click();
+    await expect(page.locator(".banner.info")).toContainText(description);
+    expect(await generated()).toBe(1);
+    expect(writes).toBe(1);
+  } finally {
+    await request.delete(base + "/rules/" + id);
+  }
+});

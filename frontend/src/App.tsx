@@ -36,7 +36,8 @@ export function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const paths: Record<View, string> = { dashboard: "/", statistics: "/statistics", input: "/transactions/new", history: "/transactions", accounts: "/accounts", rules: "/rules", scenarios: "/scenarios", installments: "/installments" };
-  const view = location.pathname === "/accounts/reconciliation" ? "accounts" : location.pathname.startsWith("/scenarios") ? "scenarios" : /^\/transactions\/\d+\/edit$/.test(location.pathname) ? "history" : (Object.keys(paths) as View[]).find(key => paths[key] === location.pathname);
+  const onReconciliation = useMatch("/accounts/reconciliation/*") !== null;
+  const view = onReconciliation ? "accounts" : location.pathname.startsWith("/scenarios") ? "scenarios" : /^\/transactions\/\d+\/edit$/.test(location.pathname) ? "history" : (Object.keys(paths) as View[]).find(key => paths[key] === location.pathname);
   const setView = (next: View) => navigate(paths[next]);
   const [online, setOnline] = useState(true);
   const [status, setStatus] = useState<Awaited<ReturnType<typeof api.status>> | null>(null);
@@ -56,7 +57,7 @@ export function App() {
   }, []);
 
   const onStatistics = useMatch("/statistics") !== null;
-  const readOnlyEntry = onStatistics || location.pathname === "/accounts/reconciliation";
+  const readOnlyEntry = onStatistics || onReconciliation;
   const didMaterialize = useRef(false);
   useEffect(() => {
     if (didMaterialize.current) return;
@@ -157,6 +158,7 @@ export function App() {
           <Route path="/transactions/new" element={<TxnInput {...viewProps} />} />
           <Route path="/transactions/:id/edit" element={<TxnEdit {...viewProps} />} />
           <Route path="/transactions" element={<History {...viewProps} deletion={historyDeletion} />} />
+          <Route path="/accounts/reconciliation/history" element={<History {...viewProps} deletion={historyDeletion} readOnly />} />
           <Route path="/accounts/reconciliation" element={<Reconciliation refresh={refresh} />} />
           <Route path="/accounts" element={<Accounts {...viewProps} />} />
           <Route path="/installments" element={<Installments {...viewProps} />} />

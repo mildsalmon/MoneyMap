@@ -43,7 +43,7 @@ class SqliteTransactionInputQueries:
         # candidate order in Python avoids a temporary recency sort in SQLite.
         placeholders = ",".join("?" for _ in recent)
         rows = self.conn.execute(
-            "SELECT txn_id,COUNT(id) AS posting_count, "
+            "SELECT txn_id,MIN(currency) AS currency,COUNT(id) AS posting_count, "
             "SUM(CASE WHEN amount>0 THEN amount ELSE 0 END) AS amount, "
             "CASE WHEN COUNT(id)=2 THEN MAX(CASE WHEN amount>0 THEN account_id END) END AS debit_account_id, "
             "CASE WHEN COUNT(id)=2 THEN MAX(CASE WHEN amount<0 THEN account_id END) END AS credit_account_id "

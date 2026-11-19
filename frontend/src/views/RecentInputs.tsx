@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type RecentInput } from "../api";
-import { fmtWon } from "../format";
+import { fmtMoney } from "../format";
 
 const PAGE_SIZE = 5;
 
@@ -47,7 +47,7 @@ export function RecentInputs({ accountName, onSelect }: {
       <tbody>{rows.map(t => <tr key={t.id}>
         <td>{t.date}</td><td>{t.description ? <button type="button" className="recent-item" onClick={() => onSelect(t.description)}>{t.description}</button> : "—"}</td>
         <td className="recent-pair">{t.debit_account_id !== null && t.credit_account_id !== null ? `${accountName(t.debit_account_id)} → ${accountName(t.credit_account_id)}` : `${t.posting_count}개 행`}</td>
-        <td className="num">{fmtWon(t.amount)}</td>
+        <td className="num">{fmtMoney(BigInt(t.exact_minor ?? t.amount), t.currency ?? "KRW")}</td>
       </tr>)}</tbody></table>}
     <p role="status">{loading ? "최근 입력 확인 중…" : loaded ? rows.length ? `${rows.length}건 표시${hasMore ? "" : " · 마지막 입력입니다."}` : "저장한 거래가 여기에 표시됩니다." : ""}</p>
     {error && <p role="alert">최근 입력을 불러오지 못했습니다. <button type="button" className="btn secondary" onClick={() => void load(rows.at(-1)?.id)}>최근 입력 다시 불러오기</button></p>}

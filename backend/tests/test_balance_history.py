@@ -96,7 +96,7 @@ def test_random_edits_scenario_moves_currencies_and_metadata(ledger):
         c.execute("UPDATE accounts SET name='새 이름',archived=1 WHERE id=?", (ids[0],))
     assert [tuple(r) for r in c.execute('SELECT * FROM account_balance_history')] == before
     for aid in ids:
-        raw = c.execute('SELECT COALESCE(SUM(p.amount),0) FROM postings p JOIN transactions t ON t.id=p.txn_id WHERE p.account_id=? AND t.scenario_id=1 AND t.posted=1', (aid,)).fetchone()[0]
+        raw = c.execute('SELECT COALESCE(SUM(p.amount),0) FROM postings p JOIN transactions t ON t.id=p.txn_id WHERE p.account_id=? AND p.currency=? AND t.scenario_id=1 AND t.posted=1', (aid, "KRW")).fetchone()[0]
         assert SqliteLedgerQueries(c).balances_at(dt.date(2026, 9, 30), 1).get(aid, 0) == raw
 
 
