@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Plus, Settings2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Plus, Settings2 } from "lucide-react";
 import {
   accountTree,
   api,
@@ -65,7 +65,17 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   const [settingsAccountId, setSettingsAccountId] = useState<number | null>(null);
   const [reclassTargets, setReclassTargets] = useState<Record<number, number | "">>({});
   const [mutationPending, setMutationPending] = useState(false);
-  const [dragging, setDragging] = useState(false);
+  const [dragRows, setDragRows] = useState<ReadonlySet<number> | null>(null);
+  const dragging = dragRows !== null;
+  const [folded, setFolded] = useState<ReadonlySet<number>>(new Set());
+  function setGroupFolded(id: number, fold: boolean) {
+    setFolded(previous => {
+      const next = new Set(previous);
+      if (fold) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
   const [settingsFocusId, setSettingsFocusId] = useState<number | null>(null);
   const [menuFocusId, setMenuFocusId] = useState<number | null>(null);
   const inlineRef = useRef<HTMLInputElement>(null);
@@ -564,7 +574,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     const targets = visible.filter((candidate) => candidate.parent_id === account.id && isPostable(accountList, candidate));
     const target = reclassTargets[account.id] ?? "";
     return (
-      <tr key={`unclassified-${account.id}`} className="muted-row" data-order-row={account.id}>
+      <tr key={`unclassified-${account.id}`} className="muted-row" data-order-row={account.id} data-drag-member={dragRows?.has(account.id) || undefined}>
         <td style={{ paddingLeft: 8 + (depth + 1) * 20 }}>
           <span className="tree-guide">└ </span>(미분류)
         </td>
@@ -621,15 +631,22 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
 
     return (
       <Fragment key={account.id}>
-        <tr data-order-row={account.id} className={`account-row${group ? " group-row" : ""}${editing ? " settings-open" : ""}`}>
+        <tr data-order-row={account.id} data-drag-member={dragRows?.has(account.id) || undefined} className={`account-row${group ? " group-row" : ""}${editing ? " settings-open" : ""}`}>
           <td className="order-name-cell" style={{ paddingLeft: 8 + depth * 20 }}>
             <div className="order-account-label">
             <AccountOrderControls account={account} />
             {depth > 0 && <span className="tree-guide">└ </span>}
             <AccountHistoryLink accountId={account.id} className="account-name">{account.name}</AccountHistoryLink>
-            {group && (
-              <span className="badge group-badge">{hasChildren ? "그룹 · 합산" : "그룹"}</span>
-            )}
+            {hasVisibleChildren ? (
+              <button type="button" className="badge group-badge group-disclosure"
+                aria-expanded={!folded.has(account.id)}
+                aria-label={`${account.name} 하위 계정 ${folded.has(account.id) ? "펼치기" : "접기"}`}
+                disabled={settingsAccountId !== null || childDraft !== null}
+                onClick={() => setGroupFolded(account.id, !folded.has(account.id))}>
+                {folded.has(account.id) ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                그룹 · 합산
+              </button>
+            ) : group && <span className="badge group-badge">{hasChildren ? "그룹 · 합산" : "그룹"}</span>}
             {ordering.operation?.owner.id === account.id && <small className="order-row-status">{ordering.operation.phase === "saving" ? "순서 저장 중…" : ordering.operation.phase === "undoing" ? "실행 취소 중…" : "순서 확인 중…"}</small>}
             </div>
           </td>
@@ -673,6 +690,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
             </button>
             <AccountRowMenu id={account.id} name={account.name} actions={[
               ...(group ? [{ label: "소분류", run: () => {
+                setGroupFolded(account.id, false);
                 setChildDraft({ parentId: account.id, name: "", isOverdraft: false });
                 setRootDraft(null);
                 setSettingsAccountId(null);
@@ -700,10 +718,15 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   };
 
   const renderSection = (sectionType: AccountType) => {
-    const rows = accountTree(visible.filter((account) => account.type === sectionType));
+    let foldedDepth = Infinity;
+    const rows = accountTree(visible.filter(account => account.type === sectionType)).filter(({ account, depth }) => {
+      if (depth > foldedDepth) return false;
+      foldedDepth = folded.has(account.id) ? depth : Infinity;
+      return true;
+    });
     const virtualsByAfter = new Map<number, { account: Account; depth: number }[]>();
     rows.forEach(({ account, depth }, index) => {
-      if (!balances || !isGroup(accountList, account) || (balanceOf(account.id)?.balance ?? 0) === 0) return;
+      if (folded.has(account.id) || !balances || !isGroup(accountList, account) || (balanceOf(account.id)?.balance ?? 0) === 0) return;
       let last = index;
       for (let cursor = index + 1; cursor < rows.length && rows[cursor].depth > depth; cursor += 1) last = cursor;
       virtualsByAfter.set(last, [...(virtualsByAfter.get(last) ?? []), { account, depth }]);
@@ -743,7 +766,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
   const advancedOverdraftEligible = type === "asset" && !selectedParent?.is_overdraft;
 
   return (
-    <AccountOrderProvider accounts={accountList} save={ordering.save} onDragging={setDragging}
+    <AccountOrderProvider accounts={accountList} save={ordering.save} onDragging={setDragRows}
       disabled={ordering.locked || mutationPending || Object.values(rowTasks).some(Boolean) || !!rootDraft || !!childDraft || settingsAccountId !== null || !!name.trim()}>
     <div>
       <h1 id="accounts-title" tabIndex={-1}>계정 · 개시잔액</h1>
