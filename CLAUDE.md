@@ -19,13 +19,18 @@
 - 거래 직접 수정·충돌/응답 유실 보호·신규 입력 계정 유지: [transaction-editing.md](docs/designs/transaction-editing.md), [구현 검증](docs/verification/transaction-editing.md). 개발서버 자동 재시작으로 v6 스키마가 적용됐고 기존 거래 값은 보존됐다. 통화·계정 시간 이력은 TODO로 유지한다. 태그 선택 UI는 아래 v0.11.0.0 항목을 참고한다.
 - 거래내역 기간별 조회(v0.9.0.0, PR #14 main 반영 완료): 최근 한 달 기본, 날짜·태그 조회와 100건 페이지 이동, 수정 복귀 조건·위치 보존. [설계](docs/designs/transaction-history-query.md), [검증](docs/verification/transaction-history-query.md).
 - 실제 반복규칙 수정(v0.10.0.0): 기존 거래·처리일 보존, 미처리분에 새 조건 적용. PUT는 조회 결과의 `edit_token`을 `If-Match`로 요구한다. [설계](docs/designs/actual-rule-editing.md), [검증 기록](docs/verification/actual-rule-editing.md).
-- 무이자 할부 관리(v0.10.0.0, PR #15 main 반영): 새 원화 구매·회차 미리보기, 실제 납부/환불 배분, 예정일 조정과 잔여 원금·현금 전망을 제공한다. [설계·유이자 후속 확장 경계](docs/designs/installment-payments.md), [검증 기록·운영 범위](docs/verification/installment-payments.md). 현재 스키마는 v8이며 v7의 할부 기록을 보존하면서 연결된 납부 거래의 반복규칙 삭제를 허용한다. 유이자는 P3 후속 작업이다.
+- 무이자 할부 관리(v0.10.0.0, PR #15 main 반영): 새 원화 구매·회차 미리보기, 실제 납부/환불 배분, 예정일 조정과 잔여 원금·현금 전망을 제공한다. [설계·유이자 후속 확장 경계](docs/designs/installment-payments.md), [검증 기록·운영 범위](docs/verification/installment-payments.md). v8에서 v7의 할부 기록을 보존하면서 연결된 납부 거래의 반복규칙 삭제를 허용한다. 유이자는 P3 후속 작업이다.
 - 거래 태그 검색·선택 UI(v0.11.0.0, PR #16 main 반영 완료): 입력·수정 공통 combobox, 선택 칩, 새 태그 생성과 키보드/IME 보호. [설계](docs/designs/transaction-tags.md), [검증](docs/verification/transaction-tags.md).
 - 미래 그래프 경계 점검(v0.11.1.0, PR #17 main 반영 완료): 실제 선은 조회 기준일까지 유지하고, 표·툴팁은 각 전망 종료일 이후 값을 표시하지 않는다. 겹친 끝 라벨은 차트 안으로 정렬한다. [검증 기록](docs/verification/dashboard-projection-audit.md).
 - 통계(v0.12.0.0 릴리스 후보): 기간 수입·지출과 기간말 자산·부채·순자산, 월별 정확한 표, 현재 계정 계층별 구성. 원화 실제 기장만 읽으며 거래 전체 통화 제외·마이너스통장 보고 분류를 유지한다. [설계](docs/designs/statistics-overview.md), [검증](docs/verification/statistics-overview.md).
+- 계정별 거래내역(2026-11-14 로컬 구현, 미출시): 계정명 링크와 계정/하위 범위 필터를 제공하고 날짜·태그·페이지·수정 복귀를 보존한다. [설계](docs/designs/account-history-filter.md), [검증](docs/verification/account-history-filter.md).
 - 진행 상태: 로컬 `WORKING.md`가 있을 때 참고
 
+- 거래 후 잔고(로컬 구현·미출시, 스키마 v9): 실제 거래별 계정·통화 누적 잔고를 저장하고 과거 삽입·수정·삭제 시 이후 잔고를 원자적으로 보정한다. 계정별 거래내역에 `거래 후 잔고`를 표시하며 날짜·태그·페이지로 누적값을 초기화하지 않는다. 그룹 합계는 통화별 Python 정수로 계산하고 새 잔고 API 필드는 10진 문자열로 전달해 BigInt로 표시한다. `/balances`의 계정별 반복 합산과 전체 거래의 분개·태그별 반복 조회를 제거했다. [설계](docs/designs/transaction-balances.md), [검증](docs/verification/transaction-balances.md).
+
 ## Design System
+2026-11-15 사용자 제공 이미지에 따라 Violet Workspace로 공통 셸·대시보드를 개편했다. 보라색 사이드바·밝은 배경·흰색 둥근 카드가 현재 기준이다. 기존 잉크와 원장의 색·카드 제한은 대체되며, 한국어·원 단위 숫자·차트 의미·계정 거래 흐름의 빨강 +/파랑 −는 유지한다. [설계](docs/designs/violet-workspace.md), [검증](docs/verification/violet-workspace.md).
+
 Always read DESIGN.md before making any visual or UI decisions.
 All font choices, colors, spacing, and aesthetic direction are defined there.
 Do not deviate without explicit user approval.

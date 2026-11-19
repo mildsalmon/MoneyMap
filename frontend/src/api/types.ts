@@ -40,6 +40,7 @@ export interface Posting {
 }
 
 export interface Txn {
+  balance_after?: { amount: string | number; currency: string }[];
   memo: string;
   tags: string[];
   id: number;

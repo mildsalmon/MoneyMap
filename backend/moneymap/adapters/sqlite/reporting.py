@@ -29,6 +29,27 @@ class SqliteLedgerQueries:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
+    def balances_at(self, at: datetime.date, scenario_id: int) -> dict[int, int]:
+        if scenario_id == ACTUAL_SCENARIO_ID:
+            rows = self._conn.execute("""SELECT k.account_id,COALESCE((
+              SELECT b.balance FROM account_balance_history b
+              WHERE b.account_id=k.account_id AND b.currency=k.currency AND b.date<=?
+              ORDER BY b.date DESC,b.txn_id DESC LIMIT 1
+            ),0) AS bal FROM account_balance_keys k""", (_iso(at),))
+        else:
+            sc = self._conn.execute("SELECT fork_date FROM scenarios WHERE id=?", (scenario_id,)).fetchone()
+            if sc is None or sc["fork_date"] is None:
+                raise DomainNotFoundError("시나리오가 없습니다", code="scenario_not_found", context={"scenario_id": scenario_id})
+            rows = self._conn.execute("""SELECT p.account_id,SUM(p.amount) AS bal
+              FROM postings p JOIN transactions t ON t.id=p.txn_id
+              WHERE t.posted=1 AND ((t.scenario_id=1 AND t.date<=?)
+                OR (t.scenario_id=? AND t.date>? AND t.date<=? AND t.source_rule_id IS NULL))
+              GROUP BY p.account_id""", (sc['fork_date'], scenario_id, sc['fork_date'], _iso(at)))
+        totals: dict[int, int] = {}
+        for row in rows:
+            totals[row['account_id']] = totals.get(row['account_id'], 0) + row['bal']
+        return totals
+
     def balance_at(self, account_id: int, at: datetime.date, scenario_id: int) -> Money:
         if scenario_id == ACTUAL_SCENARIO_ID:
             row = self._conn.execute(

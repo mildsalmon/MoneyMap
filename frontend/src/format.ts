@@ -7,6 +7,18 @@ export function fmtWon(n: number | bigint): string {
   return `${sign}₩${magnitude.toLocaleString("ko-KR")}`;
 }
 
+/** Native minor units; keep KRW's established ledger typography. */
+export function fmtMoney(n: number | bigint, currency: string): string {
+  if (currency === "KRW") return fmtWon(n);
+  const minor = BigInt(n), magnitude = minor < 0n ? -minor : minor;
+  const formatter = new Intl.NumberFormat("ko-KR", { style: "currency", currency });
+  const digits = formatter.resolvedOptions().maximumFractionDigits ?? 0;
+  const scale = 10n ** BigInt(digits);
+  const parts = formatter.formatToParts(magnitude / scale);
+  return (minor < 0n ? "−" : "") + parts.map(part => part.type === "fraction"
+    ? String(magnitude % scale).padStart(digits, "0") : part.value).join("");
+}
+
 export function fmtAbbrev(n: number): string {
   const sign = n < 0 ? "−" : "";
   const abs = Math.abs(n);

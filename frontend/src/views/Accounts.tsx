@@ -14,6 +14,7 @@ import {
 } from "../api";
 import { fmtWon, todayIso } from "../format";
 import type { ViewProps } from "../App";
+import { AccountHistoryLink } from "./AccountHistoryLink";
 import { AccountSettingsPanel } from "./AccountSettingsPanel";
 import { OpeningBalanceControl } from "./OpeningBalanceControl";
 import { useAccountOrdering } from "./useAccountOrdering";
@@ -592,7 +593,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
             <div className="order-account-label">
             <AccountOrderControls account={account} />
             {depth > 0 && <span className="tree-guide">└ </span>}
-            <span className="account-name" title={account.name} aria-label={account.name}>{account.name}</span>
+            <AccountHistoryLink accountId={account.id} className="account-name">{account.name}</AccountHistoryLink>
             {group && (
               <span className="badge group-badge">{hasChildren ? "그룹 · 합산" : "그룹"}</span>
             )}
@@ -845,7 +846,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
                   return (
                     <tr key={account.id} className="muted-row">
                       <td>
-                        <span className="account-name" title={account.name}>{account.name}</span>
+                        <AccountHistoryLink accountId={account.id} className="account-name">{account.name}</AccountHistoryLink>
                       </td>
                       <td>
                         <span className="badge">{TYPE_LABEL[account.type]}</span>

@@ -57,9 +57,10 @@ def balances(
     r = repos(request)
     at = at or now().date()
     out = []
+    raw_balances = r["queries"].balances_at(at, scenario_id)
     for a in r["accounts"].find_all():
         assert a.id is not None
-        raw = r["queries"].balance_at(a.id, at, scenario_id).amount
+        raw = raw_balances.get(a.id, 0)
         out.append(
             {
                 "account_id": a.id,
@@ -72,7 +73,7 @@ def balances(
         )
     return {
         "at": at.isoformat(),
-        "net_worth": r["queries"].net_worth_at(at, scenario_id),
+        "net_worth": sum(a["balance"] for a in out if a["type"] in {"asset", "liability"}),
         "accounts": out,
     }
 

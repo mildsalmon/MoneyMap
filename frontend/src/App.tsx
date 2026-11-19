@@ -93,8 +93,8 @@ export function App() {
   return (
     <div className="shell">
       <aside className="side">
-        <div className="logo">MoneyMap</div>
-        <nav>
+        <div className="logo"><span className="brand-mark" aria-hidden="true"><BarChart3 size={19} strokeWidth={2} /></span>MoneyMap</div>
+        <nav aria-label="주 메뉴">
           {NAV.map(({ id, label, icon: Icon }) => (
             <button key={id} className={view === id ? "on" : ""}
               aria-current={view === id ? "page" : undefined} onClick={() => setView(id)}>

@@ -80,21 +80,29 @@ def update_transaction(conn: sqlite3.Connection, txn_id: int, command: Transacti
             existing = SqliteTransactionRepository(conn).find_opening_balances(command.opening.account_id)
             if any(row["transaction_id"] != txn_id for row in existing):
                 raise DomainConflictError("대상 계정에 이미 개시잔액이 있습니다", code="opening_already_recorded")
-        conn.execute("UPDATE transactions SET posted=0,date=?,description=?,memo=?,item_key=? WHERE id=?",
-                     (command.date.isoformat(), command.description, command.memo, normalize_item_key(command.description), txn_id))
-        keep = {p.posting_id for p in postings if p.posting_id is not None}
-        for previous in original.postings:
-            if previous.posting_id not in keep:
-                conn.execute("DELETE FROM postings WHERE id=? AND txn_id=?", (previous.posting_id, txn_id))
-        for posting in postings:
-            if posting.posting_id is not None:
-                conn.execute("UPDATE postings SET account_id=?,amount=? WHERE id=? AND txn_id=?",
-                             (posting.account_id, posting.amount, posting.posting_id, txn_id))
-            else:
-                conn.execute("INSERT INTO postings(txn_id,account_id,amount,currency) VALUES(?,?,?,'KRW')",
-                             (txn_id, posting.account_id, posting.amount))
+        financial_changed = command.date != original.date or [
+            (p.posting_id, p.account_id, p.amount) for p in postings
+        ] != [(p.posting_id, p.account_id, p.amount) for p in original.postings]
+        if financial_changed:
+            conn.execute("UPDATE transactions SET posted=0,date=?,description=?,memo=?,item_key=? WHERE id=?",
+                         (command.date.isoformat(), command.description, command.memo, normalize_item_key(command.description), txn_id))
+            keep = {p.posting_id for p in postings if p.posting_id is not None}
+            for previous in original.postings:
+                if previous.posting_id not in keep:
+                    conn.execute("DELETE FROM postings WHERE id=? AND txn_id=?", (previous.posting_id, txn_id))
+            for posting in postings:
+                if posting.posting_id is not None:
+                    conn.execute("UPDATE postings SET account_id=?,amount=? WHERE id=? AND txn_id=?",
+                                 (posting.account_id, posting.amount, posting.posting_id, txn_id))
+                else:
+                    conn.execute("INSERT INTO postings(txn_id,account_id,amount,currency) VALUES(?,?,?,'KRW')",
+                                 (txn_id, posting.account_id, posting.amount))
+            conn.execute("UPDATE transactions SET posted=1 WHERE id=?", (txn_id,))
+        else:
+            # Metadata must not unpost/repost an otherwise unchanged ledger.
+            conn.execute("UPDATE transactions SET description=?,memo=?,item_key=? WHERE id=?",
+                         (command.description, command.memo, normalize_item_key(command.description), txn_id))
         _replace_tags(conn, txn_id, command.tags)
-        conn.execute("UPDATE transactions SET posted=1 WHERE id=?", (txn_id,))
         saved = find_detail(conn, txn_id)
         _record(conn, txn_id, command, fingerprint, "applied", saved.version)
         return _result(conn, txn_id, command.request_id, "applied", saved.version)

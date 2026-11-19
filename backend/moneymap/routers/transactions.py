@@ -90,14 +90,23 @@ def transaction_history(
     end: str = Query(..., pattern=r"^\d{4}-\d{2}-\d{2}$"),
     tag: str = Query(default=""),
     page: int = Query(default=1, ge=1),
+    account_id: int | None = Query(default=None, gt=0, le=9_007_199_254_740_991),
+    include_descendants: bool = Query(default=True),
 ):
+    for key in ("account_id", "include_descendants"):
+        if len(request.query_params.getlist(key)) > 1:
+            raise HTTPException(422, detail="계정 조회 조건은 하나씩 지정하세요")
+    if account_id is None and "include_descendants" in request.query_params:
+        raise HTTPException(422, detail="하위 계정 조회에는 계정과목을 지정하세요")
+    if account_id is not None and not request.state.conn.execute("SELECT 1 FROM accounts WHERE id=?", (account_id,)).fetchone():
+        raise HTTPException(404, detail="계정과목을 찾을 수 없습니다")
     try:
         start_date, end_date = datetime.date.fromisoformat(start), datetime.date.fromisoformat(end)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="올바른 시작일과 종료일을 입력하세요") from exc
     if start_date > end_date:
         raise HTTPException(status_code=422, detail="종료일은 시작일과 같거나 이후여야 합니다")
-    return SqliteTransactionHistory(request.state.conn).page(start_date, end_date, tag, page)
+    return SqliteTransactionHistory(request.state.conn).page(start_date, end_date, tag, page, account_id, include_descendants)
 
 
 @router.post("/api/transactions", status_code=201)
