@@ -5,10 +5,10 @@ const api = process.env.MONEYMAP_E2E_API_BASE ?? `http://127.0.0.1:${process.env
 const row = (page: Page, account: Account) => page.locator(`.account-row[data-order-row="${account.id}"]`);
 const settings = (page: Page, account: Account) => row(page, account).getByRole("button", { name: "설정", exact: true });
 const form = (page: Page, account: Account) => page.locator(`#account-settings-panel-${account.id}`);
-async function group(request: APIRequestContext, label: string) {
+async function group(request: APIRequestContext, label: string, type: Account["type"] = "asset") {
   const prefix = `${label}-${Date.now()}`;
   async function create(name: string, parent_id: number | null): Promise<Account> {
-    const response = await request.post(`${api}/accounts`, { data: { type: "asset", name: prefix + name, parent_id } });
+    const response = await request.post(`${api}/accounts`, { data: { type, name: prefix + name, parent_id } });
     expect(response.status()).toBe(201);
     return response.json();
   }
@@ -336,4 +336,72 @@ test.describe("리뷰 회귀", () => {
       await expect(row(page, a.first)).toContainText(a.first.name + "-완료");
     } finally { pending.release(); }
   });
+});
+
+for (const committed of [true, false]) {
+  test(`생성 재시도는 영수증 확인과 새 쓰기를 구분한다 · 처음 반영 ${committed}`, async ({ page, request }) => {
+    const a = await group(request, "영수증A", "expense"), b = await group(request, "순번B", "expense");
+    const childName = a.parent.name + "-추가";
+    let posts = 0, reads = 0;
+    await page.route("**/api/accounts", async route => {
+      if (route.request().method() === "POST" && ++posts === 1) {
+        if (committed) expect((await route.fetch()).status()).toBe(201);
+        await route.abort();
+      } else await route.continue();
+    });
+    await page.route("**/accounts/creation-requests/*", async route => {
+      if (++reads === 1) await route.abort();
+      else await route.continue();
+    });
+    await page.goto("/accounts");
+    await row(page, a.parent).getByRole("button", { name: /더보기$/ }).click();
+    await page.getByRole("menuitem", { name: "소분류" }).click();
+    const input = page.getByLabel(a.parent.name + " 소분류 이름");
+    await input.fill(childName);
+    await input.press("Enter");
+    await expect(page.locator("tr.account-inline [role=alert]")).toBeVisible();
+    await moveUp(page, b.second);
+    const undo = page.getByRole("button", { name: "실행취소", exact: true });
+    await expect(undo).toBeVisible();
+    await input.press("Enter");
+    await expect(input).toHaveCount(0);
+    expect(reads).toBe(2);
+    expect(posts).toBe(committed ? 1 : 2);
+    expect((await serverRows(request, a.parent)).filter(r => r.name === childName)).toHaveLength(1);
+    expect((await serverRows(request, b.parent)).map(r => r.id)).toEqual([b.second.id, b.first.id]);
+    if (committed) {
+      await expect(undo).toBeVisible();
+      await undo.click();
+      await expect.poll(async () => (await serverRows(request, b.parent)).map(r => r.id))
+        .toEqual([b.first.id, b.second.id]);
+    } else {
+      await expect(page.locator(".toast")).toContainText(childName);
+      await expect(undo).toHaveCount(0);
+    }
+  });
+}
+
+test("먼저 보낸 순서 저장의 재조회 뒤에도 나중에 저장한 그룹만 실행취소한다", async ({ page, request }) => {
+  const a = await group(request, "순서확인A", "expense"), b = await group(request, "순서확인B", "expense");
+  const pending = gate(), committed = gate();
+  await page.route("**/accounts/reorder", async route => {
+    if (route.request().postDataJSON().parent_id !== a.parent.id) return route.continue();
+    expect((await route.fetch()).status()).toBe(200);
+    committed.release();
+    await pending.wait;
+    await route.abort();
+  });
+  await page.goto("/accounts");
+  try {
+    await moveUp(page, a.second);
+    await committed.wait;
+    await moveUp(page, b.second);
+    await expect(page.locator(".toast")).toContainText(b.second.name);
+    pending.release();
+    await expect(settings(page, a.first)).toBeEnabled();
+    await page.getByRole("button", { name: "실행취소", exact: true }).click();
+    await expect.poll(async () => (await serverRows(request, b.parent)).map(r => r.id))
+      .toEqual([b.first.id, b.second.id]);
+    expect((await serverRows(request, a.parent)).map(r => r.id)).toEqual([a.second.id, a.first.id]);
+  } finally { pending.release(); }
 });

@@ -21,7 +21,7 @@ export function scopesOverlap(accounts: Account[], a: SiblingScope, b: SiblingSc
 // Acquire synchronously before dispatch, including both ends of a move.
 // A ticket belongs to this visit and remains held through reconciliation.
 export function useAccountWrites(accounts: Account[], blocked: boolean, showToast: ViewProps["showToast"]) {
-  const active = useRef(new Map<number, SiblingScope[]>());
+  const active = useRef(new Map<number, { scopes: SiblingScope[]; writeOrder: number }>());
   const sequence = useRef(0);
   const lastSuccess = useRef(0);
   const [, render] = useReducer(n => n + 1, 0);
@@ -31,25 +31,35 @@ export function useAccountWrites(accounts: Account[], blocked: boolean, showToas
   }, []);
   function busy(...scopes: SiblingScope[]) {
     return blocked || [...active.current.values()].some(held =>
-      held.some(a => scopes.some(b => scopesOverlap(accounts, a, b))));
+      held.scopes.some(a => scopes.some(b => scopesOverlap(accounts, a, b))));
   }
-  function resume(ticket: number, ...scopes: SiblingScope[]) {
-    if (active.current.has(ticket) || busy(...scopes)) return null;
-    active.current.set(ticket, scopes);
+  // A confirmation needs its own scope lock but keeps the order of the write it checks.
+  function confirm(writeOrder: number, ...scopes: SiblingScope[]) {
+    if (busy(...scopes)) return null;
+    const ticket = ++sequence.current;
+    active.current.set(ticket, { scopes, writeOrder });
     render();
     return ticket;
   }
+  function markNewWrite(ticket: number) {
+    const lock = active.current.get(ticket);
+    if (lock) lock.writeOrder = ticket;
+  }
   function begin(...scopes: SiblingScope[]) {
-    return resume(++sequence.current, ...scopes);
+    const ticket = confirm(0, ...scopes);
+    if (ticket !== null) markNewWrite(ticket);
+    return ticket;
   }
   function finish(ticket: number) {
     if (active.current.delete(ticket)) render();
   }
   function success(ticket: number, message: string, undo?: () => Promise<void>) {
-    if (!active.current.has(ticket) || ticket < lastSuccess.current) return;
-    lastSuccess.current = ticket;
+    const lock = active.current.get(ticket);
+    if (!lock || lock.writeOrder < lastSuccess.current) return;
+    const order = lock.writeOrder;
+    lastSuccess.current = order;
     showToast(message, undo && (async () => {
-      if (lastSuccess.current === ticket) await undo();
+      if (lastSuccess.current === order) await undo();
     }));
   }
   function parentVersions(...scopes: SiblingScope[]) {
@@ -59,7 +69,7 @@ export function useAccountWrites(accounts: Account[], blocked: boolean, showToas
   function announce(message: string) {
     if (!lastSuccess.current) showToast(message);
   }
-  return { begin, resume, busy, finish, success, announce, parentVersions, holds: (ticket: number) => active.current.has(ticket),
+  return { begin, confirm, markNewWrite, busy, finish, success, announce, parentVersions, holds: (ticket: number) => active.current.has(ticket),
     pending: active.current.size > 0 };
 }
 

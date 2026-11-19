@@ -134,7 +134,7 @@ export function AccountSettingsPanel({ account, accounts, onCancel, onSaved, onC
   async function checkLatest() {
     if (unconfirmedWrite === null) return;
     // Confirm the original write at its place in the user's action order.
-    const ticket = writes.resume(unconfirmedWrite, account, destination);
+    const ticket = writes.confirm(unconfirmedWrite, account, destination);
     if (ticket === null) return;
     setPending(true);
     try {
