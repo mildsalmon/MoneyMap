@@ -1,4 +1,4 @@
-import { expect, test, type Page, type Request, type Route } from "./test";
+import { accountListUrl, expect, test, type Page, type Request, type Route } from "./test";
 
 async function waitForStartup(page: Page) {
   const materialized = page.waitForResponse(response => response.url().endsWith("/api/materialize") && response.ok());
@@ -23,17 +23,17 @@ for (const screen of screens) {
     const held: Route[] = [];
     const failed = new Set<Request>();
     page.on("requestfailed", request => { failed.add(request); });
-    await page.route("**/api/accounts", route => { held.push(route); });
+    await page.route(accountListUrl, route => { held.push(route); });
     await page.locator(".side nav").getByRole("button", { name: screen.nav, exact: true }).click();
     await expect(page.getByText(screen.loading, { exact: true })).toBeVisible();
     await expect.poll(() => held.length).toBeGreaterThan(0);
     await page.locator(".side nav").getByRole("button", { name: "시나리오", exact: true }).click();
     await expect.poll(() => held.every(route => failed.has(route.request()))).toBe(true);
-    await page.unroute("**/api/accounts");
+    await page.unroute(accountListUrl);
     for (const route of held) {
       try { await route.fulfill({ json: [] }); } catch { /* cancelled fetch no longer consumes this response */ }
     }
-    const loaded = page.waitForResponse(response => response.url().endsWith("/api/accounts") && response.ok());
+    const loaded = page.waitForResponse(response => accountListUrl.test(response.url()) && response.ok());
     await page.locator(".side nav").getByRole("button", { name: screen.nav, exact: true }).click();
     await loaded;
     await expect(page.getByText(screen.loading, { exact: true })).toBeHidden();
@@ -42,7 +42,7 @@ for (const screen of screens) {
 
   test(`${screen.nav}: 조회 실패를 빈 결과로 표시하지 않고 재시도한다`, async ({ page }) => {
     await waitForStartup(page);
-    await page.route("**/api/accounts", route => route.fulfill({ status: 503, json: { detail: "조회 재시도 확인" } }));
+    await page.route(accountListUrl, route => route.fulfill({ status: 503, json: { detail: "조회 재시도 확인" } }));
     await page.locator(".side nav").getByRole("button", { name: screen.nav, exact: true }).click();
     const alert = page.getByRole("alert").filter({ hasText: screen.error });
     await expect(alert).toContainText("조회 재시도 확인");
@@ -50,7 +50,7 @@ for (const screen of screens) {
     if (screen.path === "/transactions") await expect(page.getByText("선택한 기간과 태그에 해당하는 거래가 없습니다.", { exact: true })).toBeHidden();
     if (screen.path === "/rules") await expect(page.getByText("규칙이 없습니다.", { exact: true })).toBeHidden();
     if (screen.path === "/transactions/new") await page.getByLabel("금액", { exact: true }).fill("9876");
-    await page.unroute("**/api/accounts");
+    await page.unroute(accountListUrl);
     await alert.getByRole("button", { name: screen.retry, exact: true }).click();
     await expect(alert).toBeHidden();
     await expect(page.getByText(screen.loading, { exact: true })).toBeHidden();

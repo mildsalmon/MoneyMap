@@ -10,7 +10,7 @@ from moneymap.domain.scenario import ACTUAL_SCENARIO_ID
 from moneymap.domain.services import validate_postable_accounts
 from moneymap.domain.transaction import Posting, Transaction
 
-from .accounts import SqliteAccountRepository
+from .account_history import dated_accounts
 from .common import _account_write
 from .transactions import _insert_txn
 
@@ -51,7 +51,7 @@ def _compare(conn: sqlite3.Connection, statement: Statement, accounts: list[Acco
 def preview(conn: sqlite3.Connection, statement: Statement) -> dict:
     conn.execute("BEGIN")
     try:
-        return _compare(conn, statement, SqliteAccountRepository(conn).find_all())
+        return _compare(conn, statement, dated_accounts(conn, statement.closing_date)[0])
     finally:
         conn.rollback()
 
@@ -67,7 +67,7 @@ def confirm(conn: sqlite3.Connection, command: Adjustment) -> dict:
                 raise DomainConflictError("이미 다른 조정에 사용한 요청입니다", code="request_id_conflict")
             return {"transaction_id": receipt["txn_id"]}
 
-        accounts = SqliteAccountRepository(conn).find_all()
+        accounts = dated_accounts(conn, statement.closing_date)[0]
         comparison = _compare(conn, statement, accounts)
         if comparison["preview_version"] != command.preview_version:
             raise DomainConflictError("마감일 장부가 바뀌었습니다. 잔액을 다시 계산하세요", code="stale_preview")

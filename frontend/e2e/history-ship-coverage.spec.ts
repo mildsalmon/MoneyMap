@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "./test";
+import { accountListUrl, expect, test, type Page } from "./test";
 import { editAccounts, makeDetail } from "./transactionEditFixtures";
 
 const search = "start=2026-01-01&end=2026-12-31&page=";
@@ -10,7 +10,7 @@ async function history(page: Page, count = 1, pageNumber = 1) {
     return { ...detail, postings: detail.postings.map(p => ({ account_id: p.account_id,
       amount: { amount: p.amount, currency: p.currency } })) };
   }).reverse();
-  await page.route("**/api/accounts", r => r.fulfill({ json: editAccounts }));
+  await page.route(accountListUrl, r => r.fulfill({ json: editAccounts }));
   await page.route("**/api/tags", r => r.fulfill({ json: ["데이트"] }));
   await page.route("**/api/transaction-history?*", r => {
     const current = Number(new URL(r.request().url()).searchParams.get("page"));

@@ -32,7 +32,7 @@ from moneymap.domain.transaction import Posting, Transaction
 from moneymap.domain.transaction_input import normalize_item_key
 from .opening_balances import V4_OPENING_BALANCES_SQL
 
-from .accounts import SqliteAccountRepository
+from .account_history import dated_accounts
 from .common import _D, _iso, _translate_integrity_error
 
 
@@ -130,7 +130,7 @@ class SqliteTransactionRepository:
             raise NotImplementedError("기존 거래는 버전 검증을 포함한 update()를 사용하세요")
         try:
             self._conn.execute("BEGIN IMMEDIATE")
-            accounts = SqliteAccountRepository(self._conn).find_all()
+            accounts, _ = dated_accounts(self._conn, txn.date)
             validate_postable_accounts(
                 accounts,
                 [p.account_id for p in txn.postings],
@@ -144,7 +144,7 @@ class SqliteTransactionRepository:
                 # _insert_txn() with one; transaction shape never grants access.
                 if account.archived or account.is_system:
                     raise DomainValidationError(
-                        f"'{account.name}' 계정을 지금 사용할 수 없습니다. 다른 계정을 선택하세요",
+                        f"'{account.name}' 계정을 해당 거래일에 사용할 수 없습니다. 다른 계정을 선택하세요",
                         code="account_unavailable", context={"account_id": account.id},
                     )
             txn_id = _insert_txn(self._conn, txn)
@@ -182,18 +182,20 @@ class SqliteTransactionRepository:
         """개시잔액 중복 검사와 균형 거래 생성을 한 경계로 묶는다."""
         try:
             self._conn.execute("BEGIN IMMEDIATE")
-            accounts = SqliteAccountRepository(self._conn)
-            account = accounts.find_by_id(account_id)
+            accounts, _ = dated_accounts(self._conn, date)
+            account = next((a for a in accounts if a.id == account_id), None)
             if account is None:
                 raise DomainNotFoundError(
                     "계정이 없습니다",
                     code="account_not_found",
                 )
+            if account.archived:
+                raise DomainValidationError("해당 날짜에 사용할 수 없는 계정입니다", code="account_unavailable")
             signed_amount = opening_balance_posting_amount(
                 account,
                 amount,
                 state,
-                has_children=accounts.has_children(account_id),
+                has_children=any(a.parent_id == account_id for a in accounts),
             )
             if self.find_opening_balances(account_id):
                 raise DomainConflictError(

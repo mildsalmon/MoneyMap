@@ -162,8 +162,8 @@ def resolve_transaction_edit(txn_id: int, body: TransactionEdit, request: Reques
 
 
 @router.get("/api/transaction-input/last-pair", response_model=LastPair)
-def input_last_pair(request: Request, item: str = Query(...)):
-    return last_pair(SqliteTransactionInputQueries(request.state.conn), item)
+def input_last_pair(request: Request, item: str = Query(...), on: datetime.date | None = None):
+    return last_pair(SqliteTransactionInputQueries(request.state.conn, on), item)
 
 
 @router.get("/api/transaction-input/recent", response_model=list[RecentInput])

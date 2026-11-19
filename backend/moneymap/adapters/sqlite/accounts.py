@@ -29,6 +29,7 @@ from moneymap.domain.services import (
 )
 from moneymap.domain.standard_accounts import StandardAccount
 
+from .account_history import account_action
 from .common import _account_write
 from moneymap.domain.account_order import (
     AccountReorderCommand, AccountReorderEffects, AccountReorderResult, validate_reorder,
@@ -111,7 +112,7 @@ class SqliteAccountRepository:
         self,
         command: AccountSettingsCommand,
     ) -> AccountSettingsResult:
-        with _account_write(self._conn):
+        with _account_write(self._conn), account_action(self._conn, command.effective_date):
             current = self.find_by_id(command.account_id)
             if current is None:
                 raise DomainNotFoundError(
@@ -183,8 +184,8 @@ class SqliteAccountRepository:
                 ),
             )
 
-    def set_archived(self, account_id: int, archived: bool) -> Account:
-        with _account_write(self._conn):
+    def set_archived(self, account_id: int, archived: bool, effective_date=None) -> Account:
+        with _account_write(self._conn), account_action(self._conn, effective_date):
             current = self.find_by_id(account_id)
             if current is None:
                 raise DomainNotFoundError("계정이 없습니다", code="account_not_found")
@@ -230,8 +231,8 @@ class SqliteAccountRepository:
             assert saved is not None
             return saved
 
-    def set_placeholder(self, account_id: int, is_placeholder: bool) -> Account:
-        with _account_write(self._conn):
+    def set_placeholder(self, account_id: int, is_placeholder: bool, effective_date=None) -> Account:
+        with _account_write(self._conn), account_action(self._conn, effective_date):
             current = self.find_by_id(account_id)
             if current is None:
                 raise DomainNotFoundError("계정이 없습니다", code="account_not_found")

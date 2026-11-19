@@ -5,8 +5,9 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from moneymap.adapters.sqlite import connect, database, init_db, SqliteAccountRepository, SqliteTransactionRepository
+from moneymap.adapters.sqlite import connect, database, init_db, SqliteAccountRepository
 from moneymap.adapters.sqlite.rules import ScenarioRuleWriter
+from moneymap.adapters.sqlite.transactions import _insert_txn
 from moneymap.api import create_app
 from moneymap.domain import Account, Money, Posting, RecurringRule, Schedule, Transaction
 
@@ -21,10 +22,13 @@ def seed_v8(path, today, mixed):
         for name, kind, currency in [("Bank", "asset", "KRW"), ("Income", "income", "KRW"),
                                      ("Expense", "expense", "KRW"), ("Dollar", "asset", "USD")]
     ]
-    txns = SqliteTransactionRepository(conn)
+
     def post(name, currency, *legs):
-        txns.save(Transaction(date=today, description=name, scenario_id=1,
-            postings=[Posting(account_id=aid, amount=Money(amount=n, currency=currency)) for aid, n in legs]))
+        with conn:
+            _insert_txn(conn, Transaction(
+                date=today, description=name, scenario_id=1,
+                postings=[Posting(account_id=aid, amount=Money(amount=n, currency=currency)) for aid, n in legs],
+            ))
 
     post("salary", "KRW", (bank, 1000), (income, -1000))
     post("meal", "KRW", (expense, 300), (bank, -300))

@@ -28,10 +28,10 @@ function DraftSummary({ draft }: { draft: Draft }) {
 function EditSession({ initial, gen, refresh, showToast }: ViewProps & { initial: TransactionDetail }) {
   const navigate = useNavigate(), location = useLocation();
   const returnTo = useRef(historyReturn(location.state?.returnTo)).current;
-  const accounts = useQuery(`edit-accounts:${gen}`, signal => api.accounts(signal));
   const tags = useQuery(`edit-tags:${gen}`, signal => api.tags(signal));
   const [original, setOriginal] = useState(initial);
   const [draft, setDraft] = useState(() => editDraft(initial));
+  const accounts = useQuery(`edit-accounts:${gen}:${draft.date}`, signal => api.datedAccounts(draft.date, signal));
   const current = useRef(draft);
   const [phase, setPhase] = useState<EditPhase>("editing");
   const phaseRef = useRef<EditPhase>("editing");
@@ -72,7 +72,10 @@ function EditSession({ initial, gen, refresh, showToast }: ViewProps & { initial
   const back = (saved?: TransactionDetail) => {
     const filter = returnTo.query?.tag ?? returnTo.tagFilter;
     const accountId = returnTo.query?.accountId;
-    const accountIds = accountId ? (returnTo.query?.accountScope === "direct" ? [Number(accountId)] : withDescendants(accounts.data ?? [], Number(accountId))) : null;
+    const currentTree = (accounts.data ?? []).map(a => ({
+      ...a, parent_id: a.current_parent_id === undefined ? a.parent_id : a.current_parent_id,
+    }));
+    const accountIds = accountId ? (returnTo.query?.accountScope === "direct" ? [Number(accountId)] : withDescendants(currentTree, Number(accountId))) : null;
     const filtered = saved && ((accountIds && !saved.postings.some(p => accountIds.includes(p.account_id))) || (filter && !saved.tags.includes(filter))
       || (returnTo.query && (saved.date < returnTo.query.start || saved.date > returnTo.query.end)));
     const notice = saved ? (filtered ? "수정한 거래가 현재 조회 조건에 해당하지 않아 목록에 표시되지 않습니다." : "거래를 수정했습니다.") : undefined;

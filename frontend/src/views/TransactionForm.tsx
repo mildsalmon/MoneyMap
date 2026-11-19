@@ -84,13 +84,14 @@ export function TransactionForm({ title, intro, draft, model, change, field, val
       </div>
       {recall}
       {accountStatus}
+      {model.historyUnknown && <p role="status">이력 미상 · 수집 시작 전 거래일입니다. 현재 기장 가능한 계정을 선택할 수 있습니다.</p>}
       <div className="txn-top-summary" ref={summaryRef} aria-hidden="true">
         {draft.mode === "basic" ? <><span>차변<strong>{name(draft.debit.account)}</strong></span><span>대변<strong>{name(draft.credit.account)}</strong></span></> : <span>분할 입력<strong>{draft.rows.length}개 행 · {fmtWon(validation.debit)}</strong></span>}
       </div>
       {draft.mode === "basic" ? <div className="txn-columns">{(["debit", "credit"] as const).map(side => <section key={side} aria-labelledby={`${side}-heading`}>
         <div className="txn-side-heading"><h2 id={`${side}-heading`} tabIndex={-1}>{side === "debit" ? "왼쪽 · 차변" : "오른쪽 · 대변"}</h2><details><summary>도움말</summary><p>{side === "debit" ? "자산·비용은 증가, 부채·수익·자본은 감소합니다." : "자산·비용은 감소, 부채·수익·자본은 증가합니다."}</p></details></div>
         <div className={`txn-selected${draft[side].account !== null ? " has-selection" : ""}`}><strong>{name(draft[side].account)}</strong><small>{SOURCE[draft[side].source]}</small>{draft[side].account !== null && <span>{model.paths.get(draft[side].account!)}</span>}</div>
-        {systemAccountId !== null && draft[side].account === systemAccountId ? <p>개시잔액 시스템 상대계정 · 금액은 자동 계산됩니다.</p> : <><TransactionAccountPicker model={model} label={side === "debit" ? "차변 계정" : "대변 계정"} value={draft[side].account} onSelect={id => select(side, id)} />{draft[side].account !== null && !model.available.has(draft[side].account!) && <p>현재 새 입력에는 사용할 수 없는 기존 계정입니다. 이 거래에서는 유지할 수 있습니다.</p>}</>}
+        {systemAccountId !== null && draft[side].account === systemAccountId ? <p>개시잔액 시스템 상대계정 · 금액은 자동 계산됩니다.</p> : <><TransactionAccountPicker model={model} label={side === "debit" ? "차변 계정" : "대변 계정"} value={draft[side].account} onSelect={id => select(side, id)} />{draft[side].account !== null && !model.available.has(draft[side].account!) && <p>{draft[side].source === "retained" ? "현재 새 입력에는 사용할 수 없는 기존 계정입니다. 이 거래에서는 유지할 수 있습니다." : "이 거래일에는 사용할 수 없습니다. 다른 계정을 선택하세요."}</p>}</>}
       </section>)}</div> : <section className="txn-split" aria-labelledby="split-heading"><h2 id="split-heading" tabIndex={-1}>분할 입력</h2>
         {draft.rows.map((row, index) => <div className="split-row" key={row.id}>
           <div className="split-fields">

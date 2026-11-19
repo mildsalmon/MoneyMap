@@ -3,8 +3,12 @@ from moneymap.domain.scenario import ACTUAL_SCENARIO_ID
 from moneymap.domain.transaction_input import CandidateLeg, PairCandidate, RecentInput
 
 
+from .account_history import dated_accounts
+
+
 class SqliteTransactionInputQueries:
-    def __init__(self, conn):
+    def __init__(self, conn, on=None):
+        self.on = on
         self.conn = conn
 
     def last_candidate(self, item_key: str) -> PairCandidate | None:
@@ -26,7 +30,15 @@ class SqliteTransactionInputQueries:
             "WHERE p.txn_id=? ORDER BY p.id LIMIT 3",
             (candidate["id"],),
         ).fetchall()
-        return PairCandidate(candidate["id"], candidate["entry_origin"], tuple(CandidateLeg(**dict(r)) for r in rows))
+        legs = [dict(r) for r in rows]
+        if self.on is not None:
+            accounts, _ = dated_accounts(self.conn, self.on)
+            parents = {a.parent_id for a in accounts}
+            available = {a.id for a in accounts if not a.archived and not a.is_placeholder
+                         and not a.is_system and a.id not in parents}
+            for leg in legs:
+                leg["available"] = leg["account_id"] in available
+        return PairCandidate(candidate["id"], candidate["entry_origin"], tuple(CandidateLeg(**leg) for leg in legs))
 
     def recent(self, limit: int, before_id: int | None = None) -> list[RecentInput]:
         cursor_clause = "AND id < ? " if before_id is not None else ""
