@@ -14,6 +14,7 @@ import {
 } from "../api";
 import { fmtWon, todayIso } from "../format";
 import type { ViewProps } from "../App";
+import { AccountRowMenu } from "./AccountRowMenu";
 import { AccountHistoryLink } from "./AccountHistoryLink";
 import { AccountSettingsPanel } from "./AccountSettingsPanel";
 import { OpeningBalanceControl } from "./OpeningBalanceControl";
@@ -310,6 +311,23 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     returnFocusToSettings(result.account.id);
   };
 
+  const [removedRow, setRemovedRow] = useState<{ source: string; next?: string } | null>(null);
+
+  function focusAfterRemoval(id: number, archived: boolean) {
+    const prefix = archived ? "account-restore-" : "account-settings-";
+    const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(`button[id^="${prefix}"]`));
+    const source = prefix + id;
+    const index = buttons.findIndex(button => button.id === source);
+    setRemovedRow({ source, next: index >= 0 ? buttons[index + 1]?.id : undefined });
+  }
+
+  useEffect(() => {
+    if (!removedRow || document.getElementById(removedRow.source)) return;
+    const next = removedRow.next && document.getElementById(removedRow.next);
+    (next || document.getElementById("accounts-title"))?.focus();
+    setRemovedRow(null);
+  }, [accounts, removedRow]);
+
   const archive = async (account: Account) => {
     if (!balances || rowTasks[account.id]) return;
     const balance = balanceOf(account.id)?.balance ?? 0;
@@ -321,6 +339,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     setRowTask(account.id, "archive");
     try {
       await api.archiveAccount(account.id);
+      focusAfterRemoval(account.id, false);
       refresh();
       showToast(`"${account.name}" 보관됨 — 아래 보관된 계정에서 복원할 수 있습니다`);
     } catch (error) {
@@ -335,6 +354,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
     setRowTask(account.id, "restore");
     try {
       await api.restoreAccount(account.id);
+      focusAfterRemoval(account.id, true);
       refresh();
       showToast(`"${account.name}" 복원됨`);
     } catch (error) {
@@ -627,29 +647,6 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
             ) : null}
           </td>
           <td className="row-actions">
-            {group && (
-              <button
-                className="btn sm secondary"
-                disabled={Boolean(pending)}
-                onClick={() => {
-                  setChildDraft({ parentId: account.id, name: "", isOverdraft: false });
-                  setRootDraft(null);
-                  setSettingsAccountId(null);
-                }}
-              >
-                <Plus size={13} aria-hidden="true" />
-                소분류
-              </button>
-            )}
-            {!hasChildren && !account.is_overdraft && (
-              <button
-                className="btn sm secondary"
-                disabled={Boolean(pending)}
-                onClick={() => void toggleGroup(account)}
-              >
-                {account.is_placeholder ? "그룹 해제" : "그룹으로"}
-              </button>
-            )}
             <button
               id={`account-settings-${account.id}`}
               className={`btn sm secondary${editing ? " on" : ""}`}
@@ -661,13 +658,19 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
               <Settings2 size={13} aria-hidden="true" />
               설정
             </button>
-            <button
-              className="btn sm secondary"
-              disabled={!balances || Boolean(balancesError) || Boolean(pending)}
-              onClick={() => void archive(account)}
-            >
-              {pending === "archive" ? "보관 중…" : "보관"}
-            </button>
+            <AccountRowMenu id={account.id} name={account.name} actions={[
+              ...(group ? [{ label: "소분류", run: () => {
+                setChildDraft({ parentId: account.id, name: "", isOverdraft: false });
+                setRootDraft(null);
+                setSettingsAccountId(null);
+              } }] : []),
+              ...(!hasChildren && !account.is_overdraft ? [{
+                label: account.is_placeholder ? "그룹 해제" : "그룹으로",
+                run: () => void toggleGroup(account),
+              }] : []),
+              { label: `${account.name} 보관`, disabled: !balances || Boolean(balancesError),
+                run: () => void archive(account) },
+            ]} />
           </td>
         </tr>
         {editing && (
@@ -856,7 +859,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
                         {balancesError ? "불러오지 못함" : balances ? fmtWon(balanceOf(account.id)?.balance ?? 0) : "…"}
                       </td>
                       <td className="row-actions">
-                        <button className="btn sm secondary" disabled={Boolean(pending)} onClick={() => void restore(account)}>
+                        <button id={`account-restore-${account.id}`} className="btn sm secondary" disabled={Boolean(pending)} onClick={() => void restore(account)}>
                           {pending === "restore" ? "복원 중…" : "복원"}
                         </button>
                       </td>
