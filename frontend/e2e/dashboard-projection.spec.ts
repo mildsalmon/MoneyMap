@@ -46,6 +46,20 @@ for (const timezoneId of ["Asia/Seoul", "America/Los_Angeles"]) {
   });
 }
 
+test("safe boundary curves render and their tooltip difference stays exact", async ({ page }) => {
+  const large = Number.MAX_SAFE_INTEGER;
+  await start(page, [{ ...original[1], points: [point("2026-10-25", large)] }]);
+  const chart = page.locator(".chart-wrap");
+  await chart.press("ArrowRight");
+  await expect(page.locator(".chart-tip .val")).toHaveText("₩9,007,199,254,740,991");
+  await page.route("**/api/dashboard-projection?*", r => r.fulfill({ json: { series: [
+    { ...original[1], points: [point("2026-10-25", large)] },
+    { ...original[2], points: [point("2026-10-25", -2)] },
+  ] } }));
+  await page.reload(); await chart.press("ArrowRight");
+  await expect(page.locator(".chart-tip .sub")).toHaveText(" (−₩9,007,199,254,740,993 기준 대비)");
+});
+
 for (const width of [390, 1440]) test(`clustered negative endpoints stay inside the chart without overlap at ${width}px`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 900 });
   const series = [original[0], original[1], ...[2, 3, 4].map(id => ({ ...original[2], id, name: `가정 ${id}` }))]

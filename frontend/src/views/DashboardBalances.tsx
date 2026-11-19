@@ -1,13 +1,16 @@
 import { AccountHistoryLink } from "./AccountHistoryLink";
 import { accountTree } from "../api/accountTree";
-import type { Account, BalanceRow } from "../api/types";
+import type { Account } from "../api/types";
+import type { reportingApi } from "../api/reporting";
 import { fmtWon } from "../format";
 
-type BalanceItem = { balance: BalanceRow; label: string };
-type BalanceGroup = { id: number; name: string | null; items: BalanceItem[]; total: number };
+type DashboardBalancesResult = Awaited<ReturnType<typeof reportingApi.dashboardBalances>>;
+type DashboardBalance = DashboardBalancesResult["accounts"][number];
+type BalanceItem = { balance: DashboardBalance; label: string };
+type BalanceGroup = { id: number; name: string | null; items: BalanceItem[]; total: bigint };
 
 /** API balances are own balances, never subtree totals. Sum each visible row once. */
-export function groupDashboardBalances(accounts: Account[], balances: BalanceRow[]) {
+export function groupDashboardBalances(accounts: Account[], balances: DashboardBalance[]) {
   const rows = new Map(balances.map(b => [b.account_id, b]));
   const parents = new Set(accounts.map(a => a.parent_id));
   const groups = { asset: new Map<number, BalanceGroup>(), liability: new Map<number, BalanceGroup>() };
@@ -19,13 +22,13 @@ export function groupDashboardBalances(accounts: Account[], balances: BalanceRow
     if (account.archived || !b || (account.type !== "asset" && account.type !== "liability")) continue;
     if (b.reporting_type !== "asset" && b.reporting_type !== "liability") continue;
     const isGroup = account.is_placeholder || parents.has(account.id);
-    if (isGroup && b.balance === 0) continue;
+    if (isGroup && b.balance === 0n) continue;
     const root = ancestors[0];
     const grouped = root.is_placeholder || parents.has(root.id);
     const bucket = groups[b.reporting_type];
     let group = bucket.get(root.id);
     if (!group) {
-      group = { id: root.id, name: grouped ? root.name : null, items: [], total: 0 };
+      group = { id: root.id, name: grouped ? root.name : null, items: [], total: 0n };
       bucket.set(root.id, group);
     }
     const path = ancestors.slice(grouped ? 1 : 0).map(a => a.name).join(" / ");
@@ -38,7 +41,7 @@ export function groupDashboardBalances(accounts: Account[], balances: BalanceRow
 
 export function DashboardBalances({ accounts, balances, ready, unavailable, error, reload }: {
   accounts: Account[];
-  balances: { accounts: BalanceRow[]; net_worth: number } | undefined;
+  balances: DashboardBalancesResult | undefined;
   ready: boolean;
   unavailable: boolean;
   error: string | undefined;

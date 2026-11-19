@@ -156,9 +156,9 @@ function HistorySession({ gen, refresh, showToast, accounts, tags, tagCache, unc
     // Transactions balance within one currency. Direction follows the flow arrow
     // (credit → debit), independent of the account's natural balance sign.
     const postings = t.postings.filter(p => selectedAccounts.has(p.account_id));
-    const net = postings.reduce((sum, p) => sum + p.amount.amount, 0);
+    const net = postings.reduce((sum, p) => sum + BigInt(p.exact_minor ?? p.amount.amount), 0n);
     const currency = postings[0]?.amount.currency ?? "KRW";
-    const magnitude = Math.abs(net);
+    const magnitude = net < 0n ? -net : net;
     const formatted = fmtMoney(magnitude, currency);
     return <span className={net > 0 ? "history-inflow" : net < 0 ? "history-outflow" : "history-neutral"}>
       <span className="sr-only">{net > 0 ? "유입 " : net < 0 ? "유출 " : "변동 없음 "}</span>{net > 0 ? "+" : net < 0 ? "−" : ""}{formatted}</span>;

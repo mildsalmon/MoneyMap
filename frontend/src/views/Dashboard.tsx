@@ -18,8 +18,8 @@ const FUTURE = [
 
 export function Dashboard({ gen, go }: ViewProps) {
   const [months, setMonths] = useState(12);
-  const supportQuery = useQuery(`dashboard-inputs:${gen}`, signal => Promise.all([api.accounts(signal), api.transactions(1, signal), api.rules(1, signal)]));
-  const balancesQuery = useQuery(`dashboard-balances:${gen}`, signal => api.balances(1, signal));
+  const supportQuery = useQuery(`dashboard-inputs:${gen}`, signal => Promise.all([api.accounts(signal), api.transactions(1, signal, true), api.rules(1, signal)]));
+  const balancesQuery = useQuery(`dashboard-balances:${gen}`, api.dashboardBalances);
   const projectionQuery = useQuery(`dashboard-projection:${months}:${gen}`, signal => api.projection(months, chartToggles.get(), signal));
   const accounts = supportQuery.data?.[0] ?? [];
   const txns = supportQuery.data?.[1] ?? [];
@@ -28,25 +28,27 @@ export function Dashboard({ gen, go }: ViewProps) {
   const series = projectionQuery.data?.series.filter(series => series.points.length > 0);
 
   const month = todayIso().slice(0, 7);
-  const typeOf = useMemo(() => new Map(accounts.map((a) => [a.id, a.type])), [accounts]);
+  const accountById = useMemo(() => new Map(accounts.map(a => [a.id, a])), [accounts]);
 
   const { income, expense, expensesByAccount } = useMemo(() => {
-    let income = 0, expense = 0;
-    const byExpense = new Map<number, number>();
+    let income = 0n, expense = 0n;
+    const byExpense = new Map<number, bigint>();
     for (const t of txns) {
       if (!t.date.startsWith(month)) continue;
+      if (!t.postings.every(p => p.amount.currency === "KRW" && accountById.get(p.account_id)?.currency === "KRW")) continue;
       for (const p of t.postings) {
-        const ty = typeOf.get(p.account_id);
-        if (ty === "income") income += -p.amount.amount; // 수익은 대변(−)
+        const ty = accountById.get(p.account_id)?.type;
+        const minor = BigInt(p.exact_minor ?? p.amount.amount);
+        if (ty === "income") income -= minor; // 수익은 대변(−)
         if (ty === "expense") {
-          expense += p.amount.amount;
-          byExpense.set(p.account_id, (byExpense.get(p.account_id) ?? 0) + p.amount.amount);
+          expense += minor;
+          byExpense.set(p.account_id, (byExpense.get(p.account_id) ?? 0n) + minor);
         }
       }
     }
-    const expensesByAccount = [...byExpense.entries()].sort((a, b) => b[1] - a[1]);
+    const expensesByAccount = [...byExpense.entries()].sort((a, b) => a[1] > b[1] ? -1 : a[1] < b[1] ? 1 : 0);
     return { income, expense, expensesByAccount };
-  }, [txns, month, typeOf]);
+  }, [txns, month, accountById]);
 
   // 온보딩 (D11): 3단계 완료 전에는 빈 차트를 보여주지 않는다
   const hasAccounts = accounts.some((a) => (a.type === "asset" || a.type === "liability") && !a.archived);
@@ -100,7 +102,7 @@ export function Dashboard({ gen, go }: ViewProps) {
       <header className="dashboard-heading">
         <div>
           <h1>나의 자산 한눈에</h1>
-          <p>오늘의 잔액과 앞으로의 흐름을 살펴보세요.</p>
+          <p>원화(KRW) 기준 · 분개와 계정이 모두 원화인 거래만 집계합니다.</p>
         </div>
         <time dateTime={todayIso()}><CalendarDays size={16} aria-hidden="true" />{new Intl.DateTimeFormat("ko-KR", { year: "numeric", month: "long", day: "numeric", weekday: "short" }).format(new Date(`${todayIso()}T12:00:00`))}</time>
       </header>
@@ -147,7 +149,7 @@ export function Dashboard({ gen, go }: ViewProps) {
                 </div>
               </div>
             </div>
-            <p className="dashboard-chart-note">과거는 기록 시작일부터 · 시나리오 표시는 시나리오 탭에서 (최대 3개)</p>
+            <p className="dashboard-chart-note">실제는 기록 시작일부터 오늘까지, 미래는 원화 거래와 원화 반복 규칙 기준입니다. 시나리오 탭에서 최대 3개를 선택할 수 있습니다.</p>
             <p id="dashboard-chart-scroll-hint" className="dashboard-chart-scroll-hint">차트는 좌우로 스크롤할 수 있습니다. 표로도 확인할 수 있어요.</p>
             <div className="dashboard-chart-content" role="region" aria-label="자산 흐름 차트와 표" aria-describedby="dashboard-chart-scroll-hint" tabIndex={0}>
               {projectionQuery.data?.warnings?.map(w => <p className="banner info" key={w}>{w}</p>)}

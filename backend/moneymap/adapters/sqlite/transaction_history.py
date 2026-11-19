@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime
 import sqlite3
 
+from moneymap.amounts_json import preserve_posting_precision
 from moneymap.domain import ACTUAL_SCENARIO_ID, Money, Posting, Transaction
 from .balance_history import selected_balances_after
 
@@ -77,4 +78,5 @@ class SqliteTransactionHistory:
             balances = selected_balances_after(self.conn, ids, account_id, include_descendants)
             for item in result["items"]:
                 item["balance_after"] = balances[item["id"]]
+                preserve_posting_precision(item)
         return result

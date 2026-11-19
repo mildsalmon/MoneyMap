@@ -14,6 +14,7 @@ from moneymap.domain.money import Money
 from moneymap.domain.scenario import ACTUAL_SCENARIO_ID
 
 from .common import _iso
+from .krw_reporting import KRW_TRANSACTION
 
 
 class SqliteLedgerQueries:
@@ -28,6 +29,21 @@ class SqliteLedgerQueries:
 
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
+
+    def actual_krw_balances(self, at: datetime.date) -> dict[int, int]:
+        # The indexed balances already have the correct scope on KRW-only ledgers.
+        mixed = self._conn.execute("""SELECT 1 FROM account_balance_keys k
+            JOIN accounts a ON a.id=k.account_id
+            WHERE k.currency<>'KRW' OR a.currency<>'KRW' LIMIT 1""").fetchone()
+        if not mixed:
+            return self.balances_at(at, ACTUAL_SCENARIO_ID)
+        rows = self._conn.execute(f"""SELECT p.account_id,p.amount FROM transactions t
+            JOIN postings p ON p.txn_id=t.id WHERE t.scenario_id=? AND t.posted=1
+            AND t.date<=? AND {KRW_TRANSACTION}""", (ACTUAL_SCENARIO_ID, _iso(at)))
+        totals: dict[int, int] = {}
+        for aid, amount in rows:
+            totals[aid] = totals.get(aid, 0) + amount
+        return totals
 
     def balances_at(self, at: datetime.date, scenario_id: int) -> dict[int, int]:
         if scenario_id == ACTUAL_SCENARIO_ID:

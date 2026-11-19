@@ -12,6 +12,8 @@ All notable changes to MoneyMap are documented in this file.
 ### Changed
 
 - Use the violet dashboard to check net worth, monthly cash flow, account balances, and projections, or jump to a new transaction and recurring rules.
+- Dashboard totals and forecasts use won-denominated transactions and rules. A foreign posting or account excludes the entire transaction. History keeps the original currency.
+- Large cash-flow and balance totals retain every won. The dashboard identifies any curve that exceeds the chart’s exact numeric range.
 - Schema v9 builds a balance history from existing postings during migration. Backdated entries, edits, and deletions update the later balances in the same transaction. The dashboard reads balances, postings, and tags in batches.
 - Select deposit or overdraft use with larger touch targets when entering an opening balance on mobile.
 

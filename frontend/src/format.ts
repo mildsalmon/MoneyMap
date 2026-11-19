@@ -30,8 +30,8 @@ export function fmtAbbrev(n: number): string {
   return `${sign}${abs.toLocaleString("ko-KR")}`;
 }
 
-export function fmtDelta(n: number): string {
-  return `${n >= 0 ? "+" : "−"}₩${Math.abs(n).toLocaleString("ko-KR")}`;
+export function fmtDelta(n: number | bigint): string {
+  return `${n >= 0 ? "+" : ""}${fmtWon(n)}`;
 }
 
 /** 로컬(KST) 기준 오늘 — toISOString은 UTC라 저녁에 하루 밀린다 */

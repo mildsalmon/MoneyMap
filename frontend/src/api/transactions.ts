@@ -47,7 +47,8 @@ export const transactionsApi = {
   resolveTransactionEdit: (id: number, body: TransactionEditBody) => req<TransactionEditResult>(`/transactions/${id}/edit-result`, { method: "POST", body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) }),
   lastPair: (item: string, signal?: AbortSignal) => req<LastPair>(`/transaction-input/last-pair?item=${encodeURIComponent(item)}`, { signal }),
   recentInputs: (signal?: AbortSignal, beforeId?: number, limit = 5) => req<RecentInput[]>(`/transaction-input/recent?limit=${limit}${beforeId === undefined ? "" : `&before_id=${beforeId}`}`, { signal }),
-  transactions: (scenarioId = 1, signal?: AbortSignal) => req<Txn[]>(`/transactions?scenario_id=${scenarioId}`, { signal }),
+  transactions: (scenarioId = 1, signal?: AbortSignal, exactMinor = false) =>
+    req<Txn[]>(`/transactions?scenario_id=${scenarioId}${exactMinor ? "&exact_minor=true" : ""}`, { signal }),
   transactionHistory: (search: string, signal?: AbortSignal) => req<HistoryPage>(`/transaction-history${search}`, { signal }),
   tags: (signal?: AbortSignal) => req<string[]>("/tags", { signal }),
   openingBalances: (signal?: AbortSignal) => req<OpeningBalanceRecord[]>("/opening-balances", { signal }),

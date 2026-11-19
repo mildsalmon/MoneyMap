@@ -13,6 +13,7 @@ from moneymap.app_services.scenarios import now
 from moneymap.adapters.sqlite.projection import ProjectionInputReader
 from moneymap.adapters.sqlite.statistics import read_statistics
 from moneymap.dependencies import repos, request_connection
+from moneymap.amounts_json import MAX_SAFE_INTEGER
 from moneymap.domain import (
     ACTUAL_SCENARIO_ID,
     reporting_type,
@@ -53,12 +54,18 @@ def balances(
     request: Request,
     scenario_id: int = ACTUAL_SCENARIO_ID,
     at: datetime.date | None = None,
+    krw_only: bool = False,
 ):
     r = repos(request)
     at = at or now().date()
     out = []
-    raw_balances = r["queries"].balances_at(at, scenario_id)
+    if krw_only and scenario_id != ACTUAL_SCENARIO_ID:
+        raise HTTPException(422, detail="원화 잔액은 실제 장부에서 조회하세요")
+    raw_balances = (r["queries"].actual_krw_balances(at) if krw_only
+                    else r["queries"].balances_at(at, scenario_id))
     for a in r["accounts"].find_all():
+        if krw_only and a.currency != "KRW":
+            continue
         assert a.id is not None
         raw = raw_balances.get(a.id, 0)
         out.append(
@@ -71,9 +78,14 @@ def balances(
                 "display_balance": raw * a.display_multiplier(),
             }
         )
+    net_worth = sum(a["balance"] for a in out if a["type"] in {"asset", "liability"})
+    if krw_only:
+        for row in out:
+            row["balance"] = str(row["balance"])
+            row["display_balance"] = str(row["display_balance"])
     return {
         "at": at.isoformat(),
-        "net_worth": sum(a["balance"] for a in out if a["type"] in {"asset", "liability"}),
+        "net_worth": str(net_worth) if krw_only else net_worth,
         "accounts": out,
     }
 
@@ -118,9 +130,18 @@ def dashboard_projection(
                 "maximum": 3,
             },
         )
-    return build_dashboard_projection(
-        ProjectionInputReader(request.state.conn),
+    result = build_dashboard_projection(
+        ProjectionInputReader(request.state.conn, krw_only=True),
         repos(request)["scenarios"],
         ids,
         months,
     )
+    # Plots use JavaScript numbers for coordinates. Keep representable series
+    # visible and tell the reader which curve would otherwise round whole won.
+    visible = []
+    for series in result["series"]:
+        if any(abs(p["net_worth"]) > MAX_SAFE_INTEGER for p in series["points"]):
+            result["warnings"].append(f"{series['name']}: 금액이 차트의 정확한 원 단위 표시 범위를 넘었습니다.")
+        else:
+            visible.append(series)
+    return {**result, "series": visible}

@@ -5,6 +5,7 @@ import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from moneymap.amounts_json import preserve_posting_precision
 
 from moneymap.adapters.sqlite.transaction_input import SqliteTransactionInputQueries
 from moneymap.adapters.sqlite.transaction_history import SqliteTransactionHistory
@@ -66,11 +67,13 @@ def list_opening_balances(request: Request):
 
 @router.get("/api/transactions")
 def list_transactions(
-    request: Request, scenario_id: int = Query(default=1, ge=1, le=1)
+    request: Request, scenario_id: int = Query(default=1, ge=1, le=1), exact_minor: bool = False,
 ):
-    return [
-        t.model_dump() for t in repos(request)["txns"].find_by_scenario(scenario_id)
-    ]
+    items = [t.model_dump() for t in repos(request)["txns"].find_by_scenario(scenario_id)]
+    if exact_minor:
+        for item in items:
+            preserve_posting_precision(item)
+    return items
 
 
 @router.get("/api/tags")

@@ -10,11 +10,14 @@ from moneymap.domain.money import Money
 from moneymap.domain.transaction import Posting, Transaction
 from .scenarios import ScenarioWriter
 from .rules import ScenarioRuleWriter
+from .krw_reporting import KRW_TRANSACTION
 
 
 class ProjectionInputReader:
-    def __init__(self, conn):
+    def __init__(self, conn, *, krw_only=False):
         self.conn = conn
+        self.krw_only = krw_only
+        self.transaction_filter = f" AND {KRW_TRANSACTION}" if krw_only else ""
 
     def read(self, sid: int, *, allow_legacy=False) -> ProjectionInputs:
         if not self.conn.in_transaction:
@@ -38,17 +41,19 @@ class ProjectionInputReader:
         balances = tuple(
             (r["account_id"], r["balance"])
             for r in self.conn.execute(
-                "SELECT p.account_id,sum(p.amount) balance FROM transactions t JOIN postings p ON p.txn_id=t.id WHERE t.scenario_id=1 AND t.posted=1 AND t.date<=? GROUP BY p.account_id",
+                "SELECT p.account_id,sum(p.amount) balance FROM transactions t JOIN postings p ON p.txn_id=t.id WHERE t.scenario_id=1 AND t.posted=1 AND t.date<=?"
+                f"{self.transaction_filter} GROUP BY p.account_id",
                 (scenario.fork_date.isoformat(),),
             )
         )
         rules = ScenarioRuleWriter(self.conn)
-        actual = tuple(rules.find_by_scenario(1))
-        owned = () if sid == 1 else tuple(rules.find_by_scenario(sid))
+        actual = tuple(rules.find_by_scenario(1, krw_only=self.krw_only))
+        owned = () if sid == 1 else tuple(rules.find_by_scenario(sid, krw_only=self.krw_only))
         planned = []
         if sid != 1:
             rows = self.conn.execute(
-                "SELECT t.id,t.date,t.description,p.account_id,p.amount FROM transactions t JOIN postings p ON p.txn_id=t.id WHERE t.scenario_id=? AND t.posted=1 AND t.source_rule_id IS NULL AND t.date>? ORDER BY t.id,p.id",
+                "SELECT t.id,t.date,t.description,p.account_id,p.amount FROM transactions t JOIN postings p ON p.txn_id=t.id WHERE t.scenario_id=? AND t.posted=1 AND t.source_rule_id IS NULL AND t.date>?"
+                f"{self.transaction_filter} ORDER BY t.id,p.id",
                 (sid, scenario.fork_date.isoformat()),
             ).fetchall()
             for tid, postings in groupby(rows, key=lambda r: r["id"]):
@@ -97,6 +102,7 @@ class ProjectionInputReader:
             "p.account_id,p.amount,p.currency FROM transactions t "
             "JOIN postings p ON p.txn_id=t.id WHERE "
             + " AND ".join(clauses)
+            + self.transaction_filter
             + " ORDER BY t.date,t.id,p.id",
             params,
         )
@@ -135,19 +141,21 @@ class ProjectionInputReader:
         """Only the compatibility dashboard uses the historical fork boundary."""
         scenario = get_scenario(ScenarioWriter(self.conn), sid)
         opening = self.conn.execute(
-            "SELECT coalesce(sum(p.amount),0) FROM transactions t JOIN postings p ON p.txn_id=t.id JOIN accounts a ON a.id=p.account_id WHERE t.scenario_id=1 AND t.posted=1 AND a.type IN ('asset','liability') AND (t.date<? OR (t.date=? AND t.source_rule_id IS NULL))",
+            "SELECT coalesce(sum(p.amount),0) FROM transactions t JOIN postings p ON p.txn_id=t.id JOIN accounts a ON a.id=p.account_id WHERE t.scenario_id=1 AND t.posted=1 AND a.type IN ('asset','liability') AND (t.date<? OR (t.date=? AND t.source_rule_id IS NULL))"
+            f"{self.transaction_filter}",
             (scenario.fork_date.isoformat(), scenario.fork_date.isoformat()),
         ).fetchone()[0]
         return (
             scenario,
             opening,
             self._legacy_transactions(sid, start=scenario.fork_date),
-            ScenarioRuleWriter(self.conn).find_by_scenario(sid),
+            ScenarioRuleWriter(self.conn).find_by_scenario(sid, krw_only=self.krw_only),
         )
 
     def actual_history(self, through: str):
         rows = self.conn.execute(
-            "SELECT t.date,sum(CASE WHEN a.type IN ('asset','liability') THEN p.amount ELSE 0 END) delta FROM transactions t JOIN postings p ON p.txn_id=t.id JOIN accounts a ON a.id=p.account_id WHERE t.scenario_id=1 AND t.posted=1 AND t.date<=? GROUP BY t.date ORDER BY t.date",
+            "SELECT t.date,sum(CASE WHEN a.type IN ('asset','liability') THEN p.amount ELSE 0 END) delta FROM transactions t JOIN postings p ON p.txn_id=t.id JOIN accounts a ON a.id=p.account_id WHERE t.scenario_id=1 AND t.posted=1 AND t.date<=?"
+            f"{self.transaction_filter} GROUP BY t.date ORDER BY t.date",
             (through,),
         )
         running = 0

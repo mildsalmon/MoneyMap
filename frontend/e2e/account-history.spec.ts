@@ -245,3 +245,41 @@ test("large after balances retain every minor unit across JSON and formatting", 
   await expect(page.locator(".history-balance")).toContainText("₩10,000,000,000,000,000,001");
   await expect(page.locator(".history-balance")).toContainText("−US$9,007,199,254,740,991.23");
 });
+
+test("real filtered history preserves exact opening flows and subtree cancellation", async ({ page, request }) => {
+  const prefix = `정밀도-${crypto.randomUUID()}`;
+  const create = async (name: string, extra = {}) => {
+    const response = await request.post(`${base}/accounts`, { data: { name: prefix + name, type: "asset", ...extra } });
+    expect(response.status()).toBe(201);
+    return (await response.json()).id as number;
+  };
+  const group = await create("그룹", { is_placeholder: true });
+  const bank = await create("통장", { parent_id: group });
+  const other = await create("저축", { parent_id: group });
+  const outside = await create("외부");
+  const ids: number[] = [];
+  const day = "2005-03-15";
+  try {
+    // Keep the JSON integer literal exact before it reaches the real server.
+    const opening = await request.post(`${base}/accounts/${bank}/opening-balance`, {
+      headers: { "Content-Type": "application/json" },
+      data: `{"date":"${day}","amount":9007199254740993,"state":"positive"}`,
+    });
+    expect(opening.status()).toBe(201);
+    ids.push((await opening.json()).id);
+    const max = Number.MAX_SAFE_INTEGER;
+    for (const legs of [[[bank, -max], [other, max]], [[other, -max], [bank, max - 2], [outside, 2]]]) {
+      const response = await request.post(`${base}/transactions`, { data: { date: day,
+        postings: legs.map(([account_id, amount]) => ({ account_id, amount })) } });
+      expect(response.status()).toBe(201); ids.push((await response.json()).id);
+    }
+    await page.goto(`/transactions?start=${day}&end=${day}&account_id=${group}&include_descendants=true`);
+    await expect(page.locator("td.history-amount")).toHaveText(["유출 −₩2", "변동 없음 ₩0", "유입 +₩9,007,199,254,740,993"]);
+    await expect(page.locator(".history-balance")).toHaveText(["₩9,007,199,254,740,991", "₩9,007,199,254,740,993", "₩9,007,199,254,740,993"]);
+    await page.getByLabel("계정과목", {exact:true}).selectOption(String(bank));
+    await page.getByRole("button", {name:"조회", exact:true}).click();
+    await expect(page.locator("td.history-amount")).toHaveText(["유입 +₩9,007,199,254,740,989", "유출 −₩9,007,199,254,740,991", "유입 +₩9,007,199,254,740,993"]);
+  } finally {
+    for (const id of ids.reverse()) expect((await request.delete(`${base}/transactions/${id}`)).ok()).toBe(true);
+  }
+});

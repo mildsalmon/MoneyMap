@@ -10,7 +10,7 @@ const accounts = [
   { id: 3, name: "카드", type: "liability", archived: false },
   ...expenses,
   { id: 999, name: "거래 없는 비용", type: "expense", archived: false },
-];
+].map(a => ({ ...a, currency: "KRW" }));
 let nextId = 1;
 const txn = (date: string, entries: [number, number][]) => ({
   id: nextId++, date, description: "합성 거래", scenario_id: 1,

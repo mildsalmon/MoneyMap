@@ -37,6 +37,7 @@ export interface AccountSettingsResult {
 export interface Posting {
   account_id: number;
   amount: { amount: number; currency: string };
+  exact_minor?: string;
 }
 
 export interface Txn {

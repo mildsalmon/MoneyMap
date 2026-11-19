@@ -224,3 +224,32 @@ def test_unknown_account_is_not_an_unfiltered_history_and_query_count_is_bounded
         conn.rollback(); conn.set_trace_callback(None)
     # One extra batch read for all 100 after-balances, never per row.
     assert sum(s.lstrip().upper().startswith(('SELECT', 'WITH')) for s in statements) == 5
+
+
+def test_filtered_history_preserves_exact_legacy_split_postings(ledger):
+    conn, (outside, _), client = ledger
+    repo = SqliteAccountRepository(conn)
+    parent = repo.create(Account(name="그룹", type=AccountType.ASSET, is_placeholder=True)).id
+    child = repo.create(Account(name="하위", type=AccountType.ASSET, parent_id=parent)).id
+    bank = repo.create(Account(name="그룹 통장", type=AccountType.ASSET, parent_id=parent)).id
+    limit = 2**53 - 1
+    for legs in [[(bank, limit), (outside, -limit)],
+                 [(bank, limit + 2), (child, -(limit + 2))],
+                 [(bank, -limit - 2), (child, limit), (outside, 2)]]:
+        SqliteTransactionRepository(conn).save(Transaction(date=dt.date(2026, 9, 15), scenario_id=1,
+            postings=[Posting(account_id=aid, amount=Money(amount=n)) for aid, n in legs]))
+    filtered = query(client, account_id=parent).json()["items"]
+    raw = query(client).json()["items"]
+    assert client.get("/api/transactions").json() == raw[::-1]
+    exact = client.get("/api/transactions?exact_minor=true").json()
+    assert [item["postings"] for item in exact] == [row["postings"] for row in filtered[::-1]]
+    for row, original in zip(filtered, raw, strict=True):
+        for p, old in zip(row["postings"], original["postings"], strict=True):
+            assert p["amount"] == old["amount"]
+            assert "exact_minor" not in old
+            if abs(old["amount"]["amount"]) > limit:
+                assert p["exact_minor"] == str(old["amount"]["amount"])
+            else:
+                assert "exact_minor" not in p
+    assert [sum(int(p.get("exact_minor", p["amount"]["amount"])) for p in row["postings"]
+                if p["account_id"] in (bank, child)) for row in filtered] == [-2, 0, limit]
