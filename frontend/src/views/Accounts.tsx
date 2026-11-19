@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Plus, Settings2 } from "lucide-react";
 import {
@@ -738,6 +739,7 @@ export function Accounts({ gen, refresh, showToast }: ViewProps) {
       <fieldset className="account-mutation-fields" disabled={ordering.locked || dragging || mutationPending || Object.values(rowTasks).some(Boolean)}>
 
       <div className="accounts-toolbar">
+        <Link className="btn secondary" to="/accounts/reconciliation">잔액 대사</Link>
         <button className="btn secondary" onClick={() => void seedStandard()}>표준 계정과목 추가</button>
         {pageError && <span className="row-error" role="alert">{pageError}</span>}
       </div>

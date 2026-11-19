@@ -7,6 +7,7 @@ import { Statistics } from "./views/Statistics";
 import { TxnInput } from "./views/TxnInput";
 import { TxnEdit } from "./views/TxnEdit";
 import { History, useHistoryDeletion } from "./views/History";
+import { Reconciliation } from "./views/Reconciliation";
 import { Accounts } from "./views/Accounts";
 import { Installments } from "./views/Installments";
 import { Rules } from "./views/Rules";
@@ -35,7 +36,7 @@ export function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const paths: Record<View, string> = { dashboard: "/", statistics: "/statistics", input: "/transactions/new", history: "/transactions", accounts: "/accounts", rules: "/rules", scenarios: "/scenarios", installments: "/installments" };
-  const view = location.pathname.startsWith("/scenarios") ? "scenarios" : /^\/transactions\/\d+\/edit$/.test(location.pathname) ? "history" : (Object.keys(paths) as View[]).find(key => paths[key] === location.pathname);
+  const view = location.pathname === "/accounts/reconciliation" ? "accounts" : location.pathname.startsWith("/scenarios") ? "scenarios" : /^\/transactions\/\d+\/edit$/.test(location.pathname) ? "history" : (Object.keys(paths) as View[]).find(key => paths[key] === location.pathname);
   const setView = (next: View) => navigate(paths[next]);
   const [online, setOnline] = useState(true);
   const [status, setStatus] = useState<Awaited<ReturnType<typeof api.status>> | null>(null);
@@ -55,11 +56,12 @@ export function App() {
   }, []);
 
   const onStatistics = useMatch("/statistics") !== null;
+  const readOnlyEntry = onStatistics || location.pathname === "/accounts/reconciliation";
   const didMaterialize = useRef(false);
   useEffect(() => {
     if (didMaterialize.current) return;
-    if (onStatistics) {
-      // 통계에 직접 진입하면 상태만 읽고 반복 거래 생성은 첫 일반 화면까지 미룬다.
+    if (readOnlyEntry) {
+      // 읽기 화면에 직접 진입하면 자동 기장은 첫 일반 화면까지 미룬다.
       let active = true;
       api.status().then(value => { if (active) setStatus(value); })
         .catch(() => { if (active) setOnline(false); });
@@ -73,7 +75,7 @@ export function App() {
         refresh();
       })
       .catch(() => setOnline(false));
-  }, [onStatistics, refresh]);
+  }, [readOnlyEntry, refresh]);
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -155,6 +157,7 @@ export function App() {
           <Route path="/transactions/new" element={<TxnInput {...viewProps} />} />
           <Route path="/transactions/:id/edit" element={<TxnEdit {...viewProps} />} />
           <Route path="/transactions" element={<History {...viewProps} deletion={historyDeletion} />} />
+          <Route path="/accounts/reconciliation" element={<Reconciliation refresh={refresh} />} />
           <Route path="/accounts" element={<Accounts {...viewProps} />} />
           <Route path="/installments" element={<Installments {...viewProps} />} />
           <Route path="/rules" element={<Rules {...viewProps} />} />

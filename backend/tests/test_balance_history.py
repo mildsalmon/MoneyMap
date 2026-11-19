@@ -159,7 +159,7 @@ def test_v8_migration_backfills_preserves_and_rolls_back(tmp_path):
     rows = list(c.execute('SELECT * FROM account_balance_history ORDER BY account_id,currency,txn_id'))
     changes = c.total_changes
     init_db(c); init_db(c)
-    assert c.execute('PRAGMA user_version').fetchone()[0] == 10
+    assert c.execute('PRAGMA user_version').fetchone()[0] == len(database.MIGRATIONS)
     assert c.total_changes == changes
     assert list(c.execute('SELECT * FROM account_balance_history ORDER BY account_id,currency,txn_id')) == rows
     assert [tuple(r) for r in c.execute('SELECT * FROM postings')] == before
