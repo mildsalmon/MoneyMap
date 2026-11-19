@@ -37,6 +37,7 @@ export interface AccountSettingsResult {
 }
 
 export interface Posting {
+  category_id?: number | null;
   account_id: number;
   amount: { amount: number; currency: string };
   exact_minor?: string;
@@ -63,6 +64,7 @@ export interface HistoryPage {
 }
 
 export interface EditPosting {
+  category_id?: number | null;
   posting_id: number;
   account_id: number;
   amount: number;
@@ -89,7 +91,7 @@ export interface TransactionEditBody {
   description: string;
   memo: string;
   tags: string[];
-  postings?: { posting_id?: number; account_id: number; amount: number }[];
+  postings?: { category_id?: number | null; posting_id?: number; account_id: number; amount: number }[];
   opening?: { account_id: number; signed_amount: number };
 }
 export interface TransactionEditResult {

@@ -56,11 +56,31 @@ def _read_statistics(conn: sqlite3.Connection, start: dt.date, end: dt.date) -> 
       FROM cohort t JOIN postings p ON p.txn_id=t.id JOIN accounts a ON a.id=p.account_id
       WHERE t.eligible AND t.date>=:start GROUP BY substr(t.date,1,7)
     """, params)}
-    counts = conn.execute(_COHORT + """
-      SELECT COALESCE(SUM(CASE WHEN eligible AND date>=:start THEN 1 ELSE 0 END),0) AS included,
-        COALESCE(SUM(CASE WHEN NOT eligible THEN 1 ELSE 0 END),0) AS excluded
-      FROM cohort
-    """, params).fetchone()
+    # Share the cohort evaluation with the transaction counts. The counts CTE
+    # always yields one row, including for periods with no eligible postings.
+    category_rows = conn.execute(_COHORT + """
+      , counts AS (
+        SELECT COUNT(*) FILTER (WHERE eligible AND date>=:start) AS included,
+               COUNT(*) FILTER (WHERE NOT eligible) AS excluded FROM cohort
+      ), category_totals AS (
+        SELECT c.id AS category_id, c.name, c.name_key,
+          SUM(CASE WHEN a.type='income' THEN -p.amount ELSE 0 END) AS income,
+          SUM(CASE WHEN a.type='expense' THEN p.amount ELSE 0 END) AS expense
+        FROM cohort t JOIN postings p ON p.txn_id=t.id JOIN accounts a ON a.id=p.account_id
+        LEFT JOIN posting_living_categories pc ON pc.posting_id=p.id
+        LEFT JOIN living_categories c ON c.id=pc.category_id
+        WHERE t.eligible AND t.date>=:start AND a.type IN ('income','expense')
+        GROUP BY c.id
+      )
+      SELECT counts.*, category_id, COALESCE(name,'미분류') AS name,
+             COALESCE(income,0) AS income, COALESCE(expense,0) AS expense
+      FROM counts LEFT JOIN category_totals ON TRUE ORDER BY category_id IS NULL, name_key
+    """, params).fetchall()
+    counts = category_rows[0]
+    categories = [{key: row[key] for key in ("category_id", "name", "income", "expense")}
+                  for row in category_rows]
+    if categories[-1]["category_id"] is not None:
+        categories.append({"category_id": None, "name": "미분류", "income": 0, "expense": 0})
 
     opening_nw = closing_nw = assets = liabilities = income = expense = capital = 0
     rows = []
@@ -115,11 +135,12 @@ def _read_statistics(conn: sqlite3.Connection, start: dt.date, end: dt.date) -> 
                         "net_worth_change": closing_nw - opening_nw,
                         "assets": assets, "liabilities": liabilities, "capital_change": capital,
                         "reconciliation_difference": closing_nw - opening_nw - (income - expense + capital)},
-            "monthly": monthly, "accounts": [a.model_dump(mode="json") for a in accounts], "balances": rows}
+            "categories": categories, "monthly": monthly, "accounts": [a.model_dump(mode="json") for a in accounts], "balances": rows}
 
     # JSON numbers become JavaScript doubles; refuse aggregates that would lose
     # a won even when each individual transaction was a valid safe integer.
     amounts = [*result["summary"].values()]
+    amounts.extend(row[key] for row in categories for key in ("income", "expense"))
     amounts.extend(value for row in rows for key, value in row.items() if key in {"opening", "balance", "period"})
     amounts.extend(value for row in monthly for key, value in row.items() if key not in {"month", "through"})
     if any(abs(value) > 9_007_199_254_740_991 for value in amounts):

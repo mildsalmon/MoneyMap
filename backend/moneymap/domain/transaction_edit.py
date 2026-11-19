@@ -16,6 +16,7 @@ MAX_TOTAL = 9_007_199_254_740_991
 
 
 class EditPosting(BaseModel):
+    category_id: int | None = Field(default=None, strict=True, gt=0, le=2**53-1)
     model_config = ConfigDict(extra="forbid")
     posting_id: int | None = Field(default=None, strict=True, gt=0)
     account_id: int = Field(strict=True, gt=0)
@@ -55,6 +56,7 @@ class TransactionEdit(BaseModel):
 
 
 class ExistingPosting(BaseModel):
+    category_id: int | None = Field(default=None, exclude_if=lambda value: value is None)
     posting_id: int
     account_id: int
     amount: int

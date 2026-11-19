@@ -16,6 +16,7 @@ export function isTransactionDetail(value: unknown, id: number): value is Transa
   for (const p of v.postings) {
     if (!p || !Number.isSafeInteger(p.posting_id) || p.posting_id <= 0 || ids.has(p.posting_id)
       || !Number.isSafeInteger(p.account_id) || p.account_id <= 0 || !Number.isSafeInteger(p.amount)
+      || (p.category_id != null && (!Number.isSafeInteger(p.category_id) || p.category_id <= 0))
       || typeof p.currency !== "string" || (v.editable && p.currency !== "KRW")) return false;
     ids.add(p.posting_id);
   }

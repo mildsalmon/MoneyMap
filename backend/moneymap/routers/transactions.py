@@ -33,6 +33,7 @@ MAX_TRANSACTION_TOTAL = 9_007_199_254_740_991
 
 
 class PostingIn(BaseModel):
+    category_id: int | None = Field(default=None, strict=True, gt=0, le=2**53-1)
     account_id: int = Field(strict=True, gt=0)
     amount: int = Field(
         strict=True,
@@ -122,7 +123,7 @@ def create_transaction(body: TransactionIn, request: Request):
             memo=body.memo,
             tags=body.tags,
             postings=[
-                Posting(account_id=p.account_id, amount=Money(amount=p.amount))
+                Posting(account_id=p.account_id, amount=Money(amount=p.amount), category_id=p.category_id)
                 for p in body.postings
             ],
         )

@@ -29,6 +29,7 @@ from moneymap.domain.services import (
 from moneymap.domain.transaction import Posting, Transaction
 
 from moneymap.domain.transaction_input import normalize_item_key
+from .living_categories import assign_category
 from .opening_balances import V4_OPENING_BALANCES_SQL
 
 from .account_history import dated_accounts, posting_accounts_on
@@ -95,13 +96,13 @@ def _insert_txn(conn: sqlite3.Connection, txn: Transaction) -> int:
     )
     txn_id = cur.lastrowid
     assert txn_id is not None
-    conn.executemany(
-        "INSERT INTO postings (txn_id, account_id, amount, currency) VALUES (?,?,?,?)",
-        [
-            (txn_id, p.account_id, p.amount.amount, p.amount.currency)
-            for p in txn.postings
-        ],
-    )
+    for posting in txn.postings:
+        cursor = conn.execute(
+            "INSERT INTO postings (txn_id, account_id, amount, currency) VALUES (?,?,?,?)",
+            (txn_id, posting.account_id, posting.amount.amount, posting.amount.currency),
+        )
+        if posting.category_id is not None:
+            assign_category(conn, cursor.lastrowid, posting.category_id)
     conn.execute("UPDATE transactions SET posted=1 WHERE id=?", (txn_id,))
     _replace_tags(conn, txn_id, txn.tags)
     return txn_id
@@ -271,10 +272,10 @@ class SqliteTransactionRepository:
         postings = {row["id"]: [] for row in rows}
         tags = {row["id"]: [] for row in rows}
         for p in self._conn.execute(
-            f"SELECT * FROM postings WHERE txn_id IN ({selection}) ORDER BY id", params
+            f"SELECT p.*,c.category_id FROM postings p LEFT JOIN posting_living_categories c ON c.posting_id=p.id WHERE txn_id IN ({selection}) ORDER BY p.id", params
         ):
             postings[p["txn_id"]].append(Posting(
-                account_id=p["account_id"], amount=Money(amount=p["amount"], currency=p["currency"]),
+                category_id=p["category_id"], account_id=p["account_id"], amount=Money(amount=p["amount"], currency=p["currency"]),
                 legacy_zero=p["amount"] == 0,
             ))
         for tag in self._conn.execute(

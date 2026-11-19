@@ -7,7 +7,7 @@ type CreateTransactionBody = {
   description?: string;
   memo?: string;
   tags?: string[];
-  postings: { account_id: number; amount: number }[];
+  postings: { category_id?: number | null; account_id: number; amount: number }[];
 };
 
 const pendingCreates = new Map<string, Promise<Txn>>();
@@ -18,7 +18,7 @@ function createKey(body: CreateTransactionBody) {
     body.description ?? "",
     body.memo ?? "",
     body.tags ?? [],
-    body.postings.map(posting => [posting.account_id, posting.amount]),
+    body.postings.map(posting => [posting.account_id, posting.amount, posting.category_id ?? null]),
   ]);
 }
 

@@ -4,6 +4,9 @@ All notable changes to MoneyMap are documented in this file.
 
 ## Unreleased
 
+- In transaction entry and editing, assign one living category to each expense or income line. Create or rename a category under **생활 분류 관리**. Statistics shows signed income and expense by category for the selected period.
+- Schema v13 adds category definitions and posting assignments. Historical expense and income postings appear under **미분류** until explicitly classified. Renaming a category updates its label on existing postings.
+
 - Transaction entry and editing use account availability at the close of the selected Seoul date. In Accounts, open **계정 상태 이력** to see available periods, archive or restore an account from a chosen date, or correct the effective date of a recorded action.
 - Schema v12 captures the existing account tree at migration. Earlier dates display **이력 미상** and use current availability for new selections. Existing posting references survive migration and edits.
 

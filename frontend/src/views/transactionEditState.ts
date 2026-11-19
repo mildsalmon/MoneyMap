@@ -9,14 +9,14 @@ export function originalRows(transaction: TransactionDetail): OriginalRows {
 
 export function editDraft(transaction: TransactionDetail): Draft {
   const draft = { ...newDraft(transaction.date), item: transaction.description, memo: transaction.memo, tags: [...transaction.tags] };
-  const rows = transaction.postings.map((p, i) => ({ id: i + 1, postingId: p.posting_id, account: p.account_id,
+  const rows = transaction.postings.map((p, i) => ({ id: i + 1, postingId: p.posting_id, categoryId: p.category_id, account: p.account_id,
     amount: amountInput(String(Math.abs(p.amount))), debit: p.amount === 0 ? i === 0 : p.amount > 0 }));
   const debit = rows.find(r => r.debit), credit = rows.find(r => !r.debit);
   if (rows.length === 2 && debit && credit && debit.account !== credit.account && debit.amount === credit.amount
       && (transaction.kind !== "regular" || debit.amount !== "0")) {
     return { ...draft, amount: debit.amount,
-      debit: { account: debit.account, postingId: debit.postingId, source: "retained", revision: 0 },
-      credit: { account: credit.account, postingId: credit.postingId, source: "retained", revision: 0 } };
+      debit: { account: debit.account, postingId: debit.postingId, categoryId: debit.categoryId, source: "retained", revision: 0 },
+      credit: { account: credit.account, postingId: credit.postingId, categoryId: credit.categoryId, source: "retained", revision: 0 } };
   }
   return { ...draft, mode: "split", rows };
 }
@@ -52,8 +52,8 @@ export function classifyEditResult(result: TransactionEditResult, transactionId:
 // original value should not trigger a discard prompt.
 export function draftIdentity(draft: Draft): string {
   return JSON.stringify([draft.date, draft.item, draft.memo, draft.tags, draft.mode,
-    draft.mode === "basic" ? [amountInput(draft.amount), draft.debit.account, draft.debit.postingId, draft.credit.account, draft.credit.postingId]
-      : draft.rows.map(r => [r.postingId, r.account, amountInput(r.amount), r.debit])]);
+    draft.mode === "basic" ? [amountInput(draft.amount), draft.debit.account, draft.debit.postingId, draft.debit.categoryId, draft.credit.account, draft.credit.postingId, draft.credit.categoryId]
+      : draft.rows.map(r => [r.postingId, r.categoryId, r.account, amountInput(r.amount), r.debit])]);
 }
 
 export interface HistoryReturn {
