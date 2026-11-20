@@ -47,7 +47,9 @@ for (const width of [1440, 1024, 720, 390]) {
     await expect(page.locator(".strip .cell").filter({ hasText: "이번 달 수입" })).toContainText("₩4,200,000");
     await expect(page.locator(".strip .cell").filter({ hasText: "이번 달 지출" })).toContainText("₩250,000");
     await expect(page.locator(".strip .cell").last()).toContainText("₩3,950,000");
-    await expect(page.locator(".side nav button")).toHaveCount(8);
+    await expect(page.locator(".side nav button")).toHaveText([
+      "대시보드", "통계", "거래 입력", "거래 내역", "계정·개시잔액", "외화 원장", "할부 관리", "반복 규칙", "시나리오",
+    ]);
     await expect(page.locator(".side nav button[aria-current=page]")).toHaveText("대시보드");
     await expect(page.getByRole("table", { name: "자산 잔액", exact: true })).toContainText("43,200,000");
     await expect(page.getByRole("table", { name: "부채 잔액", exact: true })).toContainText("-620,000");

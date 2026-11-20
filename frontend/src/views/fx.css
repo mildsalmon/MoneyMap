@@ -1,0 +1,7 @@
+.fx-ledger { max-width: 1000px; }
+.fx-ledger .field { max-width: 15rem; }
+.fx-ledger table { width: 100%; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.fx-ledger caption { text-align: left; margin: 1rem 0 .5rem; font-weight: 600; }
+.fx-ledger details summary { cursor: pointer; padding: .5rem 0; }
+.fx-ledger article { padding-block: .75rem; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.fx-ledger article p { margin-block: .45rem; }

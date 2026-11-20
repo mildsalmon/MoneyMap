@@ -6,7 +6,7 @@
 
 부호: 양수 = 차변(debit), 음수 = 대변(credit).
 Python int는 무한 정밀도라 오버플로 걱정 없음. 부동소수는 어디서도 안 거침.
-산술은 같은 currency끼리만 — 다중통화 거래는 v1에서 거부(환전은 v2).
+산술은 같은 currency끼리만 — 환전은 통화별로 균형을 맞춘 두 거래를 같은 환전 ID로 연결한다.
 """
 
 from __future__ import annotations
