@@ -21,7 +21,7 @@ from .lifecycle_migration import migrate_lifecycle
 from .transaction_input_migration import migrate_transaction_input
 from .tags_migration import migrate_tags_and_import_provenance
 from .transaction_edit_migration import migrate_transaction_edit
-from .installment_migration import migrate_installments, migrate_installment_rule_cleanup
+from .installment_migration import migrate_installments, migrate_installment_rule_cleanup, migrate_installment_costs
 from .balance_history import migrate_balance_history, migrate_balance_history_shift
 
 from moneymap.domain.account import OPENING_BALANCE_ACCOUNT_NAME
@@ -387,6 +387,7 @@ MIGRATIONS = (
     migrate_account_history,
     migrate_living_categories,
     migrate_account_creations,
+    migrate_installment_costs,
 )
 
 

@@ -4,6 +4,9 @@ All notable changes to MoneyMap are documented in this file.
 
 ## Unreleased
 
+- Enter statement principal, interest and fees for each card installment. Allocate partial payments and refunds to their ledger components, link previously booked charges, and confirm cancelled interest and additional fees for early payoff.
+- Schema v15 preserves existing interest-free schedules, allocations and retry receipts. Cash forecasts use unpaid statement amounts as of the projection date.
+
 - Edit settings, add accounts, or reorder rows in independent groups while a save is pending. Moving an account reserves both groups. After a conflict, the settings panel can reload the saved values while keeping your edits.
 - Schema v14 records account creation request IDs so retrying a lost response can recover the original account.
 

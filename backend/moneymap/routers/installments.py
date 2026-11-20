@@ -1,4 +1,4 @@
-"""HTTP boundary for interest-free installment principal management."""
+"""HTTP boundary for installment statement management."""
 
 from fastapi import APIRouter, Depends, Query, Request
 from moneymap.dependencies import request_connection
@@ -8,7 +8,7 @@ from moneymap.domain.installments import (
     UpdatePlan,
     Reschedule,
     Command,
-    schedule,
+    StatementUpdate,
 )
 from moneymap.adapters.sqlite import installments as store
 
@@ -27,7 +27,7 @@ def candidate_transactions(request: Request, q: str = Query("", max_length=2000)
 
 @router.post("/api/installments/preview")
 def preview(body: Purchase):
-    return {"installments": schedule(body.principal, body.months, body.first_due_date)}
+    return {"installments": body.rows()}
 
 
 @router.post("/api/installments", status_code=201)
@@ -38,6 +38,11 @@ def create(body: Purchase, request: Request):
 @router.put("/api/installments/allocations")
 def allocate(body: Allocate, request: Request):
     return store.allocate(request.state.conn, body)
+
+
+@router.put("/api/installments/rows/{row_id}/statement")
+def statement(row_id: int, body: StatementUpdate, request: Request):
+    return store.update_statement(request.state.conn, row_id, body)
 
 
 @router.put("/api/installments/rows/{row_id}")

@@ -48,6 +48,7 @@ class ProjectionEvent:
     label: str
     origin: str
     postings: tuple[tuple[int, int], ...]
+    scenario_postings: tuple[tuple[int, int], ...] | None = None
 
 
 class ScenarioSnapshot(Scenario):
@@ -213,14 +214,15 @@ def fold_projection(inputs: ProjectionInputs, months: int) -> dict:
             ):
                 targets.append("scenario")
             for target in targets:
-                delta[target] += net(event.postings)
+                postings = event.scenario_postings if target == "scenario" and event.scenario_postings is not None else event.postings
+                delta[target] += net(postings)
                 cash_delta[target] += sum(
-                    amount for account, amount in event.postings if account in cash_ids
+                    amount for account, amount in postings if account in cash_ids
                 )
                 day_triggers[target].append(
                     {"kind": event.kind, "id": event.id, "label": event.label}
                 )
-                for account, amount in event.postings:
+                for account, amount in postings:
                     kind = types[account]
                     if kind in {"income", "expense"}:
                         monthly[day.strftime("%Y-%m")][target][kind] += (

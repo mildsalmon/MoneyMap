@@ -220,7 +220,7 @@ def test_conflict_retry_and_create_atomicity(client):
         == 409
     )
     with patch(
-        "moneymap.adapters.sqlite.installments.schedule",
+        "moneymap.domain.installments.schedule",
         side_effect=RuntimeError("fail after purchase"),
     ):
         with pytest.raises(RuntimeError):
