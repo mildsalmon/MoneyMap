@@ -425,3 +425,48 @@ def test_grandchild_carries_only_each_owners_eligible_occurrences(golden):
     assert copied["copied"] == {"rules": 0, "planned_transactions": 1}
     copy_id = copied["scenario"]["id"]
     assert client.get(f"/api/projection?scenario_id={copy_id}&months=3").json()["cash"] == data["cash"]
+
+
+def test_stored_balances_follow_query_date_through_each_fork(client):
+    from moneymap.adapters.sqlite import SqliteLedgerQueries
+
+    bank = account(client, "통장", "asset")
+    income = account(client, "수입", "income")
+    owners = [1]
+    for day in ("2020-05-01", "2020-05-10", "2020-05-11"):
+        branch = client.post("/api/scenarios", json={
+            "name": day, "fork_date": day, "base_scenario_id": owners[-1],
+        })
+        branch.raise_for_status()
+        owners.append(branch.json()["scenario"]["id"])
+    actual, parent, child, grandchild = owners
+    for owner, day, amount in (
+        (actual, "2020-05-01", 1000),
+        (actual, "2020-05-06", 700),
+        (parent, "2020-05-10", -100),
+        (parent, "2020-05-11", -20),
+        (child, "2020-05-11", -30),
+        (grandchild, "2020-05-12", -5),
+    ):
+        post(client, owner, day, [(bank, amount), (income, -amount)])
+
+    conn = connect(client.app.state.db_path)
+    try:
+        queries = SqliteLedgerQueries(conn)
+        for day, expected in (
+            ("2020-04-30", [0, 0, 0, 0]),
+            ("2020-05-01", [1000, 1000, 1000, 1000]),
+            ("2020-05-09", [1700, 1000, 1000, 1000]),
+            ("2020-05-10", [1700, 900, 900, 900]),
+            ("2020-05-11", [1700, 880, 850, 850]),
+            ("2020-05-12", [1700, 880, 850, 845]),
+        ):
+            for sid, balance in zip(owners, expected, strict=True):
+                response = client.get("/api/balances", params={"scenario_id": sid, "at": day})
+                response.raise_for_status()
+                report = response.json()
+                cash = next(row for row in report["accounts"] if row["account_id"] == bank)
+                assert cash["balance"] == report["net_worth"] == balance, (day, sid)
+                assert queries.net_worth_at(dt.date.fromisoformat(day), sid) == balance
+    finally:
+        conn.close()

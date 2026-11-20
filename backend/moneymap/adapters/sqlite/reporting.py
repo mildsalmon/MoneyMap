@@ -78,7 +78,8 @@ class SqliteLedgerQueries:
         scope = f"""(t.scenario_id=1 AND t.date<=?) OR (
             t.scenario_id IN ({owners}) AND t.source_rule_id IS NULL AND t.date<=?
             AND t.date>(SELECT fork_date FROM scenarios WHERE id=t.scenario_id))"""
-        return scope, (_iso(lineage[0].fork_date), *(s.id for s in lineage), _iso(at))
+        actual_through = min(at, lineage[0].fork_date)
+        return scope, (_iso(actual_through), *(s.id for s in lineage), _iso(at))
 
     def balance_at(self, account_id: int, at: datetime.date, scenario_id: int) -> Money:
         row = self._conn.execute("SELECT currency FROM accounts WHERE id=?", (account_id,)).fetchone()
