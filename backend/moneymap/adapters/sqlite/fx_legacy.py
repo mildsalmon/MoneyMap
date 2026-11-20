@@ -16,17 +16,23 @@ from .common import _account_write
 from .database import connect
 from .fx import write_trade
 
-CANDIDATES = """SELECT t.id transaction_id,t.date day,t.description,t.edit_version,
+ELIGIBLE_ROWS = """SELECT t.id transaction_id,t.date day,t.description,t.edit_version,
     v.source_hash,v.source_file,v.source_row,b.account_id bank_id,e.account_id expense_id,
     e.amount cash FROM transaction_import_provenance v JOIN transactions t ON t.id=v.txn_id
     JOIN postings e ON e.txn_id=t.id JOIN accounts expense ON expense.id=e.account_id
     JOIN postings b ON b.txn_id=t.id JOIN accounts bank ON bank.id=b.account_id
     WHERE t.scenario_id=1 AND t.posted=1 AND expense.type='expense'
-    AND expense.name='원화에서달러로환전' AND bank.type='asset'
+    AND bank.type='asset'
+    AND v.raw_left_type='비용' AND v.raw_left_account='원화에서달러로환전'
+    AND v.raw_right_type='자산' AND trim(v.raw_right_account)<>''
+    AND length(v.source_hash)=64 AND v.source_hash NOT GLOB '*[^0-9a-f]*'
+    AND trim(v.source_file)<>'' AND v.raw_date=t.date AND v.raw_amount=CAST(e.amount AS TEXT)
     AND e.amount>0 AND b.amount=-e.amount AND b.currency='KRW' AND e.currency='KRW'
     AND bank.currency='KRW' AND expense.currency='KRW'
-    AND (SELECT count(*) FROM postings WHERE txn_id=t.id)=2
-    AND NOT EXISTS (SELECT 1 FROM fx_trades WHERE legacy_txn=t.id)"""
+    AND (SELECT count(*) FROM postings WHERE txn_id=t.id)=2"""
+CANDIDATES = (
+    ELIGIBLE_ROWS + " AND NOT EXISTS (SELECT 1 FROM fx_trades WHERE legacy_txn=t.id)"
+)
 
 
 def candidates(conn):
@@ -115,6 +121,10 @@ def apply(conn, command):
             "SELECT * FROM fx_trades WHERE legacy_txn=?", (command.transaction_id,)
         ).fetchone()
         if existing:
+            if not conn.execute(
+                ELIGIBLE_ROWS + " AND t.id=?", (command.transaction_id,)
+            ).fetchone():
+                raise DomainConflictError("이관할 원본 비용 행을 다시 확인하세요")
             trade = command.trade
             matches = all(
                 str(existing[k]) == str(getattr(trade, k))

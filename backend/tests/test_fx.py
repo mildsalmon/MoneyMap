@@ -80,7 +80,9 @@ def test_roundtrip_and_backdated_atomicity(client):
         day = date.fromisoformat(DAY)
         original = queries.balance_at(b["account_id"], day, 1)
         assert (original.amount, original.currency) == (1025, "USD")
-        assert queries.actual_base_net_worth(day) == queries.net_worth_at(day, 1) == -14450
+        assert (
+            queries.actual_base_net_worth(day) == queries.net_worth_at(day, 1) == -14450
+        )
     assert client.get("/api/fx?day=2026-06-11").json()["missing"] == 1
     assert client.get("/api/fx?day=2026-06-09").json()["balances"] == []
     sell = buy(bank, side="sell", cash="14555", fee="0", rate="1420")
@@ -220,3 +222,110 @@ def test_selected_v15_rows_preview_verified_backup_and_lineage(tmp_path, monkeyp
             )
         ] == [("KRW", 0), ("USD", 0)]
         assert app.delete("/api/transactions/2").status_code == 409
+
+
+def test_candidate_uses_imported_row_after_accounts_are_renamed(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from moneymap import legacy_import
+    from moneymap.api import create_app
+    from test_api import update_settings
+
+    path = tmp_path / "synthetic.db"
+    source = tmp_path / "statement.csv"
+    source.write_text(
+        "날짜,내역,금액,누계,왼쪽유형,왼쪽계정,오른쪽유형,오른쪽계정,메모\n"
+        f"{DAY},USD 구매,14450,14450,비용,원화에서달러로환전,자산,현금,\n"
+        f"{DAY},운임,14450,28900,비용,기타지출,자산,현금,\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "csv-expense-default-classification-review-20260906.csv").write_text(
+        "원본 행,연결 계정\n", encoding="utf-8"
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(database, "MIGRATIONS", database.MIGRATIONS[:15])
+        patch.setattr(
+            legacy_import, "LOCAL_CORRECTIONS", tmp_path / "no-corrections.json"
+        )
+        with TestClient(create_app(str(path))), closing(connect(str(path))) as conn:
+            legacy_import.import_legacy_csv(
+                conn, source, tmp_path, apply=True, expected_hash=None
+            )
+    with TestClient(create_app(str(path))) as app, closing(connect(str(path))) as conn:
+        url = "/api/fx/legacy"
+        [purchase] = app.get(url).json()
+        assert purchase["source_row"] == 2
+        freight = conn.execute(
+            "SELECT txn_id FROM transaction_import_provenance WHERE source_row=3"
+        ).fetchone()[0]
+        other = conn.execute(
+            "SELECT id FROM accounts WHERE name='기타지출'"
+        ).fetchone()[0]
+        assert update_settings(
+            app, purchase["expense_id"], name="달러 매수비"
+        ).is_success
+        assert update_settings(app, other, name="원화에서달러로환전").is_success
+        rows = [r["source_row"] for r in app.get(url).json()]
+        snapshot = list(conn.iterdump())
+        backups = set((tmp_path / "backups").iterdir())
+        valid = {
+            "transaction_id": purchase["transaction_id"],
+            "trade": buy(purchase["bank_id"]),
+        }
+        wrong = valid | {"transaction_id": freight}
+        preview = app.post(url + "/preview", json=wrong)
+        # On the buggy head even its server-issued preview token confirms the freight.
+        receipt = app.post(
+            url + "/apply",
+            json=wrong | {"preview_hash": preview.json().get("preview_hash", "0" * 64)},
+        )
+        assert (rows, preview.status_code, receipt.status_code) == ([2], 409, 409)
+        assert receipt.json()["detail"] == preview.json()["detail"]
+        assert list(conn.iterdump()) == snapshot
+        assert set((tmp_path / "backups").iterdir()) == backups
+        before = [
+            tuple(r)
+            for r in conn.execute(
+                "SELECT * FROM transaction_import_provenance ORDER BY source_row"
+            )
+        ]
+        postings = [
+            tuple(r) for r in conn.execute("SELECT * FROM postings ORDER BY id")
+        ]
+        impact = app.post(url + "/preview", json=valid).json()
+        assert impact["before"]["bank"] == impact["after"]["bank"] == "-28900"
+        assert app.post(
+            url + "/apply", json=valid | {"preview_hash": impact["preview_hash"]}
+        ).is_success
+        assert [
+            tuple(r)
+            for r in conn.execute(
+                "SELECT * FROM transaction_import_provenance ORDER BY source_row"
+            )
+        ] == before
+        assert [
+            tuple(r)
+            for r in conn.execute(
+                "SELECT * FROM postings WHERE txn_id IN (?,?) ORDER BY id",
+                (valid["transaction_id"], freight),
+            )
+        ] == postings
+        assert [
+            tuple(r)
+            for r in conn.execute(
+                "SELECT currency,sum(amount) FROM postings GROUP BY currency ORDER BY currency"
+            )
+        ] == [("KRW", 0), ("USD", 0)]
+
+        # An existing receipt also requires an identifiable source row.
+        with conn:
+            conn.execute(
+                "UPDATE transaction_import_provenance SET source_file='' WHERE source_row=2"
+            )
+        snapshot = list(conn.iterdump())
+        assert (
+            app.post(
+                url + "/apply", json=valid | {"preview_hash": impact["preview_hash"]}
+            ).status_code
+            == 409
+        )
+        assert list(conn.iterdump()) == snapshot

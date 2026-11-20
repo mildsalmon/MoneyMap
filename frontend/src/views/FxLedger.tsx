@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { api, ApiError } from "../api";
 import { fx, nativeQuantity, scales, type Candidate, type Currency, type Preview, type Quote, type Recorded, type Trade } from "../api/fx";
 import { fmtMoney, fmtWon, todayIso } from "../format";
@@ -20,17 +20,25 @@ function CurrencyOptions() { return currencies.map(c => <option key={c}>{c}</opt
 
 export function FxLedger({ refresh }: { refresh: () => void }) {
   const location = useLocation();
-  const [day, setDay] = useState(() => {
-    const requested = new URLSearchParams(location.search).get("day");
-    return requested && /^\d{4}-\d{2}-\d{2}$/.test(requested) ? requested : todayIso();
-  });
+  const [params, setParams] = useSearchParams();
+  const requested = params.get("day");
+  const day = requested && /^\d{4}-\d{2}-\d{2}$/.test(requested) ? requested : todayIso();
+  function setDay(at: string) {
+    setParams(previous => {
+      const next = new URLSearchParams(previous);
+      next.set("day", at);
+      return next;
+    }, {replace: true, preventScrollReset: true});
+  }
   const [revision, setRevision] = useState(0);
   const [trade, setTrade] = useState(() => newTrade(todayIso()));
   const [editing, setEditing] = useState<Recorded>();
   const [selected, setSelected] = useState<Candidate>();
   const [preview, setPreview] = useState<Preview>();
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
-  const [quote, setQuote] = useState<Quote>({ currency: "USD", rate: "", rate_date: day, source: "" });
+  const [quote, setQuote] = useState<Omit<Quote, "rate_date">>({ currency: "USD", rate: "", source: "" });
+  const [overrideDay, setOverrideDay] = useState<string | null>(null);
+  const quoteDay = overrideDay ?? day;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -102,7 +110,7 @@ export function FxLedger({ refresh }: { refresh: () => void }) {
     <section className="panel">
       <h2>보유 외화 평가</h2>
       <label className="field">평가일<input type="date" required value={day} onChange={e => {
-        if (e.target.value) { setDay(e.target.value); setQuote({...quote, rate_date: e.target.value}); }
+        if (e.target.value) setDay(e.target.value);
       }}/></label>
       {report.error && <p role="alert">{report.error} <button onClick={report.reload}>다시 조회</button></p>}
       {data && <>
@@ -123,11 +131,11 @@ export function FxLedger({ refresh }: { refresh: () => void }) {
       </>}
       <details><summary>수동 평가환율 입력</summary>
         <form onSubmit={e => { e.preventDefault(); void run(async () => {
-          await fx.quote(quote); changed(quote.rate_date); setNotice("평가환율 저장 완료");
+          await fx.quote({...quote, rate_date: quoteDay}); setOverrideDay(null); changed(quoteDay); setNotice("평가환율 저장 완료");
         }); }}><fieldset className="reconcile-fields" disabled={busy}>
           <legend>평가에 사용할 환율</legend>
           <label>평가 통화<select value={quote.currency} onChange={e => setQuote({...quote, currency: e.target.value as Currency})}><CurrencyOptions/></select></label>
-          <label>평가 기준일<input required type="date" value={quote.rate_date} onChange={e => setQuote({...quote, rate_date: e.target.value})}/></label>
+          <label>평가 기준일<input required type="date" value={quoteDay} onChange={e => setOverrideDay(e.target.value === day ? null : e.target.value)}/></label>
           <label>평가환율 (원/1단위)<input required inputMode="decimal" pattern="[0-9]{1,12}([.][0-9]{1,9})?" value={quote.rate} onChange={e => setQuote({...quote, rate: e.target.value})}/></label>
           <label>평가환율 출처<input required maxLength={200} value={quote.source} onChange={e => setQuote({...quote, source: e.target.value})}/></label>
           <button className="btn secondary">평가환율 확정</button>
