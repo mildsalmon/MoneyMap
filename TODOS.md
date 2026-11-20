@@ -69,18 +69,6 @@
 **Priority:** P3
 **Depends on:** v1 사용 후 계정별 작업 빈도 확인
 
-### 계정 mutation 범위별 병렬 처리
-
-**What:** 계정과목 순서 저장 중에도 충돌하지 않는 다른 형제 범위의 생성·설정·재정렬을 동시에 진행할 수 있게 한다.
-
-**Why:** v1은 정합성과 구현 단순성을 위해 계정 mutation을 한 번에 하나만 허용한다. 실제 사용에서 긴 네트워크 대기 때문에 독립 범위 편집이 자주 막힐 때만 범위별 병렬 상태가 가치가 있다.
-
-**Context:** 후속 설계에서는 `scope_key=(type,parent_id)`별 lock, optimistic overlay와 operation epoch를 두고 full `/api/accounts` refresh가 pending 범위를 덮지 않도록 merge 규칙을 정의해야 한다. 다중 탭·불명확한 응답의 reconciliation과 latest-only undo 순서도 함께 검증한다.
-
-**Effort:** M
-**Priority:** P3
-**Depends on:** 계정 순서 변경 v1 사용 후 병렬 편집이 실제로 필요한지 확인
-
 ### 계정 subtree 드래그 시각 보강
 
 **What:** 그룹 계정 이동 중 함께 움직이는 subtree의 배경 강조와 정교한 drop animation을 추가한다.
@@ -122,6 +110,10 @@
 **Depends on:** 두 번째 cross-repository 원자성 유스케이스 또는 transaction 경계 중복의 관측
 
 ## Completed
+
+### 계정 mutation 범위별 병렬 처리
+
+독립 그룹에서 계정 생성·설정·순서를 동시에 저장한다. 이동은 출발·도착 그룹을 함께 잠그고 서버는 조상 버전을 검증한다. 생성 응답을 잃으면 요청 ID로 결과를 확인한다. [설계 §9](docs/designs/backlog-office-hours-2026-11-19.md) · [충돌·재시도 검증](frontend/e2e/account-parallel.spec.ts)
 
 ### 통계 기간 비교와 분류 확장
 

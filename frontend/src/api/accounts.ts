@@ -26,15 +26,20 @@ export const accountsApi = {
     req<AccountStateHistory>(`/accounts/${id}/state-history/${seq}/corrections`, {
       method: "POST", body: JSON.stringify({ effective_date: day, expected_revision: revision }),
     }),
+  accountCreationResult: (key: string) => req<Account | null>(
+    `/accounts/creation-requests/${key}`, { signal: AbortSignal.timeout(15_000) }),
   createAccount: (b: {
+    request_id?: string;
+    parent_versions?: Record<number, number>;
     name: string;
     type: AccountType;
     parent_id?: number | null;
     is_placeholder?: boolean;
     is_overdraft?: boolean;
   }) =>
-    req<Account>("/accounts", { method: "POST", body: JSON.stringify(b) }),
+    req<Account>("/accounts", { method: "POST", body: JSON.stringify(b), signal: AbortSignal.timeout(15_000) }),
   updateAccountSettings: (id: number, b: {
+    parent_versions?: Record<number, number>;
     name: string;
     parent_id: number | null;
     is_overdraft: boolean;
@@ -42,6 +47,7 @@ export const accountsApi = {
     version: number;
   }) => req<AccountSettingsResult>(`/accounts/${id}/settings`, {
     method: "PUT",
+    signal: AbortSignal.timeout(15_000),
     body: JSON.stringify(b),
   }),
   seedStandardAccounts: () =>

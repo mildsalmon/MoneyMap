@@ -15,6 +15,7 @@ from moneymap.domain.account import (
     AccountSettingsEffects,
     AccountSettingsResult,
     AccountType,
+    validate_parent_versions,
 )
 from moneymap.domain.errors import (
     DomainConflictError,
@@ -40,9 +41,29 @@ class SqliteAccountRepository:
     def __init__(self, conn: sqlite3.Connection) -> None:
         self._conn = conn
 
-    def create(self, account: Account) -> Account:
+    def creation_result(self, request_id: str) -> Account | None:
+        row = self._conn.execute(
+            "SELECT account_id FROM account_creation_requests WHERE request_id=?", (request_id,)
+        ).fetchone()
+        return self.find_by_id(row[0]) if row else None
+
+    def create(
+        self, account: Account, request_id: str | None = None, parent_versions: dict[int, int] | None = None,
+    ) -> Account:
         with _account_write(self._conn):
-            desired = validate_account_create(account, self.find_all())
+            if request_id is not None:
+                receipt = self._conn.execute(
+                    "SELECT payload, account_id FROM account_creation_requests WHERE request_id=?", (request_id,)
+                ).fetchone()
+                if receipt:
+                    if receipt[0] != account.model_dump_json():
+                        raise DomainConflictError("다른 계정 생성에 사용한 요청입니다", code="account_request_conflict")
+                    saved = self.find_by_id(receipt[1])
+                    assert saved is not None
+                    return saved
+            accounts = self.find_all()
+            validate_parent_versions(accounts, parent_versions or {})
+            desired = validate_account_create(account, accounts)
             if desired.parent_id is not None:
                 self.assert_rule_free_before_grouping(desired.parent_id)
             position = _next_sibling_position(
@@ -67,6 +88,11 @@ class SqliteAccountRepository:
                     position,
                 ),
             )
+            if request_id is not None:
+                self._conn.execute(
+                    "INSERT INTO account_creation_requests VALUES (?, ?, ?)",
+                    (request_id, account.model_dump_json(), cur.lastrowid),
+                )
             return desired.model_copy(
                 update={"id": cur.lastrowid, "position": position, "version": 1}
             )
@@ -127,6 +153,7 @@ class SqliteAccountRepository:
                 )
 
             accounts = self.find_all()
+            validate_parent_versions(accounts, command.parent_versions)
             desired = validate_account_settings_transition(current, command, accounts)
             moved = desired.parent_id != current.parent_id
             position = current.position
