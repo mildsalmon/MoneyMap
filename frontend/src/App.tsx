@@ -1,6 +1,6 @@
 import { Routes, Route, useNavigate, useLocation, useMatch } from "react-router-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BarChart3, CreditCard, FolderTree, GitBranch, PenLine, Repeat, ScrollText } from "lucide-react";
+import { ArrowLeftRight, BarChart3, CreditCard, FolderTree, GitBranch, PenLine, Repeat, ScrollText } from "lucide-react";
 import { api } from "./api";
 import { Dashboard } from "./views/Dashboard";
 import { Statistics } from "./views/Statistics";
@@ -9,12 +9,13 @@ import { TxnEdit } from "./views/TxnEdit";
 import { History, useHistoryDeletion } from "./views/History";
 import { Reconciliation } from "./views/Reconciliation";
 import { Accounts } from "./views/Accounts";
+import { FxLedger } from "./views/FxLedger";
 import { Installments } from "./views/Installments";
 import { Rules } from "./views/Rules";
 import { Scenarios } from "./views/Scenarios";
 import { ScenarioDetail } from "./views/scenarios/ScenarioDetail";
 
-export type View = "dashboard" | "statistics" | "input" | "history" | "accounts" | "rules" | "scenarios" | "installments";
+export type View = "dashboard" | "statistics" | "input" | "history" | "accounts" | "rules" | "scenarios" | "installments" | "fx";
 
 const NAV: { id: View; label: string; icon: typeof BarChart3 }[] = [
   { id: "dashboard", label: "대시보드", icon: BarChart3 },
@@ -22,6 +23,7 @@ const NAV: { id: View; label: string; icon: typeof BarChart3 }[] = [
   { id: "input", label: "거래 입력", icon: PenLine },
   { id: "history", label: "거래 내역", icon: ScrollText },
   { id: "accounts", label: "계정·개시잔액", icon: FolderTree },
+  { id: "fx", label: "외화 원장", icon: ArrowLeftRight },
   { id: "installments", label: "할부 관리", icon: CreditCard },
   { id: "rules", label: "반복 규칙", icon: Repeat },
   { id: "scenarios", label: "시나리오", icon: GitBranch },
@@ -35,7 +37,7 @@ export interface Toast {
 export function App() {
   const navigate = useNavigate();
   const location = useLocation();
-  const paths: Record<View, string> = { dashboard: "/", statistics: "/statistics", input: "/transactions/new", history: "/transactions", accounts: "/accounts", rules: "/rules", scenarios: "/scenarios", installments: "/installments" };
+  const paths: Record<View, string> = { dashboard: "/", statistics: "/statistics", input: "/transactions/new", history: "/transactions", accounts: "/accounts", rules: "/rules", scenarios: "/scenarios", fx: "/fx", installments: "/installments" };
   const onReconciliation = useMatch("/accounts/reconciliation/*") !== null;
   const view = onReconciliation ? "accounts" : location.pathname.startsWith("/scenarios") ? "scenarios" : /^\/transactions\/\d+\/edit$/.test(location.pathname) ? "history" : (Object.keys(paths) as View[]).find(key => paths[key] === location.pathname);
   const setView = (next: View) => navigate(paths[next]);
@@ -57,7 +59,7 @@ export function App() {
   }, []);
 
   const onStatistics = useMatch("/statistics") !== null;
-  const readOnlyEntry = onStatistics || onReconciliation;
+  const readOnlyEntry = onStatistics || onReconciliation || view === "fx";
   const didMaterialize = useRef(false);
   useEffect(() => {
     if (didMaterialize.current) return;
@@ -161,6 +163,7 @@ export function App() {
           <Route path="/accounts/reconciliation/history" element={<History {...viewProps} deletion={historyDeletion} readOnly />} />
           <Route path="/accounts/reconciliation" element={<Reconciliation refresh={refresh} />} />
           <Route path="/accounts" element={<Accounts {...viewProps} />} />
+          <Route path="/fx" element={<FxLedger refresh={refresh} />} />
           <Route path="/installments" element={<Installments {...viewProps} />} />
           <Route path="/rules" element={<Rules {...viewProps} />} />
           <Route path="/scenarios" element={<Scenarios {...viewProps} />} />

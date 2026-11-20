@@ -71,35 +71,10 @@ class SqliteLedgerQueries:
         return totals
 
     def balance_at(self, account_id: int, at: datetime.date, scenario_id: int) -> Money:
-        if scenario_id == ACTUAL_SCENARIO_ID:
-            row = self._conn.execute(
-                "SELECT COALESCE(SUM(p.amount),0) AS bal FROM postings p"
-                " JOIN transactions t ON t.id = p.txn_id"
-                " WHERE p.account_id=? AND t.scenario_id=? AND t.posted=1 AND t.date<=?",
-                (account_id, ACTUAL_SCENARIO_ID, _iso(at)),
-            ).fetchone()
-            return Money(amount=row["bal"])
-
-        sc = self._conn.execute(
-            "SELECT fork_date FROM scenarios WHERE id=?", (scenario_id,)
-        ).fetchone()
-        if sc is None or sc["fork_date"] is None:
-            raise DomainNotFoundError(
-                "시나리오가 없습니다",
-                code="scenario_not_found",
-                context={"scenario_id": scenario_id},
-            )
-        fork = sc["fork_date"]
-        row = self._conn.execute(
-            "SELECT COALESCE(SUM(p.amount),0) AS bal FROM postings p"
-            " JOIN transactions t ON t.id = p.txn_id"
-            " WHERE p.account_id=? AND t.posted=1 AND ("
-            f"   {self._ACTUAL_BEFORE_FORK}"
-            "   OR (t.scenario_id=? AND t.date > ? AND t.date <= ? AND t.source_rule_id IS NULL)"  # 시나리오 자신
-            " )",
-            (account_id, ACTUAL_SCENARIO_ID, fork, scenario_id, fork, _iso(at)),
-        ).fetchone()
-        return Money(amount=row["bal"])
+        row = self._conn.execute("SELECT currency FROM accounts WHERE id=?", (account_id,)).fetchone()
+        currency = row["currency"] if row else "KRW"
+        balances = self.balances_by_currency(at, scenario_id)
+        return Money(amount=balances.get(account_id, {}).get(currency, 0), currency=currency)
 
     def actual_base_net_worth(self, fork: datetime.date) -> int:
         """시나리오 시뮬레이션의 시작 순자산 — fork 경계의 actual 쪽만.
@@ -112,14 +87,14 @@ class SqliteLedgerQueries:
             " JOIN transactions t ON t.id = p.txn_id"
             " JOIN accounts a ON a.id = p.account_id"
             " WHERE a.type IN ('asset','liability') AND t.posted=1 AND "
-            f"  {self._ACTUAL_BEFORE_FORK}",
+            f"  {self._ACTUAL_BEFORE_FORK} AND {KRW_TRANSACTION}",
             (ACTUAL_SCENARIO_ID, _iso(fork)),
         ).fetchone()
         return row["nw"]
 
     def net_worth_at(self, at: datetime.date, scenario_id: int) -> int:
         """순자산 = 자산·부채 계정 posting의 합 (fold 의미론은 balance_at과 동일)."""
-        nw_filter = "a.type IN ('asset','liability')"
+        nw_filter = f"a.type IN ('asset','liability') AND {KRW_TRANSACTION}"
         if scenario_id == ACTUAL_SCENARIO_ID:
             row = self._conn.execute(
                 "SELECT COALESCE(SUM(p.amount),0) AS nw FROM postings p"

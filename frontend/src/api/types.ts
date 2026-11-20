@@ -45,6 +45,7 @@ export interface Posting {
 }
 
 export interface Txn {
+  fx_id?: number;
   balance_after?: { amount: string | number; currency: string }[];
   memo: string;
   tags: string[];

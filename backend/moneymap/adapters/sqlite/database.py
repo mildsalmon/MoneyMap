@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import sqlite3
 
+from .fx_migration import migrate_fx
 from .living_categories import migrate_living_categories
 from .account_history import migrate_account_history
 from .lifecycle_migration import migrate_lifecycle
@@ -388,6 +389,7 @@ MIGRATIONS = (
     migrate_living_categories,
     migrate_account_creations,
     migrate_installment_costs,
+    migrate_fx,
 )
 
 

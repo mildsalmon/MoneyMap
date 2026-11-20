@@ -27,6 +27,7 @@ def _iso(d: datetime.date | None) -> str | None:
 
 _SQLITE_DOMAIN_ERRORS: dict[str, tuple[type[DomainError], str]] = {
     "balance_history_integer": (DomainValidationError, "거래 후 잔고가 저장 가능한 정수 범위를 넘습니다. 금액과 과거 거래를 확인하세요"),
+    "fx_trade_linked": (DomainConflictError, "환전과 연결된 거래입니다. 외화 원장에서 확인하세요"),
     "installment_transaction_linked": (DomainConflictError, "할부에 연결된 거래입니다. 할부 화면에서 배분 또는 일정을 해제한 뒤 수정·삭제하세요"),
     "installment_account_linked": (DomainConflictError, "할부 일정에 연결된 계정입니다. 할부 일정을 정리한 뒤 변경하세요"),
     "cash_account_parent_forbidden": (

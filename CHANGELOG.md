@@ -4,6 +4,9 @@ All notable changes to MoneyMap are documented in this file.
 
 ## Unreleased
 
+- Record cash exchanges in **외화 원장** with linked, independently balanced KRW and foreign entries. Confirm the actual debit or credit, quantity, fee, and the date and source of the trade rate. A dated manual valuation shows the priced subtotal and identifies unpriced balances.
+- Schema v16 preserves imported expenses. Selecting a historical USD purchase previews both currencies, backs up the ledger, and adds a linked reclassification after reconciliation. The original transaction, postings, and CSV row remain available.
+
 - Enter statement principal, interest and fees for each card installment. Allocate partial payments and refunds to their ledger components, link previously booked charges, and confirm cancelled interest and additional fees for early payoff.
 - Schema v15 preserves existing interest-free schedules, allocations and retry receipts. Cash forecasts use unpaid statement amounts as of the projection date.
 

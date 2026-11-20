@@ -48,7 +48,7 @@ class SqliteTransactionHistory:
         if not total:
             return result
         rows = self.conn.execute(
-            f"SELECT t.* FROM transactions t WHERE {where} "
+            f"SELECT t.*, (SELECT f.id FROM fx_trades f WHERE f.krw_txn=t.id OR f.native_txn=t.id OR f.legacy_txn=t.id) fx_id FROM transactions t WHERE {where} "
             "ORDER BY t.date DESC,t.id DESC LIMIT ? OFFSET ?",
             [*params, PAGE_SIZE, (page - 1) * PAGE_SIZE],
         ).fetchall()
@@ -73,7 +73,7 @@ class SqliteTransactionHistory:
             id=row["id"], scenario_id=row["scenario_id"], date=row["date"],
             description=row["description"], memo=row["memo"], source_rule_id=row["source_rule_id"],
             postings=postings[row["id"]], tags=tags[row["id"]],
-        ).model_dump(mode="json") for row in rows]
+        ).model_dump(mode="json") | ({"fx_id": row["fx_id"]} if row["fx_id"] is not None else {}) for row in rows]
         if account_id is not None:
             balances = selected_balances_after(self.conn, ids, account_id, include_descendants)
             for item in result["items"]:
