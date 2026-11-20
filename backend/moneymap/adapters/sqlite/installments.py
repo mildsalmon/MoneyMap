@@ -534,7 +534,7 @@ def remove(conn, plan_id, command):
 
 
 def _covered_payment(postings, rules, capacity, due, plan, remaining):
-    if not rules or not plan["interest_account_id"] or plan["projection_mode"] == "included":
+    if not rules or plan["projection_mode"] == "included":
         return postings
     cash, card = plan["cash_account_id"], plan["card_account_id"]
     key = (due, cash, card)
