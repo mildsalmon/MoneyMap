@@ -177,7 +177,7 @@ export interface RuleBody {
 }
 
 
-export interface EffectiveRule { rule: Rule; origin: "actual" | "scenario"; editable: boolean }
+export interface EffectiveRule { rule: Rule; origin: "actual" | "ancestor" | "scenario"; editable: boolean }
 export interface CashShortage {
   first_shortage: { start: string; end: string | null; days: number; through_horizon: boolean;
     reason?: "negative_start_balance"; triggering_items: { kind: string; id: number; label: string }[] };

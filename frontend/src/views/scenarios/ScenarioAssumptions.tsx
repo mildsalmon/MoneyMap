@@ -45,7 +45,7 @@ export function DuplicateScenario({
     <section>
       <h2>시나리오 복제</h2>
       <p>
-        추가 규칙과 예정 거래를 복사합니다. 실제 장부는 계속 함께 반영됩니다.
+        추가 규칙과 예정 거래를 복사합니다. {scenario.base_scenario_id === 1 ? "실제 장부" : "같은 부모 시나리오"}의 변경은 복제본에도 반영됩니다.
       </p>
       <form
         aria-label="시나리오 복제"

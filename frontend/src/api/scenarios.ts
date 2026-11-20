@@ -36,7 +36,7 @@ export const scenariosApi = {
     ),
   scenarios: (status: "active" | "archived" = "active", signal?: AbortSignal) => req<Scenario[]>(`/scenarios?status=${status}`, { signal }),
   scenario: (id: number, signal?: AbortSignal) => req<Scenario>(`/scenarios/${id}`, { signal }),
-  createScenario: (body: { name: string; description: string; fork_date: string }) => req<{ scenario: Scenario; effective_actual_rules: number }>("/scenarios", mutation("POST", body)),
+  createScenario: (body: { name: string; description: string; fork_date: string; base_scenario_id?: number }) => req<{ scenario: Scenario; effective_actual_rules: number }>("/scenarios", mutation("POST", body)),
   editScenario: (id: number, body: { name: string; description: string; version: number }) => req<Scenario>(`/scenarios/${id}`, mutation("PATCH", body)),
   transitionScenario: (id: number, action: "archive" | "restore", version: number) => req<Scenario>(`/scenarios/${id}/${action}`, mutation("POST", { version })),
   deletionImpact: async (id: number, signal?: AbortSignal) => {

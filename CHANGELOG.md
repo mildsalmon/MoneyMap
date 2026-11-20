@@ -4,6 +4,8 @@ All notable changes to MoneyMap are documented in this file.
 
 ## Unreleased
 
+- Branch from an active scenario to compare a new assumption with its parent forecast. The child starts at the parent’s projected close and follows subsequent changes to inherited rules and planned transactions.
+
 - Record cash exchanges in **외화 원장** with linked, independently balanced KRW and foreign entries. Confirm the actual debit or credit, quantity, fee, and the date and source of the trade rate. A dated manual valuation shows the priced subtotal and identifies unpriced balances.
 - Schema v16 preserves imported expenses. Selecting a historical USD purchase previews both currencies, backs up the ledger, and adds a linked reclassification after reconciliation. The original transaction, postings, and CSV row remain available.
 

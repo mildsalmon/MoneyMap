@@ -22,13 +22,15 @@ export function ScenarioOverview({
   const data = query.data;
   const cashMode = metric === "cash" && (!data || data.capabilities?.scenario_liquidity === true);
   const selected = cashMode ? (data?.cash?.available ? data.cash : undefined) : data?.net_worth;
+  const nested = (scenario.base_scenario_id ?? 1) !== 1;
+  const baselineLabel = nested ? "부모 전망" : "현재 패턴 유지";
   const label = cashMode ? "현금성 잔액" : "순자산";
   const series: Series[] = data && selected
     ? (["baseline", "scenario"] as const)
         .filter((key) => key === "baseline" || data.has_assumptions)
         .map((key) => ({
           id: key === "baseline" ? "baseline" : scenario.id,
-          name: key === "baseline" ? "현재 패턴 유지" : scenario.name,
+          name: key === "baseline" ? baselineLabel : scenario.name,
           kind: key,
           points: selected[key].points.map((p) => ({
             date: p.date,
@@ -87,7 +89,7 @@ export function ScenarioOverview({
               <dd>{fmtWon(last("scenario"))}</dd>
             </div>
             <div>
-              <dt>현재 패턴 유지와 차이</dt>
+              <dt>{nested ? "부모 전망과 차이" : "현재 패턴 유지와 차이"}</dt>
               <dd>{fmtDelta(last("scenario") - last("baseline"))}</dd>
             </div>
           </dl>
@@ -110,7 +112,7 @@ export function ScenarioOverview({
           />
           {cashMode && data.cash?.available && (
             <div className="scenario-shortages">
-              <Shortage name="현재 패턴 유지" value={data.cash.baseline.shortage} />
+              <Shortage name={baselineLabel} value={data.cash.baseline.shortage} />
               <Shortage name={scenario.name} value={data.cash.scenario.shortage} />
             </div>
           )}
@@ -153,7 +155,7 @@ export function ScenarioOverview({
           <details>
             <summary>계산 근거</summary>
             <p>
-              {data.fork_date} 실제 장부의 원화 마감 잔액에서 시작해{" "}
+              {data.fork_date} {nested ? "부모 전망의" : "실제 장부의"} 원화 마감 잔액에서 시작해{" "}
               {data.projection_start}부터 {data.projection_end}까지 원화 계정에 원화로 기록한
               규칙과 예정 거래를 계산합니다. 실제 규칙 변경은 다음 조회에
               반영되며 최근 지출 평균은 추정하지 않습니다.

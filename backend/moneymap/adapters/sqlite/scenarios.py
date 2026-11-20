@@ -71,6 +71,29 @@ class ScenarioWriter:
         ).fetchone()
         return self._row_to_scenario(row) if row else None
 
+    def lineage(self, leaf: Scenario) -> list[Scenario]:
+        """Non-actual branches in root-to-leaf order, including archived ancestors."""
+        if leaf.is_actual:
+            return []
+        if leaf.base_scenario_id == 1:
+            return [leaf]
+        rows = self._conn.execute(
+            """WITH RECURSIVE chain(id) AS (
+                 SELECT ? UNION
+                 SELECT s.base_scenario_id FROM scenarios s JOIN chain ON s.id=chain.id
+                 WHERE s.base_scenario_id != 1
+               ) SELECT s.* FROM scenarios s JOIN chain ON s.id=chain.id""",
+            (leaf.base_scenario_id,),
+        )
+        ancestors = {row["id"]: self._row_to_scenario(row) for row in rows}
+        chain = [leaf]
+        while chain[-1].base_scenario_id != 1:
+            parent = ancestors.pop(chain[-1].base_scenario_id, None)
+            if parent is None or parent.id == leaf.id:
+                raise DomainConflictError("분기 계보를 확인하세요", code="invalid_scenario_lineage")
+            chain.append(parent)
+        return chain[::-1]
+
     def list_all(self, status: str | None = None) -> list[Scenario]:
         if status is None:
             rows = self._conn.execute("SELECT * FROM scenarios ORDER BY id").fetchall()
@@ -129,6 +152,13 @@ class ScenarioWriter:
         )
 
     def delete(self, sid: int) -> None:
+        if self._conn.execute(
+            "SELECT 1 FROM scenarios WHERE base_scenario_id=? LIMIT 1", (sid,)
+        ).fetchone():
+            raise DomainConflictError(
+                "이 시나리오에서 분기한 자식 시나리오가 있어 영구 삭제할 수 없습니다",
+                code="scenario_has_children",
+            )
         self.remove_transactions(sid)
         self._conn.execute("DELETE FROM recurring_rules WHERE scenario_id=?", (sid,))
         self._conn.execute("DELETE FROM scenarios WHERE id=?", (sid,))

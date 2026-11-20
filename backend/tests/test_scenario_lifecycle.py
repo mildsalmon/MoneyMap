@@ -516,3 +516,36 @@ def test_hundred_scenario_list_uses_stable_order_and_one_query(client):
     response = client.get("/api/scenarios?status=active")
     assert response.status_code == 200
     assert len(response.json()) == 100
+
+
+def test_nested_parent_lifecycle_and_immutable_lineage(client):
+    parent = create(client)["id"]
+    body = {"name": "자식", "base_scenario_id": parent, "fork_date": DAY}
+    path = "/api/scenarios"
+    assert client.post(path, json={**body, "base_scenario_id": 9999}).status_code == 404
+    early = client.post(path, json={**body, "fork_date": "2026-01-30"})
+    assert early.status_code == 409
+    assert early.json()["detail"]["code"] == "scenario_fork_before_parent"
+
+    conn = connect(client.app.state.db_path)
+    with conn:
+        conn.execute("UPDATE scenarios SET rule_mode='legacy_snapshot' WHERE id=?", (parent,))
+    conn.close()
+    assert client.post(path, json=body).json()["detail"]["code"] == "legacy_rule_resolution_required"
+    assert client.post(f"{path}/{parent}/legacy-rule-resolution", json={
+        "version": 1, "rule_decisions": [], "transaction_decisions": [],
+    }).status_code == 200
+    child = client.post(path, json=body).json()["scenario"]
+    assert child["base_scenario_id"] == parent
+    for target in (parent, child["id"]):
+        assert client.patch(f"{path}/{parent}", json={
+            "name": "순환", "version": 2, "base_scenario_id": target,
+        }).status_code == 422
+    for sid, version in ((child["id"], 1), (parent, 2)):
+        assert client.post(f"{path}/{sid}/archive", json={"version": version}).status_code == 200
+    assert client.post(path, json=body).json()["detail"]["code"] == "scenario_archived_read_only"
+    token = client.get(f"{path}/{parent}/deletion-impact").headers["etag"]
+    response = client.delete(f"{path}/{parent}", headers={"If-Match": token})
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "scenario_has_children"
+    assert client.get(f"{path}/{child['id']}").json()["base_scenario_id"] == parent

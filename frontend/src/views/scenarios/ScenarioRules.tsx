@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import {
   api,
@@ -190,7 +191,7 @@ export function ScenarioRules({
     <div>
       <h2>시나리오 가정</h2>
       <p>
-        실제 장부의 최신 규칙은 읽기 전용입니다. 이 시나리오의 추가 규칙만
+        실제 장부에서 이어받은 규칙은 읽기 전용입니다. 이 시나리오의 추가 규칙만
         편집할 수 있습니다.
       </p>
       {query.error && (
@@ -218,7 +219,7 @@ export function ScenarioRules({
               <tr key={rule.id}>
                 <td>{rule.description || "이름 없는 규칙"}</td>
                 <td>
-                  {origin === "actual" ? "실제 · 읽기 전용" : "시나리오 전용"}
+                  {origin === "actual" ? "실제 · 읽기 전용" : origin === "ancestor" ? <Link to={`/scenarios/${rule.scenario_id}/assumptions`}>상위 시나리오 · 읽기 전용</Link> : "시나리오 전용"}
                 </td>
                 <td className="num">{fmtWon(rule.amount.amount)}</td>
                 <td>{humanSchedule(rule.schedule.spec)}</td>

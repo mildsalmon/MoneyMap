@@ -348,3 +348,19 @@ def test_statement_is_unknown_before_first_confirmation(client):
         "미확인 이자" in w for w in data["warnings"]
     )
     assert expense(forecast(client), "baseline") == 1100
+
+
+def test_child_and_parent_allocate_bill_capacity_on_separate_curves(client):
+    accounts, _ = statement_purchase(client)
+    test_api.update_settings(client, accounts["cash"], include_in_cash=True).raise_for_status()
+    branch = {"name": "카드값", "fork_date": TODAY.isoformat()}
+    parent = client.post("/api/scenarios", json=branch).json()["scenario"]["id"]
+    child = client.post("/api/scenarios", json={**branch, "base_scenario_id": parent}).json()["scenario"]["id"]
+    for owner, amount in ((parent, 5000), (child, 6000)):
+        add_scenario_bill(client, owner, accounts["cash"], accounts["card"], amount)
+    data = forecast(client, child)
+    # The first 10,700 is already budgeted in the installment. Only the
+    # combined 11,000 bill spends an extra 300, on the child's curve alone.
+    assert data["cash"]["baseline"]["points"][-1]["balance"] == -21100
+    assert data["cash"]["scenario"]["points"][-1]["balance"] == -21400
+    assert expense(data, "baseline") == expense(data, "scenario") == 1100

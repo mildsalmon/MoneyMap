@@ -47,13 +47,25 @@ def check_etag(scenario: Scenario, value: str | None, *, context: dict | None = 
         raise error
 
 
-def create_scenario(name, description, fork_date, uow):
+def require_fork_date(parent, fork_date):
+    if parent.fork_date and fork_date < parent.fork_date:
+        raise DomainConflictError(
+            "부모 시나리오의 시작 기준일 이후 날짜를 선택하세요 (같은 날 포함)",
+            code="scenario_fork_before_parent",
+        )
+
+
+def create_scenario(name, description, fork_date, uow, base_scenario_id=1):
     with uow:
+        parent = get_scenario(uow.scenarios, base_scenario_id)
+        if not parent.is_actual:
+            parent.require_active(assumptions=True)
+            require_fork_date(parent, fork_date)
         saved = uow.scenarios.save(
             Scenario(
                 name=name,
                 description=description,
-                base_scenario_id=1,
+                base_scenario_id=base_scenario_id,
                 fork_date=fork_date,
             )
         )

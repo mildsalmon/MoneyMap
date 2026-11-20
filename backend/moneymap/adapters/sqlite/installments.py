@@ -533,9 +533,22 @@ def remove(conn, plan_id, command):
     return mutate(conn, command, "remove", plan_id, apply)
 
 
-def projection_inputs(conn, fork, rules, scenario_rules=()):
+def _covered_payment(postings, rules, capacity, due, plan, remaining):
+    if not rules or not plan["interest_account_id"] or plan["projection_mode"] == "included":
+        return postings
+    cash, card = plan["cash_account_id"], plan["card_account_id"]
+    key = (due, cash, card)
+    if key not in capacity:
+        capacity[key] = bill_capacity(rules, due, cash, card)
+    covered = min(remaining, capacity[key])
+    capacity[key] -= covered
+    return (*postings, (cash, covered), (card, -covered)) if covered else postings
+
+
+def projection_inputs(conn, fork, rules, scenario_rules=(), *, ancestor_rules=()):
     events, warnings = [], []
     scenario_capacity = {}
+    ancestor_capacity = {}
     # Purchases outside the opening balance must not consume historical bill capacity.
     plans = [
         p for p in read_plans(conn, fork) if p["purchase_date"] <= fork.isoformat()
@@ -580,18 +593,10 @@ def projection_inputs(conn, fork, rules, scenario_rules=()):
             if not postings:
                 continue
             due = dt.date.fromisoformat(row["due_date"])
-            scenario_postings = None
-            if scenario_rules and p["interest_account_id"] and p["projection_mode"] != "included":
-                cash, card = p["cash_account_id"], p["card_account_id"]
-                key = (due, cash, card)
-                if key not in scenario_capacity:
-                    scenario_capacity[key] = bill_capacity(scenario_rules, due, cash, card)
-                covered = min(remaining, scenario_capacity[key])
-                if covered:
-                    # The scenario rule already moves this cash to the card. Offset
-                    # that part of the payment only; the expense postings still apply.
-                    scenario_capacity[key] -= covered
-                    scenario_postings = (*postings, (cash, covered), (card, -covered))
+            # Both curves include the parent's rules. The child may cover more
+            # of this bill, so allocate capacity independently on each curve.
+            baseline = _covered_payment(tuple(postings), ancestor_rules, ancestor_capacity, due, p, remaining)
+            candidate = _covered_payment(tuple(postings), scenario_rules, scenario_capacity, due, p, remaining)
             events.append(
                 ProjectionEvent(
                     due,
@@ -599,8 +604,8 @@ def projection_inputs(conn, fork, rules, scenario_rules=()):
                     row["id"],
                     f"{p['description']} {row['number']}회차",
                     "actual",
-                    tuple(postings),
-                    scenario_postings=scenario_postings,
+                    baseline,
+                    scenario_postings=candidate if candidate != baseline else None,
                 )
             )
     return tuple(events), tuple(dict.fromkeys(warnings))

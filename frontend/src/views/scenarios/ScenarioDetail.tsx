@@ -112,7 +112,8 @@ function Information({
             onChange={(e) => setDescription(e.target.value)}
           />
         </div>
-        <p>시작 기준일: {scenario.fork_date} · 기준 장부: 실제 장부</p>
+        <p>시작 기준일: {scenario.fork_date} · 기준 장부: {scenario.base_scenario_id === 1 ? "실제 장부" :
+          <Link to={`/scenarios/${scenario.base_scenario_id}`}>부모 시나리오 열기</Link>}</p>
         <p>생성 시각: {scenario.created_at}</p>
         {!readonly && (
           <button

@@ -27,10 +27,10 @@ def test_past_fork_date_allowed():
     )
 
 
-def test_nested_scenario_rejected_v1():
-    # D2: 시나리오 위 시나리오 금지 (base는 actual만)
+def test_nested_scenario_requires_distinct_parent():
+    Scenario(id=3, name="중첩", base_scenario_id=2, fork_date=TODAY)
     with pytest.raises((InvalidScenarioBaseError, ValidationError)):
-        Scenario(name="중첩", base_scenario_id=2, fork_date=TODAY)
+        Scenario(id=2, name="순환", base_scenario_id=2, fork_date=TODAY)
 
 
 def test_fork_without_date_rejected():
