@@ -1,6 +1,7 @@
 export type AccountType = "asset" | "liability" | "income" | "expense" | "equity";
 
 export interface AccountReorderCommand {
+  parent_versions?: Record<number, number>;
   type: AccountType;
   parent_id: number | null;
   ordered_accounts: { id: number; version: number }[];

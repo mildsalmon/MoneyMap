@@ -16,6 +16,8 @@ test("scope projection keeps subtree and preserved slots", () => {
   const overlay = overlayOrder(list, list[0], [4, 1]);
   expect(overlay.map(a => a.position)).toEqual([4, 2, 3, 1, 5, 6]);
   expect(list[0].position).toBe(1);
+  const moved = list.map(a => a.id === 4 ? { ...a, parent_id: 1 } : a);
+  expect(overlayOrder(moved, list[0], [4, 1])).toEqual(moved);
 });
 test("moves reject boundaries, unknown ids and self targets", () => {
   expect(swapOrder([1, 2, 3], 1, -1)).toEqual([1, 2, 3]);

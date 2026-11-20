@@ -19,6 +19,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from moneymap.domain.errors import DomainConflictError
 from moneymap.domain.money import DEFAULT_CURRENCY
 
 
@@ -70,7 +71,14 @@ class Account(BaseModel):
         return SIGN_MULTIPLIER[self.type]
 
 
+def validate_parent_versions(accounts: list[Account], expected: dict[int, int]) -> None:
+    versions = {account.id: account.version for account in accounts}
+    if any(versions.get(key) != version for key, version in expected.items()):
+        raise DomainConflictError("상위 그룹이 변경되었습니다. 최신 위치를 확인하세요", code="account_parent_stale")
+
+
 class AccountSettingsCommand(BaseModel):
+    parent_versions: dict[int, int] = Field(default_factory=dict)
     effective_date: date | None = None
     account_id: int
     name: str

@@ -6,7 +6,7 @@ import { GripVertical, ArrowUp, ArrowDown } from "lucide-react";
 import type { Account } from "../api";
 import { insertOrder, projectBlocks, scopeKey, siblings, swapOrder, type ReorderBlock } from "./accountOrdering";
 
-interface Context { accounts: Account[]; disabled: boolean; save: (a: Account, ids: number[]) => Promise<void>; panel: number | null; setPanel: (id: number | null) => void; dragging: boolean }
+interface Context { accounts: Account[]; disabled: (owner: Account) => boolean; save: (a: Account, ids: number[]) => Promise<void>; panel: number | null; setPanel: (id: number | null) => void; dragging: boolean }
 const OrderContext = createContext<Context | null>(null);
 const sensors = [PointerSensor.configure({
   activationConstraints: [new PointerActivationConstraints.Distance({ value: 6 })],
@@ -18,7 +18,7 @@ function BoundaryTarget({ boundary }: { boundary: Boundary }) {
   return <div ref={ref} aria-hidden="true" className="order-drop-target" style={{ position: "fixed", top: boundary.top, left: boundary.left, width: boundary.width, height: boundary.height }} />;
 }
 export function AccountOrderProvider({ accounts, disabled, save, children, onDragging }: {
-  accounts: Account[]; disabled: boolean; save: Context["save"]; children: ReactNode; onDragging: (rows: ReadonlySet<number> | null) => void;
+  accounts: Account[]; disabled: (owner: Account) => boolean; save: Context["save"]; children: ReactNode; onDragging: (rows: ReadonlySet<number> | null) => void;
 }) {
   const [block, setBlock] = useState<ReorderBlock | null>(null);
   const source = block?.owner;
@@ -70,7 +70,7 @@ export function AccountOrderProvider({ accounts, disabled, save, children, onDra
       ? Accessibility.configure({ screenReaderInstructions: { draggable: "손잡이를 끌어 같은 분류 안에서 이동하세요. Enter 또는 Space를 누르면 위·아래 이동 버튼이 열립니다. Escape로 취소합니다." },
         announcements: { dragstart: () => "순서를 이동하고 있습니다", dragend: (event: { canceled: boolean }) => event.canceled ? "이동을 취소했습니다" : "드래그를 마쳤습니다" } })
       : plugin)}
-      onBeforeDragStart={event => { if (disabled) event.preventDefault(); }}
+      onBeforeDragStart={event => { const owner = accounts.find(a => a.id === event.operation.source?.id); if (!owner || disabled(owner)) event.preventDefault(); }}
       onDragStart={event => {
         const owner = accounts.find(a => a.id === event.operation.source?.id);
         if (!owner) return;
@@ -110,7 +110,7 @@ export function AccountOrderControls({ account }: { account: Account }) {
   const ctx = useContext(OrderContext)!;
   const peers = siblings(ctx.accounts, account), index = peers.findIndex(a => a.id === account.id);
   const allowed = peers.length > 1;
-  const { ref, handleRef, isDragging } = useDraggable({ id: account.id, disabled: ctx.disabled || !allowed });
+  const { ref, handleRef, isDragging } = useDraggable({ id: account.id, disabled: ctx.disabled(account) || !allowed });
   const handle = useRef<HTMLButtonElement | null>(null), panelRef = useRef<HTMLDivElement | null>(null);
   const [panelPosition, setPanelPosition] = useState({ top: 0, left: 0 });
   const expanded = ctx.panel === account.id;
@@ -126,7 +126,7 @@ export function AccountOrderControls({ account }: { account: Account }) {
     return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
   }, [expanded]);
   const buttons = <>{([-1, 1] as const).map(direction => <button key={direction} type="button" className="order-move"
-    data-order-control={account.id} disabled={ctx.disabled || ctx.dragging || index + direction < 0 || index + direction >= peers.length}
+    data-order-control={account.id} disabled={ctx.disabled(account) || ctx.dragging || index + direction < 0 || index + direction >= peers.length}
     aria-label={`${account.name} ${direction < 0 ? "위로" : "아래로"} 이동`}
     onClick={() => void ctx.save(account, swapOrder(peers.map(a => a.id), account.id, direction))}>
     {direction < 0 ? <ArrowUp size={16} /> : <ArrowDown size={16} />}<span className="sr-only">{direction < 0 ? "위로 이동" : "아래로 이동"}</span>
@@ -134,7 +134,7 @@ export function AccountOrderControls({ account }: { account: Account }) {
   if (!allowed) return <span className="order-spacer" />;
   return <><button ref={element => { handle.current = element; ref(element); handleRef(element); }} type="button"
     className="order-handle" data-order-control={account.id} aria-label={`${account.name} 순서 변경`} aria-expanded={expanded}
-    aria-controls={expanded ? `order-panel-${account.id}` : undefined} disabled={ctx.disabled}
+    aria-controls={expanded ? `order-panel-${account.id}` : undefined} disabled={ctx.disabled(account)}
     onClick={() => { if (!isDragging && !ctx.dragging) ctx.setPanel(expanded ? null : account.id); }}>
     <GripVertical size={16} aria-hidden="true" /></button>
     <span className="order-mobile">{buttons}</span>

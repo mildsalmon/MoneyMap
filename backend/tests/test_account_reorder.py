@@ -124,3 +124,48 @@ def test_sqlite_position_boundary_and_failure_rollback(overflow):
         assert repo.find_all() == before
     finally:
         conn.close()
+
+
+def test_create_receipt_recovers_original_account_after_rename(client):
+    from uuid import uuid4
+
+    key = str(uuid4())
+    path = f"/api/accounts/creation-requests/{key}"
+    assert client.get(path).json() is None
+    body = {"type": "expense", "name": "원본", "request_id": key}
+    account = client.post("/api/accounts", json=body).json()
+    response = client.put(f"/api/accounts/{account['id']}/settings", json={
+        "name": "이후 이름", "parent_id": None, "is_overdraft": False, "version": account["version"],
+    })
+    assert response.status_code == 200
+    assert client.get(path).json()["name"] == "이후 이름"
+    assert client.post("/api/accounts", json=body).json()["id"] == account["id"]
+    conflict = client.post("/api/accounts", json={**body, "name": "다른 요청"})
+    assert conflict.status_code == 409
+    assert all(a["name"] != "원본" for a in client.get("/api/accounts").json())
+
+
+def test_moved_ancestor_rejects_nested_writes_until_refreshed(client):
+    root = create(client, "출발")
+    middle = create(client, "중간", parent_id=root["id"])
+    one = create(client, "하나", parent_id=middle["id"])
+    two = create(client, "둘", parent_id=middle["id"])
+    destination = create(client, "도착", is_placeholder=True)
+    result = client.put(f"/api/accounts/{root['id']}/settings", json={
+        "name": root["name"], "parent_id": destination["id"], "version": root["version"], "is_overdraft": False,
+    })
+    assert result.status_code == 200
+    parents = {str(root["id"]): root["version"], str(middle["id"]): middle["version"]}
+    create_body = {"name": "셋", "type": "expense", "parent_id": middle["id"], "parent_versions": parents}
+    rename = {"name": "첫째", "parent_id": middle["id"], "version": one["version"],
+              "is_overdraft": False, "parent_versions": parents}
+    reorder = payload([two, one], parent_id=middle["id"], parent_versions=parents)
+    for response in (
+        client.post("/api/accounts", json=create_body),
+        client.put(f"/api/accounts/{one['id']}/settings", json=rename),
+        client.put("/api/accounts/reorder", json=reorder),
+    ):
+        assert response.status_code == 409
+        assert response.json()["detail"]["code"] == "account_parent_stale"
+    parents[str(root["id"])] = result.json()["account"]["version"]
+    assert client.put("/api/accounts/reorder", json=reorder).status_code == 200

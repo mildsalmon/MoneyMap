@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
@@ -24,6 +25,8 @@ def reorder_accounts(body: AccountReorderCommand, request: Request):
 
 
 class AccountIn(BaseModel):
+    parent_versions: dict[int, int] = Field(default_factory=dict)
+    request_id: UUID | None = None
     name: str
     type: AccountType
     parent_id: int | None = None
@@ -32,6 +35,7 @@ class AccountIn(BaseModel):
 
 
 class AccountSettingsIn(BaseModel):
+    parent_versions: dict[int, int] = Field(default_factory=dict)
     effective_date: datetime.date | None = None
     include_in_cash: bool | None = None
     name: str
@@ -84,7 +88,13 @@ def create_account(body: AccountIn, request: Request):
         is_placeholder=body.is_placeholder,
         is_overdraft=body.is_overdraft,
     )
-    return r["accounts"].create(account).model_dump()
+    request_id = str(body.request_id) if body.request_id else None
+    return r["accounts"].create(account, request_id, body.parent_versions).model_dump()
+
+
+@router.get("/api/accounts/creation-requests/{request_id}")
+def account_creation_result(request_id: UUID, request: Request):
+    return repos(request)["accounts"].creation_result(str(request_id))
 
 
 @router.put("/api/accounts/{account_id}/settings")
@@ -96,6 +106,7 @@ def update_account_settings(
     result = app_services.update_account_settings(
         AccountSettingsCommand(
             account_id=account_id,
+            parent_versions=body.parent_versions,
             name=body.name,
             parent_id=body.parent_id,
             is_overdraft=body.is_overdraft,

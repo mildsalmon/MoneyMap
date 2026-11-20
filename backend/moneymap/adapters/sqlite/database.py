@@ -366,6 +366,12 @@ def migrate_reconciliation(conn: sqlite3.Connection) -> None:
     )""")
 
 
+def migrate_account_creations(conn: sqlite3.Connection) -> None:
+    conn.execute("""CREATE TABLE account_creation_requests (
+        request_id TEXT PRIMARY KEY, payload TEXT NOT NULL, account_id INTEGER NOT NULL REFERENCES accounts(id)
+    )""")
+
+
 MIGRATIONS = (
     _foundation_schema,
     migrate_lifecycle,
@@ -380,6 +386,7 @@ MIGRATIONS = (
     migrate_reconciliation,
     migrate_account_history,
     migrate_living_categories,
+    migrate_account_creations,
     migrate_installment_costs,
 )
 

@@ -36,7 +36,7 @@ def revision(conn):
 
 def mutate(conn, command, action, target, apply):
     body = command.model_dump(mode="json")
-    # Commands issued before v14 must still match their durable receipt.
+    # Commands issued before v15 must still match their durable receipt.
     if action == "create" and command.statement is None:
         for key in ("statement", "statement_date", "interest_account_id", "fee_account_id"):
             body.pop(key)

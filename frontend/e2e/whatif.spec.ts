@@ -3,6 +3,7 @@
  * 온보딩 → 계정+개시잔액 → 반복 규칙 → 시나리오 fork·가설 편집 → 비교 차트.
  */
 import { expect, test, type Page } from "./test";
+import { withLedger } from "./withLedger";
 
 const API_BASE = (process.env.MONEYMAP_E2E_API_BASE
   ?? `http://127.0.0.1:${process.env.MONEYMAP_E2E_BACKEND_PORT ?? "8765"}/api`).replace(/\/+$/, "");
@@ -213,8 +214,39 @@ test("마이너스통장 개시잔액은 대시보드에서만 부채로 보고�
   await expect(page.locator("tr.account-row", { hasText: "케이뱅크" })).toContainText("0원으로 확인");
 });
 
-test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
-  // ── 1. 첫 실행 흐름 (앞 테스트의 0원 계정과 무관하게 자체 데이터로 진행)
+type WhatIfLedger = { page: Page; api: string; date: string; cashId: number; snackId: number };
+
+const whatIfTest = test.extend<{ ledger: WhatIfLedger }>({
+  ledger: async ({ page, request }, use, info) => {
+    await withLedger(page, info.outputPath("whatif.db"), "empty", async api => {
+      const seed = await request.post(`${api}/accounts/seed-standard`);
+      expect(seed.status()).toBe(200);
+      const accounts = await request.get(`${api}/accounts`);
+      expect(accounts.ok()).toBe(true);
+      const rows: { id: number; name: string }[] = await accounts.json();
+      const accountId = (name: string) => {
+        const row = rows.find(account => account.name === name);
+        if (!row) throw new Error(`표준 계정 누락: ${name}`);
+        return row.id;
+      };
+      const cashId = accountId("현금");
+      const snack = await request.post(`${api}/accounts`, {
+        data: { name: "야식", type: "expense", parent_id: accountId("식비") },
+      });
+      expect(snack.status()).toBe(201);
+      const snackId: number = (await snack.json()).id;
+      const date = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Seoul" }).format(new Date());
+      const expense = await request.post(`${api}/transactions`, {
+        data: { date, postings: [{ account_id: snackId, amount: 12_345 }, { account_id: cashId, amount: -12_345 }] },
+      });
+      expect(expense.status()).toBe(201);
+      await use({ page, api, date, cashId, snackId });
+    });
+  },
+});
+
+whatIfTest("온보딩부터 What-if 비교 차트까지", async ({ ledger }) => {
+  const { page } = ledger;
   await page.goto("/");
   await expect(page.locator(".side .health")).toContainText("검산 정상");
   await nav(page, "계정·개시잔액").click();
@@ -329,6 +361,20 @@ test("온보딩부터 What-if 비교 차트까지", async ({ page }) => {
 
   // 상태 스트립 갱신 (D8)
   await expect(page.locator(".side .health")).toContainText("검산 정상");
+});
+
+whatIfTest("계정 원장과 대시보드 표가 화면 너비에 맞게 배치된다", async ({ ledger, request }) => {
+  const { page, api, date, cashId, snackId } = ledger;
+  const opening = await request.post(`${api}/accounts/${cashId}/opening-balance`, {
+    data: { date, amount: 10_000_000, state: "positive" },
+  });
+  expect(opening.status()).toBe(201);
+  const expense = await request.post(`${api}/transactions`, {
+    data: { date, postings: [{ account_id: snackId, amount: 52_000 }, { account_id: cashId, amount: -52_000 }] },
+  });
+  expect(expense.status()).toBe(201);
+  await page.goto("/");
+  await expect(page.locator(".strip .hero")).toHaveText("₩9,935,655");
 
   // 1024px: 페이지 전체는 고정하고 계정 원장만 내부 스크롤한다.
   await page.setViewportSize({ width: 1024, height: 900 });
