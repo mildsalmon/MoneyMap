@@ -478,3 +478,43 @@ def test_simultaneous_planned_commands_have_one_winner(client, setup):
     with ThreadPoolExecutor(max_workers=2) as pool:
         assert set(pool.map(writer, range(2))) == {2, "scenario_version_conflict"}
     assert len(client.get(path).json()) == 1
+
+
+def test_duplicate_obeys_parent_eligibility_without_changing_existing_child(client, setup):
+    parent_id, _, planned = setup
+    scenarios = "/api/scenarios"
+    branch = {"name": "자식", "base_scenario_id": parent_id, "fork_date": "2026-01-31"}
+    child = client.post(scenarios, json=branch).json()["scenario"]
+    child_path = f"{scenarios}/{child['id']}"
+    client.post(f"{child_path}/rules", json=rule_body(client)).raise_for_status()
+    client.post(f"{child_path}/planned-transactions", json={
+        **planned, "scenario_version": 2,
+    }).raise_for_status()
+    duplicate = {"name": "복제", "fork_date": branch["fork_date"], "version": 3}
+    forecast_path = f"/api/projection?scenario_id={child['id']}&months=3"
+    original = client.get(child_path).json()
+    forecast = client.get(forecast_path).json()["net_worth"]
+    assert forecast["scenario"]["points"][-1]["balance"] == 400
+
+    client.post(f"{scenarios}/{parent_id}/archive", json={"version": 1}).raise_for_status()
+    conn = connect(client.app.state.db_path)
+    try:
+        before = list(conn.iterdump())
+        for path, payload in ((scenarios, branch), (f"{child_path}/duplicate", duplicate)):
+            response = client.post(path, json=payload)
+            assert response.status_code == 409, response.text
+            assert response.json()["detail"]["code"] == "scenario_archived_read_only"
+            assert list(conn.iterdump()) == before
+    finally:
+        conn.close()
+    assert client.get(child_path).json() == original
+    assert client.get(forecast_path).json()["net_worth"] == forecast
+
+    client.post(f"{scenarios}/{parent_id}/restore", json={"version": 2}).raise_for_status()
+    response = client.post(f"{child_path}/duplicate", json=duplicate)
+    assert response.status_code == 201, response.text
+    copied = response.json()
+    assert copied["scenario"]["base_scenario_id"] == parent_id
+    assert copied["copied"] == {"rules": 1, "planned_transactions": 1}
+    copy_id = copied["scenario"]["id"]
+    assert client.get(f"/api/projection?scenario_id={copy_id}&months=3").json()["net_worth"] == forecast
