@@ -1,19 +1,5 @@
 # TODOS
 
-## 시나리오
-
-### 시나리오 중첩 (v2)
-
-**What:** 시나리오 위에 시나리오를 fork하는 중첩을 허용한다.
-
-**Why:** 가설을 조합할 때 기존 시나리오의 규칙을 다시 입력하지 않게 한다.
-
-**Context:** DB 스키마의 `scenarios.base_scenario_id`는 중첩을 표현할 수 있지만, v1 서비스는 base를 actual(id=1)로 제한한다. live-additive에서 actual 규칙과 각 조상 시나리오의 추가 규칙을 어떤 순서로 조립할지, fork_date를 체인마다 어떻게 클리핑할지 먼저 확정해야 한다.
-
-**Effort:** L
-**Priority:** P3
-**Depends on:** v1 사용 후 중첩 가설의 실수요 확인
-
 ## 계정·원장
 
 ### 계정 행 작업을 오버플로 메뉴로 정리
@@ -69,6 +55,10 @@
 **Depends on:** 두 번째 cross-repository 원자성 유스케이스 또는 transaction 경계 중복의 관측
 
 ## Completed
+
+### 시나리오 중첩 (v2)
+
+부모의 분기일 마감 전망을 이어받아 추가 규칙과 예정 거래를 조합한다. 부모·자식의 전망을 비교하고 기존 snapshot은 명시적으로 변환한다. [분기 경계와 생명주기](docs/designs/scenario-lifecycle.md#중첩-시나리오-v2)
 
 ### 현금성 다중 통화 원장
 

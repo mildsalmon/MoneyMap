@@ -1,11 +1,12 @@
 """A fixed-query projection read model; callers own one read snapshot."""
 
 import datetime as dt
+from dataclasses import replace
 from itertools import groupby
 
 from moneymap.app_services.scenarios import get_scenario, now
 from moneymap.domain.errors import DomainConflictError
-from moneymap.domain.projection import ProjectionEvent, ProjectionInputs
+from moneymap.domain.projection import ProjectionEvent, ProjectionInputs, expand_events
 from moneymap.domain.money import Money
 from moneymap.domain.transaction import Posting, Transaction
 from .scenarios import ScenarioWriter
@@ -23,7 +24,9 @@ class ProjectionInputReader:
     def read(self, sid: int, *, allow_legacy=False) -> ProjectionInputs:
         if not self.conn.in_transaction:
             raise RuntimeError("Projection requires a read snapshot")
-        scenario = get_scenario(ScenarioWriter(self.conn), sid)
+        repo = ScenarioWriter(self.conn)
+        scenario = get_scenario(repo, sid)
+        lineage = repo.lineage(scenario)
         if scenario.is_actual:
             scenario = scenario.model_copy(update={"fork_date": now().date()})
         elif scenario.rule_mode == "legacy_snapshot" and not allow_legacy:
@@ -39,47 +42,76 @@ class ProjectionInputReader:
         ).fetchall()
         account_types = tuple((r["id"], r["type"]) for r in accounts)
         cash_ids = tuple(r["id"] for r in accounts if r["include_in_cash"])
-        balances = SqliteLedgerQueries(self.conn).actual_krw_balances(scenario.fork_date)
+        fork = lineage[0].fork_date if lineage else scenario.fork_date
+        balances = SqliteLedgerQueries(self.conn).actual_krw_balances(fork)
         rules = ScenarioRuleWriter(self.conn)
         actual = tuple(rules.find_by_scenario(1, krw_only=True))
-        owned = () if sid == 1 else tuple(rules.find_by_scenario(sid, krw_only=True))
-        planned = []
-        if sid != 1:
-            rows = self.conn.execute(
-                "SELECT t.id,t.date,t.description,p.account_id,p.amount FROM transactions t JOIN postings p ON p.txn_id=t.id WHERE t.scenario_id=? AND t.posted=1 AND t.source_rule_id IS NULL AND t.date>?"
-                f" AND {KRW_TRANSACTION} ORDER BY t.id,p.id",
-                (sid, scenario.fork_date.isoformat()),
-            ).fetchall()
-            for tid, postings in groupby(rows, key=lambda r: r["id"]):
-                postings = list(postings)
-                row = postings[0]
-                planned.append(
-                    ProjectionEvent(
-                        dt.date.fromisoformat(row["date"]),
-                        "planned_transaction",
-                        tid,
-                        row["description"],
-                        "scenario",
-                        tuple((p["account_id"], p["amount"]) for p in postings),
-                    )
-                )
+        forks = {node.id: node.fork_date for node in lineage}
+        owned = rules.find_by_scenarios(list(forks), krw_only=True)
+        if len(lineage) > 1:
+            # A historical opening spans several forks. Clip once here so rule
+            # expansion and installment bill capacity share the owner's dates.
+            eligible = []
+            for rule in owned:
+                first = max(rule.start_date, forks[rule.scenario_id] + dt.timedelta(days=1))
+                if rule.end_date is None or first <= rule.end_date:
+                    eligible.append(rule.model_copy(update={"start_date": first}))
+            owned = eligible
+        planned = self._planned_events(forks, sid)
         from .installments import projection_inputs
-        installment_events, installment_warnings = projection_inputs(self.conn, scenario.fork_date, actual, owned)
-        return ProjectionInputs(
+
+        installment_events, installment_warnings = projection_inputs(
+            self.conn, fork, actual, owned, ancestor_rules=[r for r in owned if r.scenario_id != sid]
+        )
+        inputs = ProjectionInputs(
             scenario,
             revisions["actual_ledger_revision"],
             revisions["actual_rule_revision"],
             account_types,
             tuple(balances.items()),
             actual,
-            owned,
+            tuple(owned),
             tuple(planned),
             cash_ids,
             revisions["cash_config_revision"],
             installment_events,
             installment_warnings,
             revisions["installment_revision"],
+            tuple((node.id, node.version) for node in lineage[:-1]),
         )
+        if fork == scenario.fork_date:
+            return inputs
+        # The actual ledger stops at the first fork. Carry only projected postings
+        # through the child's closing day, including an installment's scenario offset.
+        for event in expand_events(inputs, fork + dt.timedelta(days=1), scenario.fork_date):
+            postings = event.scenario_postings if event.scenario_postings is not None else event.postings
+            for aid, amount in postings:
+                balances[aid] = balances.get(aid, 0) + amount
+        return replace(inputs, start_balances=tuple(balances.items()))
+
+    def _planned_events(self, forks, sid):
+        if not forks:
+            return ()
+        placeholders = ",".join("?" for _ in forks)
+        rows = self.conn.execute(
+            f"""SELECT t.id,t.scenario_id,t.date,t.description,p.account_id,p.amount
+                FROM transactions t JOIN postings p ON p.txn_id=t.id
+                JOIN scenarios s ON s.id=t.scenario_id
+                WHERE t.scenario_id IN ({placeholders}) AND t.posted=1
+                AND t.source_rule_id IS NULL AND t.date>s.fork_date
+                AND {KRW_TRANSACTION} ORDER BY t.id,p.id""",
+            tuple(forks),
+        )
+        events = []
+        for tid, items in groupby(rows, key=lambda row: row["id"]):
+            postings = list(items)
+            row = postings[0]
+            events.append(ProjectionEvent(
+                dt.date.fromisoformat(row["date"]), "planned_transaction", tid,
+                row["description"], "scenario" if row["scenario_id"] == sid else "ancestor",
+                tuple((p["account_id"], p["amount"]) for p in postings),
+            ))
+        return tuple(events)
 
     def _legacy_transactions(self, sid: int, *, start=None, end=None):
         """Hydrate legacy transactions and their ordered postings in one query."""

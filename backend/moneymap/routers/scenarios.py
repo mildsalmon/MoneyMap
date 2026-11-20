@@ -41,6 +41,10 @@ class ScenarioIn(StrictBody):
         return value
 
 
+class CreateIn(ScenarioIn):
+    base_scenario_id: int = Field(default=1, gt=0)
+
+
 class VersionIn(StrictBody):
     version: int = Field(gt=0)
 
@@ -129,9 +133,9 @@ def list_scenarios(request: Request, status: Literal["active", "archived"] = "ac
 
 
 @router.post("/api/scenarios", status_code=201)
-def create_scenario(body: ScenarioIn, request: Request):
+def create_scenario(body: CreateIn, request: Request):
     return service.create_scenario(
-        body.name, body.description, body.fork_date, uow(request)
+        body.name, body.description, body.fork_date, uow(request), body.base_scenario_id
     )
 
 
@@ -175,8 +179,10 @@ def delete(sid: int, request: Request, if_match: str | None = Header(default=Non
 def effective_rules(sid: int, request: Request):
     r = repos(request)
     scenario = service.get_scenario(r["scenarios"], sid)
+    lineage = r["scenarios"].lineage(scenario)
     return EffectiveRuleResolver.resolve(
-        scenario, r["rules"].find_by_scenario(1), r["rules"].find_by_scenario(sid)
+        scenario, r["rules"].find_by_scenario(1),
+        r["rules"].find_by_scenarios([node.id for node in lineage]),
     )
 
 

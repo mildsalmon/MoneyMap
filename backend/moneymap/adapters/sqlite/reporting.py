@@ -15,6 +15,7 @@ from moneymap.domain.scenario import ACTUAL_SCENARIO_ID
 
 from .common import _iso
 from .krw_reporting import KRW_TRANSACTION
+from .scenarios import ScenarioWriter
 
 
 class SqliteLedgerQueries:
@@ -57,18 +58,28 @@ class SqliteLedgerQueries:
               ORDER BY b.date DESC,b.txn_id DESC LIMIT 1
             ),0) AS bal FROM account_balance_keys k""", (_iso(at),))
         else:
-            sc = self._conn.execute("SELECT fork_date FROM scenarios WHERE id=?", (scenario_id,)).fetchone()
-            if sc is None or sc["fork_date"] is None:
-                raise DomainNotFoundError("시나리오가 없습니다", code="scenario_not_found", context={"scenario_id": scenario_id})
-            rows = self._conn.execute("""SELECT p.account_id,p.currency,SUM(p.amount) AS bal
+            scope, params = self._stored_scope(at, scenario_id)
+            rows = self._conn.execute(f"""SELECT p.account_id,p.currency,SUM(p.amount) AS bal
               FROM postings p JOIN transactions t ON t.id=p.txn_id
-              WHERE t.posted=1 AND ((t.scenario_id=1 AND t.date<=?)
-                OR (t.scenario_id=? AND t.date>? AND t.date<=? AND t.source_rule_id IS NULL))
-              GROUP BY p.account_id,p.currency""", (sc['fork_date'], scenario_id, sc['fork_date'], _iso(at)))
+              WHERE t.posted=1 AND ({scope})
+              GROUP BY p.account_id,p.currency""", params)
         totals: dict[int, dict[str, int]] = {}
         for row in rows:
             totals.setdefault(row["account_id"], {})[row["currency"]] = row["bal"]
         return totals
+
+    def _stored_scope(self, at, scenario_id):
+        repo = ScenarioWriter(self._conn)
+        scenario = repo.find_by_id(scenario_id)
+        if scenario is None:
+            raise DomainNotFoundError("시나리오가 없습니다", code="scenario_not_found", context={"scenario_id": scenario_id})
+        lineage = repo.lineage(scenario)
+        owners = ",".join("?" for _ in lineage)
+        scope = f"""(t.scenario_id=1 AND t.date<=?) OR (
+            t.scenario_id IN ({owners}) AND t.source_rule_id IS NULL AND t.date<=?
+            AND t.date>(SELECT fork_date FROM scenarios WHERE id=t.scenario_id))"""
+        actual_through = min(at, lineage[0].fork_date)
+        return scope, (_iso(actual_through), *(s.id for s in lineage), _iso(at))
 
     def balance_at(self, account_id: int, at: datetime.date, scenario_id: int) -> Money:
         row = self._conn.execute("SELECT currency FROM accounts WHERE id=?", (account_id,)).fetchone()
@@ -105,25 +116,13 @@ class SqliteLedgerQueries:
             ).fetchone()
             return row["nw"]
 
-        sc = self._conn.execute(
-            "SELECT fork_date FROM scenarios WHERE id=?", (scenario_id,)
-        ).fetchone()
-        if sc is None or sc["fork_date"] is None:
-            raise DomainNotFoundError(
-                "시나리오가 없습니다",
-                code="scenario_not_found",
-                context={"scenario_id": scenario_id},
-            )
-        fork = sc["fork_date"]
+        scope, params = self._stored_scope(at, scenario_id)
         row = self._conn.execute(
             "SELECT COALESCE(SUM(p.amount),0) AS nw FROM postings p"
             " JOIN transactions t ON t.id = p.txn_id"
             " JOIN accounts a ON a.id = p.account_id"
-            f" WHERE {nw_filter} AND t.posted=1 AND ("
-            f"   {self._ACTUAL_BEFORE_FORK}"
-            "   OR (t.scenario_id=? AND t.date > ? AND t.date <= ? AND t.source_rule_id IS NULL)"
-            " )",
-            (ACTUAL_SCENARIO_ID, fork, scenario_id, fork, _iso(at)),
+            f" WHERE {nw_filter} AND t.posted=1 AND ({scope})",
+            params,
         ).fetchone()
         return row["nw"]
 

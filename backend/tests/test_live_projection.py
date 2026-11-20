@@ -377,3 +377,96 @@ def test_legacy_dashboard_batches_transactions_and_shares_actual_basis(
         assert sql_counts[0] == sql_counts[1]
     finally:
         conn.close()
+
+
+def test_grandchild_carries_only_each_owners_eligible_occurrences(golden):
+    client, parent, bank, income, _ = golden
+    from test_api import update_settings
+    update_settings(client, bank, include_in_cash=True).raise_for_status()
+
+    def branch(base, date):
+        result = client.post("/api/scenarios", json={
+            "name": "분기", "base_scenario_id": base, "fork_date": date,
+        })
+        result.raise_for_status()
+        return result.json()["scenario"]["id"]
+
+    child = branch(parent, "2026-02-28")
+    grandchild = branch(child, "2026-03-31")
+    expense = account(client, "자식 비용", "expense")
+    rule = client.post(f"/api/scenarios/{child}/rules", json={
+        "description": "자식 월말", "scenario_version": 1, "schedule": "monthly:31",
+        "from_account_id": bank, "to_account_id": expense, "amount": 30,
+        "start_date": "2026-01-01", "end_date": "2026-04-30",
+    })
+    rule.raise_for_status()
+    post(client, child, "2026-03-31", [(bank, -20), (expense, 20)])
+    post(client, grandchild, "2026-04-30", [(bank, -7), (expense, 7)])
+    assert client.post(f"/api/scenarios/{parent}/archive", json={"version": 4}).is_success
+    data = client.get(f"/api/projection?scenario_id={grandchild}&months=3").json()
+    # Actual 10,000 then Feb +900-50, March +900-30-20. Cash also transfers
+    # 500 out of the selected bank in each month. No February child rule.
+    for metric, opening, april in (("net_worth", 11700, 12570), ("cash", 10700, 11070)):
+        assert data[metric]["scenario"]["points"][:2] == [
+            {"date": "2026-03-31", "balance": opening},
+            {"date": "2026-04-30", "balance": april - 7},
+        ]
+        assert data[metric]["baseline"]["points"][1]["balance"] == april
+    assert data["monthly_income_expense"][0]["scenario"]["expense"] == 337
+    assert set(data["basis"]["ancestor_versions"]) == {str(parent), str(child)}
+    stored = client.get(f"/api/balances?scenario_id={grandchild}&at=2026-04-30").json()
+    assert stored["net_worth"] == 10000 - 50 - 20 - 7
+    # A nested duplicate is a sibling. Only its own additions get new IDs.
+    body = {"name": "복제", "fork_date": "2026-03-31", "version": 1}
+    path = f"/api/scenarios/{grandchild}/duplicate"
+    assert client.post(path, json={**body, "fork_date": "2026-02-27"}).status_code == 409
+    copied = client.post(path, json=body).json()
+    assert copied["scenario"]["base_scenario_id"] == child
+    assert copied["copied"] == {"rules": 0, "planned_transactions": 1}
+    copy_id = copied["scenario"]["id"]
+    assert client.get(f"/api/projection?scenario_id={copy_id}&months=3").json()["cash"] == data["cash"]
+
+
+def test_stored_balances_follow_query_date_through_each_fork(client):
+    from moneymap.adapters.sqlite import SqliteLedgerQueries
+
+    bank = account(client, "통장", "asset")
+    income = account(client, "수입", "income")
+    owners = [1]
+    for day in ("2020-05-01", "2020-05-10", "2020-05-11"):
+        branch = client.post("/api/scenarios", json={
+            "name": day, "fork_date": day, "base_scenario_id": owners[-1],
+        })
+        branch.raise_for_status()
+        owners.append(branch.json()["scenario"]["id"])
+    actual, parent, child, grandchild = owners
+    for owner, day, amount in (
+        (actual, "2020-05-01", 1000),
+        (actual, "2020-05-06", 700),
+        (parent, "2020-05-10", -100),
+        (parent, "2020-05-11", -20),
+        (child, "2020-05-11", -30),
+        (grandchild, "2020-05-12", -5),
+    ):
+        post(client, owner, day, [(bank, amount), (income, -amount)])
+
+    conn = connect(client.app.state.db_path)
+    try:
+        queries = SqliteLedgerQueries(conn)
+        for day, expected in (
+            ("2020-04-30", [0, 0, 0, 0]),
+            ("2020-05-01", [1000, 1000, 1000, 1000]),
+            ("2020-05-09", [1700, 1000, 1000, 1000]),
+            ("2020-05-10", [1700, 900, 900, 900]),
+            ("2020-05-11", [1700, 880, 850, 850]),
+            ("2020-05-12", [1700, 880, 850, 845]),
+        ):
+            for sid, balance in zip(owners, expected, strict=True):
+                response = client.get("/api/balances", params={"scenario_id": sid, "at": day})
+                response.raise_for_status()
+                report = response.json()
+                cash = next(row for row in report["accounts"] if row["account_id"] == bank)
+                assert cash["balance"] == report["net_worth"] == balance, (day, sid)
+                assert queries.net_worth_at(dt.date.fromisoformat(day), sid) == balance
+    finally:
+        conn.close()

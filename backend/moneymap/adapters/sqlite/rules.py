@@ -118,12 +118,18 @@ class ScenarioRuleWriter:
         )
 
     def find_by_scenario(self, scenario_id: int, *, krw_only: bool = False) -> list[RecurringRule]:
+        return self.find_by_scenarios([scenario_id], krw_only=krw_only)
+
+    def find_by_scenarios(self, ids, *, krw_only=False) -> list[RecurringRule]:
+        if not ids:
+            return []
+        placeholders = ",".join("?" for _ in ids)
         currency_filter = """ AND currency='KRW' AND NOT EXISTS (
             SELECT 1 FROM accounts a WHERE a.id IN (r.from_account_id,r.to_account_id)
             AND a.currency<>'KRW')""" if krw_only else ""
         rows = self._conn.execute(
-            f"SELECT * FROM recurring_rules r WHERE scenario_id=?{currency_filter} ORDER BY id",
-            (scenario_id,),
+            f"SELECT * FROM recurring_rules r WHERE scenario_id IN ({placeholders}){currency_filter} ORDER BY id",
+            tuple(ids),
         ).fetchall()
         return [_rule_from_row(row) for row in rows]
 

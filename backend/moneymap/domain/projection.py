@@ -32,8 +32,9 @@ class EffectiveRuleResolver:
         return inherited + [
             {
                 "rule": r,
-                "origin": "scenario",
-                "editable": scenario.status == "active"
+                "origin": "scenario" if r.scenario_id == scenario.id else "ancestor",
+                "editable": r.scenario_id == scenario.id
+                and scenario.status == "active"
                 and scenario.rule_mode == "live_additive",
             }
             for r in owned
@@ -74,6 +75,7 @@ class ProjectionInputs:
     installment_events: tuple[ProjectionEvent, ...] = ()
     installment_warnings: tuple[str, ...] = ()
     installment_revision: int = 1
+    ancestor_versions: tuple[tuple[int, int], ...] = ()
 
     def __post_init__(self):
         # Copy model values so mutation of a caller's entities cannot alter this snapshot.
@@ -111,7 +113,7 @@ def expand_events(
                         "rule",
                         rule.id,
                         rule.description,
-                        origin,
+                        "ancestor" if origin == "scenario" and rule.scenario_id != inputs.scenario.id else origin,
                         (
                             (rule.from_account_id, -rule.amount.amount),
                             (rule.to_account_id, rule.amount.amount),
@@ -203,7 +205,7 @@ def fold_projection(inputs: ProjectionInputs, months: int) -> dict:
         cash_delta = {key: 0 for key in balances}
         day_triggers = {key: [] for key in balances}
         for event in items:
-            targets = ["baseline"] if event.origin == "actual" else []
+            targets = ["baseline"] if event.origin in {"actual", "ancestor"} else []
             if (
                 event.kind == "planned_transaction"
                 or (
@@ -256,6 +258,7 @@ def fold_projection(inputs: ProjectionInputs, months: int) -> dict:
         "months": months,
         "basis": {
             "scenario_version": inputs.scenario.version,
+            **({"ancestor_versions": dict(inputs.ancestor_versions)} if inputs.ancestor_versions else {}),
             "actual_ledger_revision": inputs.actual_ledger_revision,
             "actual_rule_revision": inputs.actual_rule_revision,
             "cash_config_revision": inputs.cash_config_revision,
@@ -278,6 +281,7 @@ def fold_projection(inputs: ProjectionInputs, months: int) -> dict:
         "monthly_income_expense": [
             {"month": month, **values} for month, values in monthly.items()
         ],
-        "has_assumptions": bool(inputs.owned_rules or inputs.planned),
+        "has_assumptions": any(r.scenario_id == inputs.scenario.id for r in inputs.owned_rules)
+        or any(e.origin == "scenario" for e in inputs.planned),
         "warnings": list(inputs.installment_warnings),
     }

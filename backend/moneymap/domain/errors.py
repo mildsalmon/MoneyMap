@@ -73,7 +73,7 @@ class MixedCurrencyError(DomainError):
 
 
 class InvalidScenarioBaseError(DomainError):
-    """v1 depth-1 제한 위반: 시나리오의 base는 actual만 허용."""
+    """실제 장부와 분기 시나리오의 계보 또는 기준일 오류."""
 
 
 class InvalidScheduleError(DomainError):

@@ -17,6 +17,8 @@ export function Scenarios({
   );
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [baseId, setBaseId] = useState(1);
+  const parent = query.data?.find((s) => s.id === baseId);
   const [forkDate, setForkDate] = useState(todayIso());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -50,6 +52,7 @@ export function Scenarios({
         name: name.trim(),
         description,
         fork_date: forkDate,
+        base_scenario_id: baseId,
       });
       if (!visit.active) return;
       chartToggles.set([...chartToggles.get(), scenario.id]);
@@ -100,11 +103,24 @@ export function Scenarios({
             />
           </div>
           <div className="field">
+            <label htmlFor="scenario-parent">기준 장부</label>
+            <select id="scenario-parent" value={baseId} disabled={busy}
+              onChange={(e) => setBaseId(Number(e.target.value))}>
+              <option value={1}>실제 장부</option>
+              {query.data?.map((s) => (
+                <option key={s.id} value={s.id} disabled={s.rule_mode === "legacy_snapshot"}>
+                  {s.name}{s.rule_mode === "legacy_snapshot" ? " (기존 가정 분류 필요)" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
             <label htmlFor="scenario-fork-date">시작 기준일</label>
             <input
               disabled={busy}
               id="scenario-fork-date"
               type="date"
+              min={parent?.fork_date ?? undefined}
               max={todayIso()}
               value={forkDate}
               onChange={(e) => setForkDate(e.target.value)}

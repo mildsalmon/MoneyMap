@@ -263,8 +263,8 @@ def test_scenario_bill_capacity_preserves_uncovered_cash_and_expense(
         assert data["net_worth"][target]["points"][-1]["balance"] == -21100
 
 
-def add_scenario_bill(client, sid, bank, card, amount):
-    due = TODAY + dt.timedelta(days=1)
+def add_scenario_bill(client, sid, bank, card, amount, *, due=None):
+    due = due or TODAY + dt.timedelta(days=1)
     response = client.post(
         f"/api/scenarios/{sid}/rules",
         json=dict(
@@ -348,3 +348,76 @@ def test_statement_is_unknown_before_first_confirmation(client):
         "미확인 이자" in w for w in data["warnings"]
     )
     assert expense(forecast(client), "baseline") == 1100
+
+
+def test_child_and_parent_allocate_bill_capacity_on_separate_curves(client):
+    accounts, _ = statement_purchase(client)
+    test_api.update_settings(client, accounts["cash"], include_in_cash=True).raise_for_status()
+    branch = {"name": "카드값", "fork_date": TODAY.isoformat()}
+    parent = client.post("/api/scenarios", json=branch).json()["scenario"]["id"]
+    child = client.post("/api/scenarios", json={**branch, "base_scenario_id": parent}).json()["scenario"]["id"]
+    for owner, amount in ((parent, 5000), (child, 6000)):
+        add_scenario_bill(client, owner, accounts["cash"], accounts["card"], amount)
+    data = forecast(client, child)
+    # The first 10,700 is already budgeted in the installment. Only the
+    # combined 11,000 bill spends an extra 300, on the child's curve alone.
+    assert data["cash"]["baseline"]["points"][-1]["balance"] == -21100
+    assert data["cash"]["scenario"]["points"][-1]["balance"] == -21400
+    assert expense(data, "baseline") == expense(data, "scenario") == 1100
+
+
+@pytest.mark.parametrize(
+    "child_bill, pair, purchases, first_close, final_close",
+    [
+        (6000, "same", 1, -11000, -21000),
+        (2000, "same", 1, -10000, -20000),
+        (6000, "other_bank", 1, -16000, -26000),
+        (6000, "other_card", 1, -16000, -26000),
+        (6000, "next_day", 1, -10000, -26000),
+        (6000, "same", 2, -20000, -40000),
+    ],
+)
+def test_interest_free_bill_coverage_at_nested_forks(
+    client, child_bill, pair, purchases, first_close, final_close
+):
+    accounts = setup(client)
+    due = dt.date(2020, 5, 11)
+    bank, card = accounts["cash"], accounts["card"]
+    test_api.update_settings(client, bank, include_in_cash=True).raise_for_status()
+    for _ in range(purchases):
+        purchase(client, accounts, date="2020-05-01", first_due_date=due.isoformat(),
+                 principal=20000, months=2)
+
+    def branch(parent_id, day):
+        response = client.post("/api/scenarios", json={
+            "name": day, "base_scenario_id": parent_id, "fork_date": day,
+        })
+        response.raise_for_status()
+        return response.json()["scenario"]["id"]
+
+    parent = branch(1, "2020-05-01")
+    child = branch(parent, "2020-05-10")
+    grandchild = branch(child, due.isoformat())
+    add_scenario_bill(client, parent, bank, card, 5000, due=due)
+    if pair == "other_bank":
+        bank = test_api.make_account(client, "다른 납부 통장", "asset")
+        test_api.update_settings(client, bank, include_in_cash=True).raise_for_status()
+    if pair == "other_card":
+        card = test_api.make_account(client, "다른 카드", "liability")
+    child_due = due + dt.timedelta(days=1) if pair == "next_day" else due
+    add_scenario_bill(client, child, bank, card, child_bill, due=child_due)
+
+    child_data = forecast(client, child)
+    child_cash = child_data["cash"]["scenario"]["points"]
+    assert child_cash[1] == {"date": due.isoformat(), "balance": first_close}
+    assert child_cash[-1]["balance"] == final_close
+    assert expense(child_data, "scenario") == 0
+    assert child_data["cash"]["baseline"]["points"][-1]["balance"] == -20000 * purchases
+
+    grandchild_data = forecast(client, grandchild)
+    assert grandchild_data["cash"]["baseline"] == grandchild_data["cash"]["scenario"]
+    carried = grandchild_data["cash"]["scenario"]["points"]
+    assert carried[0] == child_cash[1]
+    assert carried[-1]["balance"] == final_close
+    assert expense(grandchild_data, "scenario") == 0
+    assert balance(client, accounts["cash"]) == 0

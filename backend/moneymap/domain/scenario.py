@@ -80,7 +80,7 @@ class Scenario(BaseModel):
         )
 
     @model_validator(mode="after")
-    def _enforce_v1_shape(self) -> "Scenario":
+    def _enforce_lineage_shape(self) -> "Scenario":
         if self.base_scenario_id is None:
             # actual 시나리오: fork_date도 없어야 한다
             if self.fork_date is not None:
@@ -88,9 +88,9 @@ class Scenario(BaseModel):
                     "actual 시나리오는 fork_date를 가질 수 없습니다"
                 )
         else:
-            if self.base_scenario_id != ACTUAL_SCENARIO_ID:
+            if self.id is not None and self.base_scenario_id == self.id:
                 raise InvalidScenarioBaseError(
-                    "v1에서는 actual에서만 시나리오를 만들 수 있습니다 (중첩은 v2)"
+                    "시나리오는 자신에서 분기할 수 없습니다"
                 )
             if self.fork_date is None:
                 raise InvalidScenarioBaseError("시나리오는 fork_date가 필요합니다")

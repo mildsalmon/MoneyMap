@@ -7,7 +7,7 @@ from moneymap.domain.errors import (
 )
 from moneymap.domain.scenario import Scenario
 from moneymap.domain.services import validate_postable_accounts
-from .scenarios import get_scenario, check_etag
+from .scenarios import get_scenario, check_etag, require_fork_parent
 
 
 def duplicate_scenario(sid, body, uow):
@@ -15,6 +15,7 @@ def duplicate_scenario(sid, body, uow):
         source = get_scenario(uow.scenarios, sid)
         source.require_active(assumptions=True)
         source.require_version(body.version)
+        require_fork_parent(uow.scenarios, source.base_scenario_id, body.fork_date)
         planned = uow.transactions.list_owned(sid)
         conflicts = [
             t.model_dump(mode="json") for t in planned if t.date <= body.fork_date
@@ -31,7 +32,7 @@ def duplicate_scenario(sid, body, uow):
                 name=body.name,
                 description=body.description,
                 fork_date=body.fork_date,
-                base_scenario_id=1,
+                base_scenario_id=source.base_scenario_id,
             )
         )
         for rule in rules:
